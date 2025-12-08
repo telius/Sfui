@@ -422,41 +422,7 @@ function sfui.create_options_panel()
     UIDropDownMenu_SetSelectedValue(dropdown, SfuiDB.barTexture)
     UIDropDownMenu_SetWidth(dropdown, 150)
 
-    -- Absorb ColorSwatch
-    local absorb_color_label = bars_panel:CreateFontString(nil, "OVERLAY", g.font)
-    absorb_color_label:SetPoint("TOPLEFT", dropdown, "BOTTOMLEFT", 0, -20)
-    absorb_color_label:SetText("Absorb Color:")
 
-    local absorb_color_swatch = CreateFrame("ColorSwatch", nil, bars_panel, "ColorSwatchTemplate")
-    absorb_color_swatch:SetPoint("LEFT", absorb_color_label, "RIGHT", 10, 0)
-    absorb_color_swatch:SetWidth(22)
-    absorb_color_swatch:SetHeight(22)
-
-    local r, g, b, a = unpack(SfuiDB.absorbBarColor)
-    absorb_color_swatch:SetColorSwatchTexture(r, g, b)
-
-    absorb_color_swatch:SetScript("OnClick", function(self)
-        ColorPickerFrame:SetParent(UIParent) -- Anchor to UIParent
-        ColorPickerFrame:SetPoint("CENTER", UIParent, "CENTER")
-
-        local r, g, b, a = unpack(SfuiDB.absorbBarColor)
-        ColorPickerFrame:SetColorRGB(r, g, b)
-
-        ColorPickerFrame.func = function(r, g, b)
-            SfuiDB.absorbBarColor = {r, g, b, SfuiDB.absorbBarColor[4]} -- Keep alpha fixed
-            if sfui.bars and sfui.bars.SetAbsorbBarColor then
-                sfui.bars:SetAbsorbBarColor(r, g, b, SfuiDB.absorbBarColor[4])
-            end
-            self:SetColorSwatchTexture(r, g, b)
-        end
-
-        ColorPickerFrame.cancelFunc = function(oldR, oldG, oldB)
-            local r, g, b = oldR, oldG, oldB
-            self:SetColorSwatchTexture(r, g, b)
-        end
-
-        ColorPickerFrame:Show()
-    end)
 
 
 end

@@ -27,7 +27,7 @@ local secondaryResourcesCache = {
     EVOKER = Enum.PowerType.Essence,
     HUNTER = nil,
     MAGE = {[62]=Enum.PowerType.ArcaneCharges},
-    MONK = {[268]="STAGGER",[269]=Enum.PowerType.Chi,[270]=Enum.PowerType.Chi},
+    MONK = {[268]="STAGGER",[269]=Enum.PowerType.Chi,[270]=nil},
     PALADIN = Enum.PowerType.HolyPower,
     PRIEST = {[258]=Enum.PowerType.Mana},
     ROGUE = Enum.PowerType.ComboPoints,

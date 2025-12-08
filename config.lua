@@ -165,7 +165,7 @@ sfui.config = {
     -- Mount Speed Bar settings
     mountSpeedBar = {
         enabled = true,
-        width = 300,
+        width = 240, -- Inherit width from vigorBar
         height = 10,
         backdrop = {
             padding = 2,
@@ -182,13 +182,5 @@ sfui.config = {
         { text = "Flat", value = "Interface/Buttons/WHITE8X8" },
     },
 
-    absorbBarColor = {0, 0.5, 0.5, 0.5}, -- Default 50% transparent teal
-
-    absorbBarColors = {
-        { name = "Teal (Default)", value = {0, 0.5, 0.5, 0.5} },
-        { name = "White", value = {1, 1, 1, 0.5} },
-        { name = "Light Blue", value = {0.2, 0.6, 1, 0.5} },
-        { name = "Light Green", value = {0.2, 1, 0.2, 0.5} },
-        { name = "Light Purple", value = {0.6, 0.2, 1, 0.5} },
-    }
+    absorbBarColor = {0.392, 1.0, 1.0, 0.75}, -- Hardcoded #64ffff with 75% alpha
 }

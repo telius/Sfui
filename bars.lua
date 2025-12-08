@@ -15,7 +15,7 @@ do
     local function GetSecondaryResourceValue(resource)
         if not resource then return nil, nil end
         if resource == "STAGGER" then
-            local stagger = C_UnitStagger.GetStagger("player") or 0
+            local stagger = UnitStagger("player") or 0
             local maxHealth = UnitHealthMax("player") or 1
             return maxHealth, stagger
         end
@@ -48,9 +48,9 @@ do
         end
 
         if IsDragonflying() then
-            if mount_speed_bar and mount_speed_bar.backdrop and health_bar and health_bar.backdrop then
+            if mount_speed_bar and mount_speed_bar.backdrop and vigor_bar and vigor_bar.backdrop then
                 mount_speed_bar.backdrop:ClearAllPoints()
-                mount_speed_bar.backdrop:SetPoint("TOP", health_bar.backdrop, "BOTTOM", 0, -5)
+                mount_speed_bar.backdrop:SetPoint("TOP", vigor_bar.backdrop, "BOTTOM", 0, -5) -- Stack under and center with vigor bar
             end
             if vigor_bar and vigor_bar.backdrop and health_bar and health_bar.backdrop then
                 vigor_bar.backdrop:ClearAllPoints()
@@ -90,15 +90,30 @@ do
             if primary_power_bar then primary_power_bar.backdrop:Hide() end
             if secondary_power_bar then secondary_power_bar.backdrop:Hide() end
         else
-            -- Normal state: Core bars depend on combat/target.
+            local spec = C_SpecializationInfo.GetSpecialization()
+            local specID = 0
+            if spec then
+                specID = select(1, C_SpecializationInfo.GetSpecializationInfo(spec))
+            end
+
+            -- Secondary Power Bar visibility for non-dragonflying
+            if secondary_power_bar then
+                if specID == 270 then -- Mistweaver Monk
+                    secondary_power_bar.backdrop:Hide()
+                elseif showCoreBars then
+                    secondary_power_bar.backdrop:Show()
+                else
+                    secondary_power_bar.backdrop:Hide()
+                end
+            end
+
+            -- Health and Primary Power Bar visibility for non-dragonflying
             if showCoreBars then
                 if health_bar then health_bar.backdrop:Show() end
                 if primary_power_bar then primary_power_bar.backdrop:Show() end
-                if secondary_power_bar then secondary_power_bar.backdrop:Show() end
             else
                 if health_bar then health_bar.backdrop:Hide() end
                 if primary_power_bar then primary_power_bar.backdrop:Hide() end
-                if secondary_power_bar then secondary_power_bar.backdrop:Hide() end
             end
         end
 
@@ -133,14 +148,26 @@ do
         bar:GetStatusBarTexture():SetHorizTile(true)
         health_bar = bar
 
+        local cfg = sfui.config.healthBar -- Need this to get height
+
+        local healPredBar = CreateFrame("StatusBar", "sfui_HealthBar_HealPred", health_bar)
+        healPredBar:SetHeight(cfg.height / 2)
+        healPredBar:SetPoint("TOPLEFT")
+        healPredBar:SetPoint("TOPRIGHT") -- Anchored top-right
+        healPredBar:SetStatusBarTexture(sfui.config.barTexture)
+        healPredBar:SetStatusBarColor(0.5, 1.0, 0.5, 0.5) -- Light-soft-green
+        healPredBar:SetFrameLevel(bar:GetFrameLevel() + 1)
+        healPredBar:SetReverseFill(true)
+        bar.healPredBar = healPredBar
+
         local absorbBar = CreateFrame("StatusBar", "sfui_HealthBar_Absorb", health_bar)
-        absorbBar:SetPoint("TOPLEFT", health_bar, "TOPLEFT")
-        absorbBar:SetPoint("BOTTOMRIGHT", health_bar, "BOTTOMRIGHT")
+        absorbBar:SetHeight(cfg.height / 2)
+        absorbBar:SetPoint("BOTTOMLEFT")
+        absorbBar:SetPoint("BOTTOMRIGHT") -- Anchored bottom-right
         absorbBar:SetStatusBarTexture(sfui.config.barTexture)
-        absorbBar:SetStatusBarColor(1, 1, 1, 0.5) -- Semi-transparent white
-        absorbBar:SetFrameLevel(health_bar:GetFrameLevel() + 1)
-        absorbBar:SetShown(false) -- Hide initially
-        health_bar.absorbBar = absorbBar
+        absorbBar:SetFrameLevel(bar:GetFrameLevel() + 2) -- On top of heal prediction
+        absorbBar:SetReverseFill(true)
+        bar.absorbBar = absorbBar
 
         return bar
     end
@@ -155,18 +182,19 @@ do
         bar:SetValue(current)
         bar:SetStatusBarColor(1, 1, 1)
 
+        -- Heal prediction logic
+        local incomingHeals = UnitGetIncomingHeals("player") or 0
+        bar.healPredBar:SetMinMaxValues(0, max)
+        bar.healPredBar:SetValue(incomingHeals)
+
         -- Absorb bar logic
         local absorbAmount = UnitGetTotalAbsorbs("player")
-        -- Removed print statements as they might cause taint.
-        -- Removed comparison on absorbAmount.
-
-        bar.absorbBar:SetMinMaxValues(0, max) -- Max health
-        bar.absorbBar:SetValue(absorbAmount) -- Just the absorb amount
-        local color = SfuiDB.absorbBarColor
-        bar.absorbBar:SetStatusBarColor(color[1], color[2], color[3], color[4]) -- Use configurable color
-        bar.absorbBar:SetReverseFill(true) -- Fill from right to left
-
-        bar.absorbBar:Show() -- Always show it, its value will control visual size
+        bar.absorbBar:SetMinMaxValues(0, max)
+        bar.absorbBar:SetValue(absorbAmount)
+        local color = SfuiDB.absorbBarColor or (sfui.config and sfui.config.absorbBarColor)
+        if color then
+            bar.absorbBar:SetStatusBarColor(color[1], color[2], color[3], color[4]) -- Use configurable color
+        end
     end
 
     local function GetSecondaryPowerBar()
@@ -181,10 +209,20 @@ do
 
     local function UpdateSecondaryPowerBar()
         local cfg = sfui.config.secondaryPowerBar
-        if not cfg.enabled then return end
+        if not cfg.enabled then
+            if secondary_power_bar and secondary_power_bar.backdrop then secondary_power_bar.backdrop:Hide() end
+            return
+        end
+
         local bar = GetSecondaryPowerBar()
+        -- The primary resource is determined in common.lua. If it's nil, we hide.
         local resource = sfui.common.GetSecondaryResource()
-        if not resource then return end
+        if not resource then
+            if bar.backdrop then bar.backdrop:Hide() end
+            return
+        else
+            if bar.backdrop then bar.backdrop:Show() end -- Ensure it's shown if resource exists
+        end
 
         local max, current = GetSecondaryResourceValue(resource)
         if not max or max <= 0 then return end
@@ -261,11 +299,7 @@ do
         if mount_speed_bar then mount_speed_bar:SetStatusBarTexture(texturePath) end
     end
 
-    function sfui.bars:SetAbsorbBarColor(r, g, b, a)
-        if health_bar and health_bar.absorbBar then
-            health_bar.absorbBar:SetStatusBarColor(r, g, b, a)
-        end
-    end
+
 
     function sfui.bars:OnStateChanged()
         UpdatePrimaryPowerBar()
@@ -298,10 +332,7 @@ do
         elseif event == "UNIT_POWER_UPDATE" and (not unit or unit == "player") then
             UpdatePrimaryPowerBar()
             UpdateSecondaryPowerBar()
-        elseif event == "UNIT_HEALTH" and (not unit or unit == "player") then
-            local max, current = UnitHealthMax("player"), UnitHealth("player")
-            UpdateHealthBar(current, max)
-        elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" and (not unit or unit == "player") then
+        elseif (event == "UNIT_HEALTH" or event == "UNIT_ABSORB_AMOUNT_CHANGED") and (not unit or unit == "player") then
             local max, current = UnitHealthMax("player"), UnitHealth("player")
             UpdateHealthBar(current, max)
         elseif event == "SPELL_UPDATE_CHARGES" then
