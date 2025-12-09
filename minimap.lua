@@ -105,45 +105,75 @@ function sfui.minimap.ArrangeButtons()
     if not button_bar then return end
 
     local lastButton = nil
+    local spacing = sfui.config.minimap.button_bar.spacing
     for _, button in ipairs(ButtonCollection.collectedButtons) do
+        -- Make button square by removing mask and border
+        for i, region in ipairs({button:GetRegions()}) do
+            if region and region.IsObjectType and region:IsObjectType("Texture") then
+                local regionName = region:GetName()
+                -- print(string.format("sfui: Found texture '%s' on button '%s'", tostring(regionName), button:GetName()))
+                
+                -- Try to find and hide the border
+                if regionName and (regionName:find("Border") or regionName:find("border")) then
+                    region:SetTexture(nil)
+                    -- print("sfui: Hiding border on", button:GetName())
+                end
+
+                -- Try to find and modify the icon texture to be square
+                if regionName and (regionName:find("Icon") or regionName:find("icon")) then
+                    region:SetTexCoord(0, 1, 0, 1)
+                    -- print("sfui: Squaring icon on", button:GetName())
+                end
+            end
+        end
+
         button:SetParent(button_bar)
         button:ClearAllPoints()
         if not lastButton then
             button:SetPoint("LEFT", button_bar, "LEFT", 5, 0)
         else
-            button:SetPoint("LEFT", lastButton, "RIGHT", 5, 0)
+            button:SetPoint("LEFT", lastButton, "RIGHT", spacing, 0)
         end
         lastButton = button
     end
 end
 
 function sfui.minimap.CollectButtons()
+    print("sfui: Starting button collection...")
     local ldbi = LibStub("LibDBIcon-1.0", true)
+    local ldbi_found = 0
     if ldbi then
         local buttons = ldbi:GetButtonList()
+        ldbi_found = #buttons
         for _, buttonName in ipairs(buttons) do
             local button = _G[buttonName]
-            if button then
+            if button and button.IsObjectType and button:IsObjectType("Frame") then
                 ButtonCollection:AddButton(button)
             end
         end
     end
 
+    local children_found = 0
     for i = 1, Minimap:GetNumChildren() do
         local child = select(i, Minimap:GetChildren())
         if child:IsObjectType("Button") and child:GetName() then
+            children_found = children_found + 1
             ButtonCollection:AddButton(child)
         end
     end
+
+    print(string.format("sfui: Found %d buttons from LDBI, %d buttons from Minimap children.", ldbi_found, children_found))
+    print(string.format("sfui: Total collected buttons: %d", #ButtonCollection.collectedButtons))
 
     sfui.minimap.ArrangeButtons()
 end
 
 function sfui.minimap.SetButtonCollection(enabled)
+    print("sfui: SetButtonCollection called with enabled =", tostring(enabled))
     if enabled then
         if not button_bar then
             button_bar = CreateFrame("Frame", "sfui_minimap_button_bar", Minimap, "BackdropTemplate")
-            button_bar:SetPoint("TOP", Minimap, "TOP", 0, 20)
+            button_bar:SetPoint("TOP", Minimap, "TOP", 0, 32)
             button_bar:SetSize(sfui.config.minimap.default_size, 30)
             button_bar:SetBackdrop({
                 bgFile = "Interface/Buttons/WHITE8X8",

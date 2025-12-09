@@ -190,5 +190,9 @@ sfui.config = {
             size = 2,
             color = {0, 0, 0, 0.5}, -- Black, 50% transparent
         },
+        button_bar = {
+            spacing = 2,
+            position = "LEFT", -- or TOP, RIGHT, BOTTOM
+        },
     },
 }
