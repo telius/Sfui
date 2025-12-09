@@ -63,8 +63,7 @@ function ButtonManager:RestoreAll()
 end
 
 function ButtonManager:IsButton(frame)
-    if not frame or type(frame) ~= "table" or not frame.IsObjectType then return false end
-    if not frame:IsObjectType("Frame") then return false end
+    if not frame or type(frame) ~= "table" then return false end
     
     local name = frame:GetName()
     if not name then return false end
@@ -74,8 +73,25 @@ function ButtonManager:IsButton(frame)
         return false
     end
 
-    -- A simple check for now: if it has "Button" in its object type, it's a button.
-    return frame:IsObjectType("Button")
+    -- Safely check if it's a Button or CheckButton
+    local isButton, isCheckButton = pcall(function() return frame:IsObjectType("Button") end)
+    local isAButton, isACheckButton = pcall(function() return frame:IsObjectType("CheckButton") end)
+
+    if not isButton or not isCheckButton or (not isButton and not isCheckButton) then
+        return false
+    end
+
+    -- Check for scripts
+    if not frame:GetScript("OnClick") and not frame:GetScript("OnMouseDown") and not frame:GetScript("OnMouseUp") then
+        return false
+    end
+
+    -- Check for textures
+    if frame:GetNumRegions() == 0 then
+        return false
+    end
+
+    return true
 end
 
 
@@ -111,61 +127,239 @@ function ButtonManager:CollectButtons()
 end
 
 function ButtonManager:SkinButton(button)
-    if not SfuiDB.minimap_masque or not sfui.minimap.masque_group then return end
+    if not SfuiDB.minimap_masque then
+        print("sfui: SkinButton for " .. (button:GetName() or "unknown") .. ": Masque not enabled in options.")
+        return
+    end
+    if not sfui.minimap.masque_group then
+        print("sfui: SkinButton for " .. (button:GetName() or "unknown") .. ": Masque group not found.")
+        return
+    end
 
-    local buttonData = {}
-    local icon, highlight, background, border
+    local Masque = LibStub("Masque", true)
+    if not Masque then return end
 
-    -- Find the icon, highlight, background and border textures
+    -- Based on HidingBar's Masque integration
+    local isButton = button:IsObjectType("Button")
+    local normal, isNormalIcon = isButton and button:GetNormalTexture()
+    local icon, highlight, pushed, border, background, iconMask
+
     for _, region in ipairs({button:GetRegions()}) do
-        if region and region:IsObjectType("Texture") then
+        if region:IsObjectType("Texture") then
+            local name = region:GetDebugName()
+            if name then
+                name = name:gsub(".*%.", ""):lower()
+            else
+                name = ""
+            end
             local texture = region:GetTexture()
             local tIsString = type(texture) == "string"
             if tIsString then texture = texture:lower() end
             local layer = region:GetDrawLayer()
-
-            if texture == 136430 or (tIsString and texture:find("minimap-trackingborder", 1, true)) then
+            if texture == 136430 or tIsString and texture:find("minimap-trackingborder", 1, true) then
                 border = region
-            elseif texture == 136467 or (tIsString and texture:find("ui-minimap-background", 1, true)) then
+            end
+            if texture == 136467 or tIsString and texture:find("ui-minimap-background", 1, true) or name:find("background", 1, true) then
                 background = region
-            elseif layer == "HIGHLIGHT" then
-                highlight = region
-            else
+            end
+            if name:find("icon", 1, true) or not icon and tIsString and texture:find("icon", 1, true) then
                 icon = region
+            end
+            if layer == "HIGHLIGHT" or not highlight and name:find("highlight", 1, true) then
+                highlight = region
             end
         end
     end
-    
-    if button:GetNormalTexture() then
-        icon = button:GetNormalTexture()
-    end
-    
-    if button:GetHighlightTexture() then
-        highlight = button:GetHighlightTexture()
+
+    if normal and (not icon or icon ~= button.icon or icon == normal) then
+        isNormalIcon = true
+        icon = button:CreateTexture(nil, "BACKGROUND")
+        local atlas = normal:GetAtlas()
+        if atlas then
+            icon:SetAtlas(atlas)
+        else
+            icon:SetTexture(normal:GetTexture())
+        end
+        icon:SetTexCoord(normal:GetTexCoord())
+        icon:SetVertexColor(normal:GetVertexColor())
+        icon:SetSize(normal:GetSize())
+        for i = 1, normal:GetNumPoints() do
+            icon:SetPoint(normal:GetPoint(i))
+        end
     end
 
-    if icon then buttonData.Icon = icon end
-    if highlight then buttonData.Highlight = highlight end
-    if background then buttonData.Background = background end
-    if border then buttonData.Border = border end
+    local btnHighlight = isButton and button:GetHighlightTexture()
+    if not highlight or highlight == btnHighlight then
+        highlight = button:CreateTexture(nil, "HIGHLIGHT")
+    end
 
-    sfui.minimap.masque_group:AddButton(button, buttonData)
+    if icon then
+        for i = 1, icon:GetNumMaskTextures() do
+            local mask = icon:GetMaskTexture(i)
+            local texture = mask:GetTexture()
+            if texture == 130924 or type(texture) == "string" and texture:lower():find("tempportraitalphamask", 1, true) then
+                iconMask = mask
+                break
+            end
+        end
+    else
+        background = nil
+    end
+
+    local data = {
+        Icon = icon,
+        Highlight = highlight,
+    }
+
+    sfui.minimap.masque_group:AddButton(button, data, "Legacy", true)
+    
+    pushed = isButton and button:GetPushedTexture()
+    if border or background or pushed or normal or btnHighlight or iconMask then
+        if border then border:Hide() end
+        if background then background:Hide() end
+        if pushed then
+            button.SetPushedTexture = function() end
+            pushed:SetAlpha(0)
+            pushed:SetTexture()
+            pushed.SetAlpha = function() end
+            pushed.SetAtlas = function() end
+            pushed.SetTexture = function() end
+        end
+        if normal then
+            if isNormalIcon then
+                button.SetNormalTexture = function(_, value)
+                    if not value then return end
+                    if C_Texture.GetAtlasInfo(value) then
+                        icon:SetAtlas(value)
+                    else
+                        icon:SetTexture(value)
+                    end
+                end
+                button.SetNormalAtlas = function(_, atlas)
+                    if atlas then
+                        icon:SetAtlas(atlas)
+                    end
+                end
+                normal.SetAtlas = function() end
+                normal.SetTexture = function() end
+            else
+                button.SetNormalTexture = function() end
+                button.SetNormalAtlas = function() end
+                normal.SetAtlas = function() end
+                normal.SetTexture = function() end
+            end
+        end
+        if btnHighlight then
+            button:UnlockHighlight()
+            button.LockHighlight = function() end
+            button.SetHighlightLocked = function() end
+            button.SetHighlightTexture = function() end
+            button.SetHighlightAtlas = function() end
+            btnHighlight:SetAlpha(0)
+            btnHighlight:SetTexture()
+            btnHighlight.SetAlpha = function() end
+            btnHighlight.SetAtlas = function() end
+            btnHighlight.SetTexture = function() end
+        end
+        if iconMask then
+            icon:RemoveMaskTexture(iconMask)
+        end
+    end
 end
 
 function ButtonManager:ArrangeButtons()
     if not button_bar then return end
+
+    if SfuiDB.minimap_button_order == nil then
+        SfuiDB.minimap_button_order = {}
+    end
+
+    -- Sort buttons based on saved order, or alphabetically if no order is saved
+    if #SfuiDB.minimap_button_order > 0 then
+        local order = {}
+        for i, name in ipairs(SfuiDB.minimap_button_order) do
+            order[name] = i
+        end
+        table.sort(self.collectedButtons, function(a, b)
+            local aName = a:GetName() or ""
+            local bName = b:GetName() or ""
+            local aOrder = order[aName] or 999
+            local bOrder = order[bName] or 999
+            if aOrder == bOrder then
+                return aName < bName
+            else
+                return aOrder < bOrder
+            end
+        end)
+    else
+        table.sort(self.collectedButtons, function(a, b)
+            local aName = a:GetName() or ""
+            local bName = b:GetName() or ""
+            return aName < bName
+        end)
+    end
 
     local lastButton = nil
     local cfg = sfui.config.minimap.button_bar
     local size = cfg.button_size
     local spacing = cfg.spacing
 
-    for _, button in ipairs(self.collectedButtons) do
+    for i, button in ipairs(self.collectedButtons) do
         button:SetParent(button_bar)
         button:ClearAllPoints()
         button:SetSize(size, size)
 
         self:SkinButton(button)
+        
+        if SfuiDB.minimap_rearrange then
+            button:SetMovable(true)
+            button:RegisterForDrag("LeftButton")
+            button:SetScript("OnDragStart", function(self)
+                self:StartMoving()
+                self.isMoving = true
+            end)
+            button:SetScript("OnDragStop", function(self)
+                self:StopMovingOrSizing()
+                self.isMoving = false
+
+                -- Find the new position of the button
+                local newIndex = 1
+                for j, btn in ipairs(ButtonManager.collectedButtons) do
+                    if self:GetCenter() > btn:GetCenter() then
+                        newIndex = j + 1
+                    end
+                end
+                
+                -- Remove the button from its old position
+                local oldIndex
+                for j, btn in ipairs(ButtonManager.collectedButtons) do
+                    if btn == self then
+                        oldIndex = j
+                        break
+                    end
+                end
+                if oldIndex then
+                    table.remove(ButtonManager.collectedButtons, oldIndex)
+                end
+
+                -- Insert the button at its new position
+                table.insert(ButtonManager.collectedButtons, newIndex, self)
+
+                -- Save the new order
+                SfuiDB.minimap_button_order = {}
+                for _, btn in ipairs(ButtonManager.collectedButtons) do
+                    table.insert(SfuiDB.minimap_button_order, btn:GetName())
+                end
+                
+                -- Redraw the buttons
+                ButtonManager:ArrangeButtons()
+            end)
+        else
+            button:SetMovable(false)
+            button:RegisterForDrag()
+            button:SetScript("OnDragStart", nil)
+            button:SetScript("OnDragStop", nil)
+        end
         
         if not lastButton then
             button:SetPoint("LEFT", button_bar, "LEFT", 5, 0)
@@ -177,10 +371,11 @@ function ButtonManager:ArrangeButtons()
 end
 
 function sfui.minimap.EnableButtonManager(enabled)
+    print("sfui: EnableButtonManager called (enabled=" .. tostring(enabled) .. ", Masque enabled=" .. tostring(SfuiDB.minimap_masque) .. ")")
     if enabled then
         if not button_bar then
             button_bar = CreateFrame("Frame", "sfui_minimap_button_bar", Minimap, "BackdropTemplate")
-            button_bar:SetPoint("TOP", Minimap, "TOP", 0, 20)
+            button_bar:SetPoint("TOP", Minimap, "TOP", 0, 35)
             button_bar:SetSize(sfui.config.minimap.default_size, 30)
             button_bar:SetBackdrop({
                 bgFile = "Interface/Buttons/WHITE8X8",
@@ -262,9 +457,14 @@ frame:SetScript("OnEvent", function(self, event, ...)
     SfuiDB.minimap_collect_buttons = SfuiDB.minimap_collect_buttons or false
     sfui.minimap.EnableButtonManager(SfuiDB.minimap_collect_buttons)
 
+    if Masque then
+        print("sfui: Masque LibStub found. SfuiDB.minimap_masque is " .. tostring(SfuiDB.minimap_masque) .. ")")
+    end
     if Masque and SfuiDB.minimap_masque then
+        print("sfui: Attempting to create Masque group...")
         sfui.minimap.masque_group = Masque:Group("sfui", "Minimap Buttons")
         if sfui.minimap.masque_group then
+            print("sfui: Masque group created successfully.")
             sfui.minimap.masque_group:RegisterCallback("OnSkinChanged", function()
                 ButtonManager:ArrangeButtons()
             end)

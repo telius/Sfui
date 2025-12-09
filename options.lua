@@ -253,6 +253,28 @@ function sfui.create_options_panel()
                             end
                         end
                     end)
+
+                    -- Rearrange Buttons checkbox
+                    local rearrange_checkbox = CreateFrame("CheckButton", nil, minimap_panel, "UICheckButtonTemplate")
+                    rearrange_checkbox:SetSize(26, 26)
+                    rearrange_checkbox:SetPoint("TOPLEFT", masque_checkbox, "BOTTOMLEFT", 0, -5)
+
+                    local rearrange_text = rearrange_checkbox:CreateFontString(nil, "OVERLAY", g.font)
+                    rearrange_text:SetPoint("LEFT", rearrange_checkbox, "RIGHT", 5, 0)
+                    rearrange_text:SetText("Enable Button Rearranging")
+                    rearrange_text:SetTextColor(1, 1, 1)
+
+                    SfuiDB.minimap_rearrange = SfuiDB.minimap_rearrange or false
+                    rearrange_checkbox:SetChecked(SfuiDB.minimap_rearrange)
+
+                    rearrange_checkbox:SetScript("OnClick", function(self)
+                        SfuiDB.minimap_rearrange = self:GetChecked()
+                        -- Re-arrange buttons to apply/remove draggable state
+                        if sfui.minimap and sfui.minimap.EnableButtonManager then
+                            sfui.minimap.EnableButtonManager(false)
+                            sfui.minimap.EnableButtonManager(SfuiDB.minimap_collect_buttons)
+                        end
+                    end)
                 
         -- populate debug panel
     
