@@ -14,19 +14,71 @@ local button_bar = nil
 local original_width = Minimap:GetWidth()
 local original_height = Minimap:GetHeight()
 
+-- Button Collection
+local ButtonCollection = {
+    collectedButtons = {},
+    processedButtons = {},
+}
+
+function ButtonCollection:StoreOriginalState(button)
+    local name = button:GetName()
+    if not name or self.processedButtons[name] then return end
+
+    local orig = {
+        parent = button:GetParent(),
+        points = {},
+        scale = button:GetScale(),
+        strata = button:GetFrameStrata(),
+        level = button:GetFrameLevel(),
+    }
+    for i = 1, button:GetNumPoints() do
+        table.insert(orig.points, { button:GetPoint(i) })
+    end
+    button.sfuiOriginalState = orig
+end
+
+function ButtonCollection:RestoreButton(button)
+    if button and button.sfuiOriginalState then
+        local orig = button.sfuiOriginalState
+        button:SetParent(orig.parent)
+        button:ClearAllPoints()
+        for _, pointData in ipairs(orig.points) do
+            button:SetPoint(unpack(pointData))
+        end
+        button:SetScale(orig.scale)
+        button:SetFrameStrata(orig.strata)
+        button:SetFrameLevel(orig.level)
+        button.sfuiOriginalState = nil
+    end
+end
+
+function ButtonCollection:RestoreAll()
+    for _, button in ipairs(self.collectedButtons) do
+        self:RestoreButton(button)
+    end
+    wipe(self.collectedButtons)
+    wipe(self.processedButtons)
+end
+
+function ButtonCollection:AddButton(button)
+    local name = button:GetName()
+    if not name or self.processedButtons[name] then return end
+
+    self:StoreOriginalState(button)
+    table.insert(self.collectedButtons, button)
+    self.processedButtons[name] = true
+end
+
 function sfui.minimap.SetSquareMinimap(isSquare)
     if isSquare then
-        -- Hide default borders
         if MinimapBorder then MinimapBorder:Hide() end
         if MinimapBackdrop then MinimapBackdrop:Hide() end
 
-        -- Create custom border if it doesn't exist
         if not custom_border then
             custom_border = CreateFrame("Frame", "sfui_minimap_border", Minimap, "BackdropTemplate")
             custom_border:SetAllPoints(Minimap)
         end
         
-        -- Configure backdrop
         local cfg = sfui.config.minimap.border
         custom_border:SetBackdrop({
             edgeFile = "Interface/Buttons/WHITE8X8",
@@ -38,7 +90,6 @@ function sfui.minimap.SetSquareMinimap(isSquare)
         Minimap:SetMaskTexture("Interface/Buttons/WHITE8X8")
         Minimap:SetSize(sfui.config.minimap.default_size, sfui.config.minimap.default_size)
     else
-        -- Show default borders and hide custom one
         if MinimapBorder then MinimapBorder:Show() end
         if MinimapBackdrop then MinimapBackdrop:Show() end
         if custom_border then
@@ -50,56 +101,67 @@ function sfui.minimap.SetSquareMinimap(isSquare)
     end
 end
 
+function sfui.minimap.ArrangeButtons()
+    if not button_bar then return end
+
+    local lastButton = nil
+    for _, button in ipairs(ButtonCollection.collectedButtons) do
+        button:SetParent(button_bar)
+        button:ClearAllPoints()
+        if not lastButton then
+            button:SetPoint("LEFT", button_bar, "LEFT", 5, 0)
+        else
+            button:SetPoint("LEFT", lastButton, "RIGHT", 5, 0)
+        end
+        lastButton = button
+    end
+end
+
 function sfui.minimap.CollectButtons()
-    local ldbi = LibStub("LibDBIcon-1.0")
-    if not ldbi then
-        print("sfui: LibDBIcon-1.0 not found!")
-        return
-    end
-
-    if not button_bar then
-        button_bar = CreateFrame("Frame", "sfui_minimap_button_bar", Minimap, "BackdropTemplate")
-        button_bar:SetPoint("TOP", Minimap, "TOP", 0, 20)
-        button_bar:SetSize(sfui.config.minimap.default_size, 30)
-        button_bar:SetBackdrop({
-            bgFile = "Interface/Buttons/WHITE8X8",
-            tile = true,
-            tileSize = 16,
-        })
-        button_bar:SetBackdropColor(0, 0, 0, 0.5) -- Semi-transparent black
-    end
-
-    local function ArrangeAllButtons()
-        print("sfui: Arranging minimap buttons...")
+    local ldbi = LibStub("LibDBIcon-1.0", true)
+    if ldbi then
         local buttons = ldbi:GetButtonList()
-        print(string.format("sfui: Found %d buttons.", #buttons))
-        local lastButton = nil
-        for i, buttonName in ipairs(buttons) do
+        for _, buttonName in ipairs(buttons) do
             local button = _G[buttonName]
             if button then
-                print(string.format("sfui: Processing button %d: %s", i, buttonName))
-                button:SetParent(button_bar)
-                button:ClearAllPoints()
-                if not lastButton then
-                    button:SetPoint("LEFT", button_bar, "LEFT", 5, 0)
-                else
-                    button:SetPoint("LEFT", lastButton, "RIGHT", 5, 0)
-                end
-                lastButton = button
+                ButtonCollection:AddButton(button)
             end
         end
     end
 
-    ArrangeAllButtons()
-
-    frame.OnButtonCreated = function()
-        print("sfui: New minimap button created, re-arranging all buttons.")
-        ArrangeAllButtons()
+    for i = 1, Minimap:GetNumChildren() do
+        local child = select(i, Minimap:GetChildren())
+        if child:IsObjectType("Button") and child:GetName() then
+            ButtonCollection:AddButton(child)
+        end
     end
-    ldbi.RegisterCallback(frame, "LibDBIcon_IconCreated", "OnButtonCreated")
+
+    sfui.minimap.ArrangeButtons()
 end
 
--- Function to set the minimap to the default zoom level
+function sfui.minimap.SetButtonCollection(enabled)
+    if enabled then
+        if not button_bar then
+            button_bar = CreateFrame("Frame", "sfui_minimap_button_bar", Minimap, "BackdropTemplate")
+            button_bar:SetPoint("TOP", Minimap, "TOP", 0, 20)
+            button_bar:SetSize(sfui.config.minimap.default_size, 30)
+            button_bar:SetBackdrop({
+                bgFile = "Interface/Buttons/WHITE8X8",
+                tile = true,
+                tileSize = 16,
+            })
+            button_bar:SetBackdropColor(0, 0, 0, 0.5) -- Semi-transparent black
+        end
+        button_bar:Show()
+        sfui.minimap.CollectButtons()
+    else
+        ButtonCollection:RestoreAll()
+        if button_bar then
+            button_bar:Hide()
+        end
+    end
+end
+
 local function set_default_zoom()
     if zoom_timer then
         zoom_timer:Cancel()
@@ -108,27 +170,23 @@ local function set_default_zoom()
     Minimap:SetZoom(DEFAULT_ZOOM)
 end
 
--- Register for events
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
 frame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
 frame:RegisterEvent("MINIMAP_UPDATE_ZOOM")
 
--- Define the event handler
 frame:SetScript("OnEvent", function(self, event, ...)
   if event == "PLAYER_ENTERING_WORLD" then
-    -- SfuiDB is guaranteed to be loaded here. Initialize if it doesn't exist.
     SfuiDB.minimap_auto_zoom = SfuiDB.minimap_auto_zoom or false
     if SfuiDB.minimap_auto_zoom then
         set_default_zoom()
     end
     
-    -- Initialize square minimap setting
     SfuiDB.minimap_square = SfuiDB.minimap_square or false
     sfui.minimap.SetSquareMinimap(SfuiDB.minimap_square)
 
-    -- Collect minimap buttons after a delay to let other addons initialize
-    C_Timer.After(2, sfui.minimap.CollectButtons)
+    SfuiDB.minimap_collect_buttons = SfuiDB.minimap_collect_buttons or false
+    sfui.minimap.SetButtonCollection(SfuiDB.minimap_collect_buttons)
 
     self:UnregisterEvent("PLAYER_ENTERING_WORLD") -- Only need this once
     return
@@ -143,11 +201,9 @@ frame:SetScript("OnEvent", function(self, event, ...)
   end
 
   if event == "PLAYER_MOUNT_DISPLAY_CHANGED" or event == "UPDATE_SHAPESHIFT_FORM" then
-    -- Any change in state resets to default zoom
     set_default_zoom()
   elseif event == "MINIMAP_UPDATE_ZOOM" then
     if Minimap:GetZoom() ~= DEFAULT_ZOOM then
-        -- User manually changed zoom, start a timer to revert
         if zoom_timer then
             zoom_timer:Cancel()
         end

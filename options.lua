@@ -185,16 +185,35 @@ function sfui.create_options_panel()
             square_minimap_text:SetText("Enable Square Minimap")
             square_minimap_text:SetTextColor(1, 1, 1)
         
-            SfuiDB.minimap_square = SfuiDB.minimap_square or false
-            square_minimap_checkbox:SetChecked(SfuiDB.minimap_square)
-        
-            square_minimap_checkbox:SetScript("OnClick", function(self)
-                SfuiDB.minimap_square = self:GetChecked()
-                if sfui.minimap and sfui.minimap.SetSquareMinimap then
-                    sfui.minimap.SetSquareMinimap(SfuiDB.minimap_square)
-                end
-            end)    
-    
+                    SfuiDB.minimap_square = SfuiDB.minimap_square or false
+                    square_minimap_checkbox:SetChecked(SfuiDB.minimap_square)
+                
+                    square_minimap_checkbox:SetScript("OnClick", function(self)
+                        SfuiDB.minimap_square = self:GetChecked()
+                        if sfui.minimap and sfui.minimap.SetSquareMinimap then
+                            sfui.minimap.SetSquareMinimap(SfuiDB.minimap_square)
+                        end
+                    end)
+            
+                    -- Button Collection checkbox
+                    local collect_buttons_checkbox = CreateFrame("CheckButton", nil, minimap_panel, "UICheckButtonTemplate")
+                    collect_buttons_checkbox:SetSize(26, 26)
+                    collect_buttons_checkbox:SetPoint("TOPLEFT", square_minimap_checkbox, "BOTTOMLEFT", 0, -5)
+            
+                    local collect_buttons_text = collect_buttons_checkbox:CreateFontString(nil, "OVERLAY", g.font)
+                    collect_buttons_text:SetPoint("LEFT", collect_buttons_checkbox, "RIGHT", 5, 0)
+                    collect_buttons_text:SetText("Enable Minimap Button Collection")
+                    collect_buttons_text:SetTextColor(1, 1, 1)
+            
+                    SfuiDB.minimap_collect_buttons = SfuiDB.minimap_collect_buttons or false
+                    collect_buttons_checkbox:SetChecked(SfuiDB.minimap_collect_buttons)
+            
+                    collect_buttons_checkbox:SetScript("OnClick", function(self)
+                        SfuiDB.minimap_collect_buttons = self:GetChecked()
+                        if sfui.minimap and sfui.minimap.SetButtonCollection then
+                            sfui.minimap.SetButtonCollection(SfuiDB.minimap_collect_buttons)
+                        end
+                    end)    
         -- populate debug panel
     
     
