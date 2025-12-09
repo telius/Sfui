@@ -22,6 +22,23 @@ local ButtonManager = {
     processedButtons = {},
 }
 
+function sfui.minimap.InitializeMasque()
+    local Masque = LibStub("Masque", true)
+    if not Masque then
+        return
+    end
+
+    if SfuiDB.minimap_masque then
+        sfui.minimap.masque_group = Masque:Group("sfui", "Minimap Buttons")
+        if sfui.minimap.masque_group then
+            sfui.minimap.masque_group:RegisterCallback("OnSkinChanged", function()
+                ButtonManager:ArrangeButtons()
+            end)
+        end
+    end
+end
+
+
 function ButtonManager:StoreOriginalState(button)
     local name = button:GetName()
     if not name or self.processedButtons[name] then return end
@@ -374,7 +391,6 @@ function ButtonManager:ArrangeButtons()
 end
 
 function sfui.minimap.EnableButtonManager(enabled)
-    print("sfui: EnableButtonManager called (enabled=" .. tostring(enabled) .. ", Masque enabled=" .. tostring(SfuiDB.minimap_masque) .. ")")
     if enabled then
         if not button_bar then
             button_bar = CreateFrame("Frame", "sfui_minimap_button_bar", Minimap, "BackdropTemplate")
@@ -460,19 +476,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
     SfuiDB.minimap_collect_buttons = SfuiDB.minimap_collect_buttons or false
     sfui.minimap.EnableButtonManager(SfuiDB.minimap_collect_buttons)
 
-    if Masque then
-        print("sfui: Masque LibStub found. SfuiDB.minimap_masque is " .. tostring(SfuiDB.minimap_masque) .. ")")
-    end
-    if Masque and SfuiDB.minimap_masque then
-        print("sfui: Attempting to create Masque group...")
-        sfui.minimap.masque_group = Masque:Group("sfui", "Minimap Buttons")
-        if sfui.minimap.masque_group then
-            print("sfui: Masque group created successfully.")
-            sfui.minimap.masque_group:RegisterCallback("OnSkinChanged", function()
-                ButtonManager:ArrangeButtons()
-            end)
-        end
-    end
+
 
     self:UnregisterEvent("PLAYER_ENTERING_WORLD") -- Only need this once
     return

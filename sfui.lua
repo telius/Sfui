@@ -67,6 +67,47 @@ event_frame:SetScript("OnEvent", function(self, event, name)
                     print(string.format("sfui: Set CVar '%s' to '%s'", cvar_data.name, tostring(cvar_data.value)))
                 end
             end
+
+            -- Initialize Masque if it's loaded
+            if GetAddOnEnableState(UnitName(), "Masque") > 0 then
+                local masque_event_frame = CreateFrame("Frame")
+                masque_event_frame:RegisterEvent("ADDON_LOADED")
+                masque_event_frame:SetScript("OnEvent", function(self, event, name)
+                    if event == "ADDON_LOADED" and name == "Masque" then
+                        masque_event_frame:UnregisterEvent("ADDON_LOADED")
+                        if sfui.minimap.InitializeMasque then
+                            sfui.minimap.InitializeMasque()
+                        end
+                    end
+                end)
+            end
+
+            -- Initialize Masque if it's loaded
+            if GetAddOnEnableState(UnitName(), "Masque") > 0 then
+                local masque_event_frame = CreateFrame("Frame")
+                masque_event_frame:RegisterEvent("ADDON_LOADED")
+                masque_event_frame:SetScript("OnEvent", function(self, event, name)
+                    if event == "ADDON_LOADED" and name == "Masque" then
+                        masque_event_frame:UnregisterEvent("ADDON_LOADED")
+                        if sfui.minimap.InitializeMasque then
+                            sfui.minimap.InitializeMasque()
+                        end
+                    end
+                end)
+            end
+
+            -- Initialize Masque if it's loaded
+            if GetAddOnEnableState(UnitName(), "Masque") > 0 then
+                event_frame:RegisterEvent("ADDON_LOADED")
+                event_frame:SetScript("OnEvent", function(self, event, name)
+                    if event == "ADDON_LOADED" and name == "Masque" then
+                        event_frame:UnregisterEvent("ADDON_LOADED")
+                        if sfui.minimap.InitializeMasque then
+                            sfui.minimap.InitializeMasque()
+                        end
+                    end
+                end)
+            end
         end
     elseif event == "PLAYER_LOGIN" then
         -- Create all our UI elements now that the player is in the world.
