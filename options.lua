@@ -210,10 +210,50 @@ function sfui.create_options_panel()
             
                     collect_buttons_checkbox:SetScript("OnClick", function(self)
                         SfuiDB.minimap_collect_buttons = self:GetChecked()
-                        if sfui.minimap and sfui.minimap.SetButtonCollection then
-                            sfui.minimap.SetButtonCollection(SfuiDB.minimap_collect_buttons)
+                        if sfui.minimap and sfui.minimap.EnableButtonManager then
+                            sfui.minimap.EnableButtonManager(SfuiDB.minimap_collect_buttons)
                         end
-                    end)    
+                    end)
+
+                    -- Masque Support checkbox
+                    local masque_checkbox = CreateFrame("CheckButton", nil, minimap_panel, "UICheckButtonTemplate")
+                    masque_checkbox:SetSize(26, 26)
+                    masque_checkbox:SetPoint("TOPLEFT", collect_buttons_checkbox, "BOTTOMLEFT", 0, -5)
+            
+                    local masque_text = masque_checkbox:CreateFontString(nil, "OVERLAY", g.font)
+                    masque_text:SetPoint("LEFT", masque_checkbox, "RIGHT", 5, 0)
+                    masque_text:SetText("Enable Masque Support")
+                    masque_text:SetTextColor(1, 1, 1)
+            
+                    SfuiDB.minimap_masque = SfuiDB.minimap_masque or false
+                    masque_checkbox:SetChecked(SfuiDB.minimap_masque)
+            
+                    masque_checkbox:SetScript("OnClick", function(self)
+                        SfuiDB.minimap_masque = self:GetChecked()
+                        if Masque then
+                            if SfuiDB.minimap_masque then
+                                if not sfui.minimap.masque_group then
+                                    sfui.minimap.masque_group = Masque:Group("sfui", "Minimap Buttons")
+                                    if sfui.minimap.masque_group then
+                                        sfui.minimap.masque_group:RegisterCallback("OnSkinChanged", function()
+                                            ButtonManager:ArrangeButtons()
+                                        end)
+                                    end
+                                end
+                            else
+                                if sfui.minimap.masque_group then
+                                    sfui.minimap.masque_group:Unregister()
+                                    sfui.minimap.masque_group = nil
+                                end
+                            end
+                            -- Re-arrange buttons to apply/remove skinning
+                            if sfui.minimap and sfui.minimap.EnableButtonManager then
+                                sfui.minimap.EnableButtonManager(false)
+                                sfui.minimap.EnableButtonManager(SfuiDB.minimap_collect_buttons)
+                            end
+                        end
+                    end)
+                
         -- populate debug panel
     
     

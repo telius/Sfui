@@ -10,7 +10,18 @@ if type(SfuiDB.barTexture) ~= "string" or SfuiDB.barTexture == "" then
     SfuiDB.barTexture = sfui.config.barTexture
 end
 SfuiDB.absorbBarColor = SfuiDB.absorbBarColor or sfui.config.absorbBarColor
+if SfuiDB.minimap and type(SfuiDB.minimap) == "table" then
+    SfuiDB.minimap_auto_zoom = SfuiDB.minimap.auto_zoom
+    SfuiDB.minimap_square = SfuiDB.minimap.square
+    SfuiDB.minimap_collect_buttons = SfuiDB.minimap.collect_buttons
+    SfuiDB.minimap_masque = SfuiDB.minimap.masque
+end
 SfuiDB.minimap = nil -- Remove minimap saved data
+
+SfuiDB.minimap_auto_zoom = SfuiDB.minimap_auto_zoom or sfui.config.minimap.auto_zoom
+SfuiDB.minimap_square = SfuiDB.minimap_square or sfui.config.minimap.square
+SfuiDB.minimap_collect_buttons = SfuiDB.minimap_collect_buttons or sfui.config.minimap.collect_buttons
+SfuiDB.minimap_masque = SfuiDB.minimap_masque or sfui.config.minimap.masque
 
 -- register slash command global variable (required by wow api)
 SLASH_SFUI1 = "/sfui"

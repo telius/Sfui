@@ -110,6 +110,48 @@ function ButtonManager:CollectButtons()
     end
 end
 
+function ButtonManager:SkinButton(button)
+    if not SfuiDB.minimap_masque or not sfui.minimap.masque_group then return end
+
+    local buttonData = {}
+    local icon, highlight, background, border
+
+    -- Find the icon, highlight, background and border textures
+    for _, region in ipairs({button:GetRegions()}) do
+        if region and region:IsObjectType("Texture") then
+            local texture = region:GetTexture()
+            local tIsString = type(texture) == "string"
+            if tIsString then texture = texture:lower() end
+            local layer = region:GetDrawLayer()
+
+            if texture == 136430 or (tIsString and texture:find("minimap-trackingborder", 1, true)) then
+                border = region
+            elseif texture == 136467 or (tIsString and texture:find("ui-minimap-background", 1, true)) then
+                background = region
+            elseif layer == "HIGHLIGHT" then
+                highlight = region
+            else
+                icon = region
+            end
+        end
+    end
+    
+    if button:GetNormalTexture() then
+        icon = button:GetNormalTexture()
+    end
+    
+    if button:GetHighlightTexture() then
+        highlight = button:GetHighlightTexture()
+    end
+
+    if icon then buttonData.Icon = icon end
+    if highlight then buttonData.Highlight = highlight end
+    if background then buttonData.Background = background end
+    if border then buttonData.Border = border end
+
+    sfui.minimap.masque_group:AddButton(button, buttonData)
+end
+
 function ButtonManager:ArrangeButtons()
     if not button_bar then return end
 
@@ -123,29 +165,7 @@ function ButtonManager:ArrangeButtons()
         button:ClearAllPoints()
         button:SetSize(size, size)
 
-        -- Add to Masque group if Masque is loaded
-        if sfui.minimap.masque_group then
-            local buttonData = {}
-            local iconTexture = nil
-
-            -- Find the icon texture and hide borders
-            for _, region in ipairs({button:GetRegions()}) do
-                if region and region:IsObjectType("Texture") then
-                    local name = region:GetName()
-                    if name and (name:find("Icon") or name:find("icon")) then
-                        iconTexture = region
-                    elseif name and (name:find("Border") or name:find("border")) then
-                        region:Hide()
-                    end
-                end
-            end
-
-            if iconTexture then
-                buttonData.Icon = iconTexture
-            end
-
-            sfui.minimap.masque_group:AddButton(button, buttonData)
-        end
+        self:SkinButton(button)
         
         if not lastButton then
             button:SetPoint("LEFT", button_bar, "LEFT", 5, 0)
@@ -242,8 +262,13 @@ frame:SetScript("OnEvent", function(self, event, ...)
     SfuiDB.minimap_collect_buttons = SfuiDB.minimap_collect_buttons or false
     sfui.minimap.EnableButtonManager(SfuiDB.minimap_collect_buttons)
 
-    if Masque then
+    if Masque and SfuiDB.minimap_masque then
         sfui.minimap.masque_group = Masque:Group("sfui", "Minimap Buttons")
+        if sfui.minimap.masque_group then
+            sfui.minimap.masque_group:RegisterCallback("OnSkinChanged", function()
+                ButtonManager:ArrangeButtons()
+            end)
+        end
     end
 
     self:UnregisterEvent("PLAYER_ENTERING_WORLD") -- Only need this once

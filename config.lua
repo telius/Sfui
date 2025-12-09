@@ -195,5 +195,9 @@ sfui.config = {
             position = "LEFT", -- or TOP, RIGHT, BOTTOM
             button_size = 28,
         },
+        auto_zoom = true,
+        square = true,
+        collect_buttons = true,
+        masque = false,
     },
 }
