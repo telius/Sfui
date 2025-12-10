@@ -1,0 +1,33 @@
+name: Packager
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - 'release-*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      # Set these secrets in your repository settings (Settings > Secrets and variables > Actions)
+      # CF_API_KEY: ${{ secrets.CF_API_KEY }}   # CurseForge API Token
+      # WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }} # Wago.io API Token
+      GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }} # Automatically provided by GitHub
+
+    steps:
+      - name: Clone project
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required for changelog generation
+
+      - name: Package and Release
+        uses: BigWigsMods/packager@v2
+        with:
+          args: -d # Disable debug output (remove -d to see debug info)
+          # The packager automatically handles:
+          # 1. Reading .pkgmeta
+          # 2. Downloading externals (Libs)
+          # 3. Zipping the addon
+          # 4. Creating a GitHub Release
+          # 5. Uploading to CF/Wago if tokens are present
