@@ -137,7 +137,7 @@ function sfui.common.GetClassOrSpecColor()
     end
     if specID and sfui.config.spec_colors[specID] then
         local custom_color = sfui.config.spec_colors[specID]
-        color = { r = custom_color[1], g = custom_color[2], b = custom_color[3] }
+        color = { r = custom_color.r, g = custom_color.g, b = custom_color.b }
     end
     return color
 end

@@ -45,13 +45,6 @@ event_frame:SetScript("OnEvent", function(self, event, name)
                 SfuiDB.barTexture = sfui.config.barTexture
             end
             SfuiDB.absorbBarColor = SfuiDB.absorbBarColor or sfui.config.absorbBarColor
-            if SfuiDB.minimap and type(SfuiDB.minimap) == "table" then
-                SfuiDB.minimap_auto_zoom = SfuiDB.minimap.auto_zoom
-                SfuiDB.minimap_square = SfuiDB.minimap.square
-                SfuiDB.minimap_collect_buttons = SfuiDB.minimap.collect_buttons
-                SfuiDB.minimap_masque = SfuiDB.minimap.masque
-            end
-            SfuiDB.minimap = nil -- Remove minimap saved data
 
             SfuiDB.minimap_auto_zoom = SfuiDB.minimap_auto_zoom or sfui.config.minimap.auto_zoom
             SfuiDB.minimap_square = SfuiDB.minimap_square or sfui.config.minimap.square
@@ -64,49 +57,7 @@ event_frame:SetScript("OnEvent", function(self, event, name)
             if sfui.config and sfui.config.cvars_on_load then
                 for _, cvar_data in ipairs(sfui.config.cvars_on_load) do
                     C_CVar.SetCVar(cvar_data.name, cvar_data.value)
-                    print(string.format("sfui: Set CVar '%s' to '%s'", cvar_data.name, tostring(cvar_data.value)))
                 end
-            end
-
-            -- Initialize Masque if it's loaded
-            if GetAddOnEnableState(UnitName(), "Masque") > 0 then
-                local masque_event_frame = CreateFrame("Frame")
-                masque_event_frame:RegisterEvent("ADDON_LOADED")
-                masque_event_frame:SetScript("OnEvent", function(self, event, name)
-                    if event == "ADDON_LOADED" and name == "Masque" then
-                        masque_event_frame:UnregisterEvent("ADDON_LOADED")
-                        if sfui.minimap.InitializeMasque then
-                            sfui.minimap.InitializeMasque()
-                        end
-                    end
-                end)
-            end
-
-            -- Initialize Masque if it's loaded
-            if GetAddOnEnableState(UnitName(), "Masque") > 0 then
-                local masque_event_frame = CreateFrame("Frame")
-                masque_event_frame:RegisterEvent("ADDON_LOADED")
-                masque_event_frame:SetScript("OnEvent", function(self, event, name)
-                    if event == "ADDON_LOADED" and name == "Masque" then
-                        masque_event_frame:UnregisterEvent("ADDON_LOADED")
-                        if sfui.minimap.InitializeMasque then
-                            sfui.minimap.InitializeMasque()
-                        end
-                    end
-                end)
-            end
-
-            -- Initialize Masque if it's loaded
-            if GetAddOnEnableState(UnitName(), "Masque") > 0 then
-                event_frame:RegisterEvent("ADDON_LOADED")
-                event_frame:SetScript("OnEvent", function(self, event, name)
-                    if event == "ADDON_LOADED" and name == "Masque" then
-                        event_frame:UnregisterEvent("ADDON_LOADED")
-                        if sfui.minimap.InitializeMasque then
-                            sfui.minimap.InitializeMasque()
-                        end
-                    end
-                end)
             end
         end
     elseif event == "PLAYER_LOGIN" then

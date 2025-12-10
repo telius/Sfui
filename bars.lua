@@ -193,7 +193,7 @@ do
         bar.absorbBar:SetValue(absorbAmount)
         local color = SfuiDB.absorbBarColor or (sfui.config and sfui.config.absorbBarColor)
         if color then
-            bar.absorbBar:SetStatusBarColor(color[1], color[2], color[3], color[4]) -- Use configurable color
+            bar.absorbBar:SetStatusBarColor(color.r, color.g, color.b, color.a) -- Use configurable color
         end
     end
 

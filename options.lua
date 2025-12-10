@@ -147,134 +147,69 @@ function sfui.create_options_panel()
 
     -- Memory and CPU Usage Display
 
-
-
-
+    -- populate minimap panel
+    local minimap_header = minimap_panel:CreateFontString(nil, "OVERLAY", g.font)
+    minimap_header:SetPoint("TOPLEFT", 15, -15)
+    minimap_header:SetTextColor(1, 1, 1)
+    minimap_header:SetText("Minimap Settings")
 
     
+    local function CreateCheckbox(parent, label, dbKey, onClickFunc, tooltip)
+        local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+        cb:SetHitRectInsets(0, -100, 0, 0)
+        cb.text:SetText(label)
+        cb:SetScript("OnClick", function(self)
+            local checked = self:GetChecked()
+            SfuiDB[dbKey] = checked
+            if onClickFunc then onClickFunc(checked) end
+        end)
+        cb:SetScript("OnShow", function(self)
+            self:SetChecked(SfuiDB[dbKey])
+        end)
+        if tooltip then
+            cb:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText(tooltip)
+                GameTooltip:Show()
+            end)
+            cb:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
+        end
+        return cb
+    end
 
+    local show_gametime_checkbox = CreateCheckbox(minimap_panel, "Show Calendar / Game Time", "minimap_show_gametime", function(checked)
+        if GameTimeFrame then
+            if checked then GameTimeFrame:Show() else GameTimeFrame:Hide() end
+        end
+    end, "Toggles the display of the game time and calendar button on the minimap.")
+    show_gametime_checkbox:SetPoint("TOPLEFT", minimap_header, "BOTTOMLEFT", 0, -10)
+
+    local square_cb = CreateCheckbox(minimap_panel, "Square Minimap", "minimap_square", function(checked)
+        if sfui.minimap and sfui.minimap.SetSquareMinimap then
+            sfui.minimap.SetSquareMinimap(checked)
+        end
+    end, "Toggles between square and round minimap.")
+    square_cb:SetPoint("TOPLEFT", show_gametime_checkbox, "BOTTOMLEFT", 0, -10)
+
+    local collect_cb = CreateCheckbox(minimap_panel, "Collect Buttons", "minimap_collect_buttons", function(checked)
+        if sfui.minimap and sfui.minimap.EnableButtonManager then
+            sfui.minimap.EnableButtonManager(checked)
+        end
+    end, "Collects minimap buttons into a bar.")
+    collect_cb:SetPoint("TOPLEFT", square_cb, "BOTTOMLEFT", 0, -10)
+
+    local autozoom_cb = CreateCheckbox(minimap_panel, "Auto Zoom", "minimap_auto_zoom", nil, "Automatically zooms out the minimap.")
+    autozoom_cb:SetPoint("TOPLEFT", collect_cb, "BOTTOMLEFT", 0, -10)
+    
+    local masque_cb = CreateCheckbox(minimap_panel, "Use Masque", "minimap_masque", function(checked)
+         print("sfui: Please reload UI (/rl) for Masque changes to fully apply.")
+    end, "Enables Masque support for minimap buttons (requires Reload).")
+    masque_cb:SetPoint("TOPLEFT", autozoom_cb, "BOTTOMLEFT", 0, -10)
 
     -- (removed font size input section)
 
     -- populate combined currency/items panel
-        -- populate minimap panel
-        -- Minimap Auto Zoom checkbox (moved to minimap panel)
-        local auto_zoom_checkbox = CreateFrame("CheckButton", nil, minimap_panel, "UICheckButtonTemplate")
-        auto_zoom_checkbox:SetSize(26, 26)
-        auto_zoom_checkbox:SetPoint("TOPLEFT", minimap_panel, "TOPLEFT", 15, -15)
-    
-        local auto_zoom_text = auto_zoom_checkbox:CreateFontString(nil, "OVERLAY", g.font)
-        auto_zoom_text:SetPoint("LEFT", auto_zoom_checkbox, "RIGHT", 5, 0)
-        auto_zoom_text:SetText("Enable Minimap Auto Zoom")
-        auto_zoom_text:SetTextColor(1, 1, 1)
-    
-        SfuiDB.minimap_auto_zoom = SfuiDB.minimap_auto_zoom or false
-        auto_zoom_checkbox:SetChecked(SfuiDB.minimap_auto_zoom)
-    
-            auto_zoom_checkbox:SetScript("OnClick", function(self)
-                SfuiDB.minimap_auto_zoom = self:GetChecked()
-            end)
-        
-            -- Square Minimap checkbox
-            local square_minimap_checkbox = CreateFrame("CheckButton", nil, minimap_panel, "UICheckButtonTemplate")
-            square_minimap_checkbox:SetSize(26, 26)
-            square_minimap_checkbox:SetPoint("TOPLEFT", auto_zoom_checkbox, "BOTTOMLEFT", 0, -5)
-        
-            local square_minimap_text = square_minimap_checkbox:CreateFontString(nil, "OVERLAY", g.font)
-            square_minimap_text:SetPoint("LEFT", square_minimap_checkbox, "RIGHT", 5, 0)
-            square_minimap_text:SetText("Enable Square Minimap")
-            square_minimap_text:SetTextColor(1, 1, 1)
-        
-                    SfuiDB.minimap_square = SfuiDB.minimap_square or false
-                    square_minimap_checkbox:SetChecked(SfuiDB.minimap_square)
-                
-                    square_minimap_checkbox:SetScript("OnClick", function(self)
-                        SfuiDB.minimap_square = self:GetChecked()
-                        if sfui.minimap and sfui.minimap.SetSquareMinimap then
-                            sfui.minimap.SetSquareMinimap(SfuiDB.minimap_square)
-                        end
-                    end)
-            
-                    -- Button Collection checkbox
-                    local collect_buttons_checkbox = CreateFrame("CheckButton", nil, minimap_panel, "UICheckButtonTemplate")
-                    collect_buttons_checkbox:SetSize(26, 26)
-                    collect_buttons_checkbox:SetPoint("TOPLEFT", square_minimap_checkbox, "BOTTOMLEFT", 0, -5)
-            
-                    local collect_buttons_text = collect_buttons_checkbox:CreateFontString(nil, "OVERLAY", g.font)
-                    collect_buttons_text:SetPoint("LEFT", collect_buttons_checkbox, "RIGHT", 5, 0)
-                    collect_buttons_text:SetText("Enable Minimap Button Collection")
-                    collect_buttons_text:SetTextColor(1, 1, 1)
-            
-                    SfuiDB.minimap_collect_buttons = SfuiDB.minimap_collect_buttons or false
-                    collect_buttons_checkbox:SetChecked(SfuiDB.minimap_collect_buttons)
-            
-                    collect_buttons_checkbox:SetScript("OnClick", function(self)
-                        SfuiDB.minimap_collect_buttons = self:GetChecked()
-                        if sfui.minimap and sfui.minimap.EnableButtonManager then
-                            sfui.minimap.EnableButtonManager(SfuiDB.minimap_collect_buttons)
-                        end
-                    end)
 
-                    -- Masque Support checkbox
-                    local masque_checkbox = CreateFrame("CheckButton", nil, minimap_panel, "UICheckButtonTemplate")
-                    masque_checkbox:SetSize(26, 26)
-                    masque_checkbox:SetPoint("TOPLEFT", collect_buttons_checkbox, "BOTTOMLEFT", 0, -5)
-            
-                    local masque_text = masque_checkbox:CreateFontString(nil, "OVERLAY", g.font)
-                    masque_text:SetPoint("LEFT", masque_checkbox, "RIGHT", 5, 0)
-                    masque_text:SetText("Enable Masque Support")
-                    masque_text:SetTextColor(1, 1, 1)
-            
-                    SfuiDB.minimap_masque = SfuiDB.minimap_masque or false
-                    masque_checkbox:SetChecked(SfuiDB.minimap_masque)
-            
-                    masque_checkbox:SetScript("OnClick", function(self)
-                        SfuiDB.minimap_masque = self:GetChecked()
-                        if Masque then
-                            if SfuiDB.minimap_masque then
-                                if not sfui.minimap.masque_group then
-                                    sfui.minimap.masque_group = Masque:Group("sfui", "Minimap Buttons")
-                                    if sfui.minimap.masque_group then
-                                        sfui.minimap.masque_group:RegisterCallback("OnSkinChanged", function()
-                                            ButtonManager:ArrangeButtons()
-                                        end)
-                                    end
-                                end
-                            else
-                                if sfui.minimap.masque_group then
-                                    sfui.minimap.masque_group:Unregister()
-                                    sfui.minimap.masque_group = nil
-                                end
-                            end
-                            -- Re-arrange buttons to apply/remove skinning
-                            if sfui.minimap and sfui.minimap.EnableButtonManager then
-                                sfui.minimap.EnableButtonManager(false)
-                                sfui.minimap.EnableButtonManager(SfuiDB.minimap_collect_buttons)
-                            end
-                        end
-                    end)
-
-                    -- Rearrange Buttons checkbox
-                    local rearrange_checkbox = CreateFrame("CheckButton", nil, minimap_panel, "UICheckButtonTemplate")
-                    rearrange_checkbox:SetSize(26, 26)
-                    rearrange_checkbox:SetPoint("TOPLEFT", masque_checkbox, "BOTTOMLEFT", 0, -5)
-
-                    local rearrange_text = rearrange_checkbox:CreateFontString(nil, "OVERLAY", g.font)
-                    rearrange_text:SetPoint("LEFT", rearrange_checkbox, "RIGHT", 5, 0)
-                    rearrange_text:SetText("Enable Button Rearranging")
-                    rearrange_text:SetTextColor(1, 1, 1)
-
-                    SfuiDB.minimap_rearrange = SfuiDB.minimap_rearrange or false
-                    rearrange_checkbox:SetChecked(SfuiDB.minimap_rearrange)
-
-                    rearrange_checkbox:SetScript("OnClick", function(self)
-                        SfuiDB.minimap_rearrange = self:GetChecked()
-                        -- Re-arrange buttons to apply/remove draggable state
-                        if sfui.minimap and sfui.minimap.EnableButtonManager then
-                            sfui.minimap.EnableButtonManager(false)
-                            sfui.minimap.EnableButtonManager(SfuiDB.minimap_collect_buttons)
-                        end
-                    end)
                 
         -- populate debug panel
     
@@ -319,7 +254,7 @@ function sfui.create_options_panel()
         local color
         if specID and g.spec_colors[specID] then
             local c = g.spec_colors[specID]
-            color = { r = c[1], g = c[2], b = c[3] }
+            color = { r = c.r, g = c.g, b = c.b }
         elseif specID then
             local _, _, _, r, g, b = C_SpecializationInfo.GetSpecializationInfo(specID)
             if r then color = { r = r, g = g, b = b } end
