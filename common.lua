@@ -4,6 +4,13 @@
 
 sfui.common = {}
 
+local _, playerClass = UnitClass("player")
+
+local powerTypeToName = {}
+for name, value in pairs(Enum.PowerType) do
+    powerTypeToName[value] = name
+end
+
 local primaryResourcesCache = {
     DEATHKNIGHT = Enum.PowerType.RunicPower,
     DEMONHUNTER = Enum.PowerType.Fury,
@@ -103,29 +110,19 @@ function sfui.common.update_widget_bar(widget_frame, icons_pool, labels_pool, so
 end
 
 function sfui.common.GetPrimaryResource()
-    local playerClass = select(2, UnitClass("player"))
     local spec = C_SpecializationInfo.GetSpecialization()
-    local specID
-    if spec then
-        specID = select(1, C_SpecializationInfo.GetSpecializationInfo(spec))
-    else
-        specID = 0
-    end
+    local specID = spec and select(1, C_SpecializationInfo.GetSpecializationInfo(spec)) or 0
     if playerClass == "DRUID" then return primaryResourcesCache[playerClass][GetShapeshiftFormID() or 0] end
-    if type(primaryResourcesCache[playerClass]) == "table" then return primaryResourcesCache[playerClass][specID] else return primaryResourcesCache[playerClass] end
+    local cache = primaryResourcesCache[playerClass]
+    if type(cache) == "table" then return cache[specID] else return cache end
 end
 
 function sfui.common.GetSecondaryResource()
-    local playerClass = select(2, UnitClass("player"))
     local spec = C_SpecializationInfo.GetSpecialization()
-    local specID
-    if spec then
-        specID = select(1, C_SpecializationInfo.GetSpecializationInfo(spec))
-    else
-        specID = 0
-    end
+    local specID = spec and select(1, C_SpecializationInfo.GetSpecializationInfo(spec)) or 0
     if playerClass == "DRUID" then return secondaryResourcesCache[playerClass][GetShapeshiftFormID() or 0] end
-    if type(secondaryResourcesCache[playerClass]) == "table" then return secondaryResourcesCache[playerClass][specID] else return secondaryResourcesCache[playerClass] end
+    local cache = secondaryResourcesCache[playerClass]
+    if type(cache) == "table" then return cache[specID] else return cache end
 end
 
 function sfui.common.GetClassOrSpecColor()
@@ -157,12 +154,18 @@ function sfui.common.CreateBar(name, frameType, parent, template)
     bar:SetSize(cfg.width, cfg.height)
     bar:SetPoint("CENTER")
     if bar.SetStatusBarTexture then
-        -- Provide a fallback in case SfuiDB.barTexture is still invalid somehow
-        local textureToUse = SfuiDB.barTexture
-        if type(textureToUse) ~= "string" or textureToUse == "" then
-            textureToUse = sfui.config.barTexture
+        local textureName = SfuiDB.barTexture
+        local LSM = LibStub("LibSharedMedia-3.0", true)
+        local texturePath
+        if LSM then
+            texturePath = LSM:Fetch("statusbar", textureName)
         end
-        bar:SetStatusBarTexture(textureToUse)
+        
+        -- Fallback to default if fetch failed or returned nil
+        if not texturePath or texturePath == "" then
+            texturePath = sfui.config.barTexture
+        end
+        bar:SetStatusBarTexture(texturePath)
     end
     bar.backdrop = backdrop
     bar.fadeInAnim, bar.fadeOutAnim = sfui.common.CreateFadeAnimations(backdrop)
@@ -190,12 +193,7 @@ function sfui.common.GetResourceColor(resource)
     if colorInfo then return colorInfo end
     local powerName = ""
     if type(resource) == "number" then
-        for name, value in pairs(Enum.PowerType) do
-            if value == resource then
-                powerName = name
-                break
-            end
-        end
+        powerName = powerTypeToName[resource]
     end
     return resourceColorsCache[powerName] or GetPowerBarColor("MANA")
 end

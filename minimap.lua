@@ -138,6 +138,12 @@ function ButtonManager:AddButton(button)
     self:StoreOriginalState(button)
     table.insert(self.collectedButtons, button)
     self.processedButtons[name] = true
+    
+    if not button.sfuiLayoutHooked then
+        button:HookScript("OnShow", function() ButtonManager:ArrangeButtons() end)
+        button:HookScript("OnHide", function() ButtonManager:ArrangeButtons() end)
+        button.sfuiLayoutHooked = true
+    end
 end
 
 function ButtonManager:CollectButtons()
@@ -150,12 +156,18 @@ function ButtonManager:CollectButtons()
     end
 
     for i = 1, Minimap:GetNumChildren() do
-        self:AddButton(select(i, Minimap:GetChildren()))
+        local child = select(i, Minimap:GetChildren())
+        if child ~= QueueStatusButton then
+            self:AddButton(child)
+        end
     end
     
     if MinimapCluster then
         for i = 1, MinimapCluster:GetNumChildren() do
-            self:AddButton(select(i, MinimapCluster:GetChildren()))
+            local child = select(i, MinimapCluster:GetChildren())
+            if child ~= QueueStatusButton then
+                self:AddButton(child)
+            end
         end
     end
 
@@ -164,10 +176,38 @@ function ButtonManager:CollectButtons()
     end
 
     if QueueStatusButton then
-        self:AddButton(QueueStatusButton)
-        if not QueueStatusButton.sfuiOriginalUpdatePosition then
-            QueueStatusButton.sfuiOriginalUpdatePosition = QueueStatusButton.UpdatePosition
-            QueueStatusButton.UpdatePosition = function() end
+        if SfuiDB.minimap_buttons_mouseover then
+             -- Restore original UpdatePosition if needed
+            if QueueStatusButton.sfuiOriginalUpdatePosition then
+                 QueueStatusButton.UpdatePosition = QueueStatusButton.sfuiOriginalUpdatePosition
+                 QueueStatusButton.sfuiOriginalUpdatePosition = nil
+            end
+            
+            -- Move to Top Left of Minimap
+            QueueStatusButton:ClearAllPoints()
+            QueueStatusButton:SetParent(Minimap)
+            QueueStatusButton:SetPoint("TOPLEFT", Minimap, "TOPLEFT", 5, -5)
+            QueueStatusButton:SetFrameStrata("MEDIUM")
+            
+            -- Hook SetPoint to enforce position if Blizzard tries to move it
+             if not QueueStatusButton.sfuiHooked then
+                hooksecurefunc(QueueStatusButton, "SetPoint", function(self)
+                     if SfuiDB.minimap_buttons_mouseover then
+                        local p, r, rp, x, y = self:GetPoint(1)
+                        if p ~= "TOPLEFT" or r ~= Minimap or rp ~= "TOPLEFT" then
+                            self:ClearAllPoints()
+                            self:SetPoint("TOPLEFT", Minimap, "TOPLEFT", 5, -5)
+                        end
+                     end
+                end)
+                QueueStatusButton.sfuiHooked = true
+             end
+        else
+            self:AddButton(QueueStatusButton)
+            if not QueueStatusButton.sfuiOriginalUpdatePosition then
+                QueueStatusButton.sfuiOriginalUpdatePosition = QueueStatusButton.UpdatePosition
+                QueueStatusButton.UpdatePosition = function() end
+            end
         end
     end
 end
@@ -204,8 +244,10 @@ function ButtonManager:SkinButton(button)
     local isButton = button:IsObjectType("Button")
     local normal, isNormalIcon = isButton and button:GetNormalTexture()
     local icon, highlight, pushed, border, background, iconMask
+    
+    local regions = {button:GetRegions()}
 
-    for _, region in ipairs({button:GetRegions()}) do
+    for _, region in ipairs(regions) do
         if region:IsObjectType("Texture") then
             local name = region:GetDebugName()
             if name then
@@ -276,7 +318,7 @@ function ButtonManager:SkinButton(button)
     sfui.minimap.masque_group:AddButton(button, data)
 
     -- Explicitly hide all original texture regions, except the identified 'icon', to remove persistent white borders.
-    for _, region in ipairs({button:GetRegions()}) do
+    for _, region in ipairs(regions) do
         if region:IsObjectType("Texture") then
             if region ~= icon then
                 region:SetTexture(nil)
@@ -374,11 +416,13 @@ function ButtonManager:ArrangeButtons()
     local lastButton = nil
     local cfg = sfui.config.minimap.button_bar
     local size = cfg.button_size
-    local spacing = cfg.spacing
+    local spacing = SfuiDB.minimap_button_spacing or cfg.spacing
 
     for i, button in ipairs(self.collectedButtons) do
         button:SetParent(button_bar)
-        button:ClearAllPoints()
+        if not button.isMoving then
+            button:ClearAllPoints()
+        end
         button:SetSize(size, size)
 
         self:SkinButton(button)
@@ -397,8 +441,9 @@ function ButtonManager:ArrangeButtons()
             button:SetMovable(true)
             button:RegisterForDrag("LeftButton")
             button:SetScript("OnDragStart", function(self)
-                self:StartMoving()
                 self.isMoving = true
+                self:StartMoving()
+                ButtonManager:ArrangeButtons()
             end)
             button:SetScript("OnDragStop", function(self)
                 self:StopMovingOrSizing()
@@ -422,19 +467,29 @@ function ButtonManager:ArrangeButtons()
                 end
                 if oldIndex then
                     table.remove(ButtonManager.collectedButtons, oldIndex)
-                end
+                    
+                    if newIndex > oldIndex then
+                        newIndex = newIndex - 1
+                    end
+                    
+                    if newIndex > #ButtonManager.collectedButtons + 1 then
+                        newIndex = #ButtonManager.collectedButtons + 1
+                    end
+                    if newIndex < 1 then newIndex = 1 end
 
-                -- Insert the button at its new position
-                table.insert(ButtonManager.collectedButtons, newIndex, self)
+                    -- Insert the button at its new position
+                    table.insert(ButtonManager.collectedButtons, newIndex, self)
 
-                -- Save the new order
-                SfuiDB.minimap_button_order = {}
-                for _, btn in ipairs(ButtonManager.collectedButtons) do
-                    table.insert(SfuiDB.minimap_button_order, btn:GetName())
+                    -- Save the new order
+                    SfuiDB.minimap_button_order = {}
+                    for _, btn in ipairs(ButtonManager.collectedButtons) do
+                        table.insert(SfuiDB.minimap_button_order, btn:GetName())
+                    end
+                    
+                    ButtonManager:ArrangeButtons()
+                else
+                    ButtonManager:ArrangeButtons()
                 end
-                
-                -- Redraw the buttons
-                ButtonManager:ArrangeButtons()
             end)
         else
             button:SetMovable(false)
@@ -443,12 +498,19 @@ function ButtonManager:ArrangeButtons()
             button:SetScript("OnDragStop", nil)
         end
         
-        if not lastButton then
-            button:SetPoint("LEFT", button_bar, "LEFT", 5, 0)
-        else
-            button:SetPoint("LEFT", lastButton, "RIGHT", spacing, 0)
+        if not button.isMoving then
+            if button:IsShown() then
+                if not lastButton then
+                    button:SetPoint("LEFT", button_bar, "LEFT", 5, 0)
+                    lastButton = button
+                elseif button ~= lastButton then
+                    button:SetPoint("LEFT", lastButton, "RIGHT", spacing, 0)
+                    lastButton = button
+                end
+            else
+                button:SetPoint("LEFT", button_bar, "LEFT", 0, 0)
+            end
         end
-        lastButton = button
     end
 end
 
@@ -466,6 +528,36 @@ function sfui.minimap.EnableButtonManager(enabled)
             button_bar:SetBackdropColor(0, 0, 0, 0.5) -- Semi-transparent black
         end
         button_bar:Show()
+
+        -- Mouseover logic
+        if not button_bar.sfuiMouseoverHooked then
+            local function UpdateAlpha()
+                 if SfuiDB.minimap_buttons_mouseover then
+                    if button_bar:IsMouseOver() or Minimap:IsMouseOver() then
+                        button_bar:SetAlpha(1)
+                    else
+                        button_bar:SetAlpha(0)
+                    end
+                 else
+                    button_bar:SetAlpha(1)
+                 end
+            end
+            
+            button_bar:SetScript("OnEnter", UpdateAlpha)
+            button_bar:SetScript("OnLeave", function() C_Timer.After(0.1, UpdateAlpha) end)
+            Minimap:HookScript("OnEnter", UpdateAlpha)
+            Minimap:HookScript("OnLeave", function() C_Timer.After(0.1, UpdateAlpha) end)
+            
+            button_bar.sfuiMouseoverHooked = true
+        end
+        
+        -- Apply initial state
+        if SfuiDB.minimap_buttons_mouseover then
+             button_bar:SetAlpha(0)
+        else
+             button_bar:SetAlpha(1)
+        end
+
         ButtonManager:CollectButtons()
         ButtonManager:ArrangeButtons()
     else
@@ -550,6 +642,19 @@ frame:SetScript("OnEvent", function(self, event, ...)
             GameTimeFrame:Show()
         else
             GameTimeFrame:Hide()
+        end
+    end
+
+    -- Default show_clock to true if not set
+    if SfuiDB.minimap_show_clock == nil then
+        SfuiDB.minimap_show_clock = true
+    end
+
+    if TimeManagerClockButton then
+        if SfuiDB.minimap_show_clock then
+            TimeManagerClockButton:Show()
+        else
+            TimeManagerClockButton:Hide()
         end
     end
 

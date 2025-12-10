@@ -40,9 +40,18 @@ event_frame:RegisterEvent("PLAYER_LOGIN")
 event_frame:SetScript("OnEvent", function(self, event, name)
     if event == "ADDON_LOADED" then
         if name == "sfui" then
+            -- Register SharedMedia
+            local LSM = LibStub("LibSharedMedia-3.0", true)
+            if LSM then
+                LSM:Register("statusbar", "Flat", "Interface/Buttons/WHITE8X8")
+                LSM:Register("statusbar", "Blizzard", "Interface/TargetingFrame/UI-StatusBar")
+                LSM:Register("statusbar", "Raid", "Interface/RaidFrame/Raid-Bar-Hp-Fill")
+                LSM:Register("statusbar", "Spark", "Interface/CastingBar/UI-CastingBar-Spark")
+            end
+
             -- Initialize DB
             if type(SfuiDB.barTexture) ~= "string" or SfuiDB.barTexture == "" then
-                SfuiDB.barTexture = sfui.config.barTexture
+                SfuiDB.barTexture = "Flat"
             end
             SfuiDB.absorbBarColor = SfuiDB.absorbBarColor or sfui.config.absorbBarColor
 

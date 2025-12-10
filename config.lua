@@ -75,7 +75,7 @@ sfui.config = {
         -- Warlock
         [265] = {r=0.53, g=0.53, b=0.93},   -- Affliction
         [266] = {r=0.53, g=0.53, b=0.93},   -- Demonology
-        [267] = {r=0.53, g=0.53, b=0.93},   -- Destruction
+        [267] = {r=0.635, g=1.0, b=0.0},    -- Destruction
         -- Warrior
         [71] = {r=0.78, g=0.61, b=0.43},    -- Arms
         [72] = {r=0.78, g=0.61, b=0.43},    -- Fury
@@ -142,7 +142,7 @@ sfui.config = {
         width = 240,
         height = 15,
         useClassColor = true,
-        fontSize = 14,
+        fontSize = 18,
         backdrop = {
             padding = 2,
             color = {0, 0, 0, 0.5},

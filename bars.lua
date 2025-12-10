@@ -150,11 +150,21 @@ do
 
         local cfg = sfui.config.healthBar -- Need this to get height
 
+        local textureName = SfuiDB.barTexture
+        local LSM = LibStub("LibSharedMedia-3.0", true)
+        local texturePath
+        if LSM then
+            texturePath = LSM:Fetch("statusbar", textureName)
+        end
+        if not texturePath or texturePath == "" then
+            texturePath = sfui.config.barTexture
+        end
+
         local healPredBar = CreateFrame("StatusBar", "sfui_HealthBar_HealPred", health_bar)
         healPredBar:SetHeight(cfg.height / 2)
         healPredBar:SetPoint("TOPLEFT")
         healPredBar:SetPoint("TOPRIGHT") -- Anchored top-right
-        healPredBar:SetStatusBarTexture(sfui.config.barTexture)
+        healPredBar:SetStatusBarTexture(texturePath)
         healPredBar:SetStatusBarColor(0.5, 1.0, 0.5, 0.5) -- Light-soft-green
         healPredBar:SetFrameLevel(bar:GetFrameLevel() + 1)
         healPredBar:SetReverseFill(true)
@@ -164,7 +174,7 @@ do
         absorbBar:SetHeight(cfg.height / 2)
         absorbBar:SetPoint("BOTTOMLEFT")
         absorbBar:SetPoint("BOTTOMRIGHT") -- Anchored bottom-right
-        absorbBar:SetStatusBarTexture(sfui.config.barTexture)
+        absorbBar:SetStatusBarTexture(texturePath)
         absorbBar:SetFrameLevel(bar:GetFrameLevel() + 2) -- On top of heal prediction
         absorbBar:SetReverseFill(true)
         bar.absorbBar = absorbBar
@@ -201,7 +211,8 @@ do
         if secondary_power_bar then return secondary_power_bar end
         local bar = sfui.common.CreateBar("secondaryPowerBar", "StatusBar", UIParent)
         bar.TextValue = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        bar.TextValue:SetFont("Fonts\FRIZQT__.TTF", sfui.config.secondaryPowerBar.fontSize, "NONE")
+        bar.TextValue:SetFont("Fonts\\FRIZQT__.TTF", sfui.config.secondaryPowerBar.fontSize, "NONE")
+        bar.TextValue:SetShadowOffset(1, -1)
         bar.TextValue:SetPoint("CENTER")
         secondary_power_bar = bar
         return bar
@@ -244,7 +255,8 @@ do
         if vigor_bar then return vigor_bar end
         local bar = sfui.common.CreateBar("vigorBar", "StatusBar", UIParent)
         bar.TextValue = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        bar.TextValue:SetFont("Fonts\FRIZQT__.TTF", sfui.config.secondaryPowerBar.fontSize, "NONE")
+        bar.TextValue:SetFont("Fonts\\FRIZQT__.TTF", sfui.config.secondaryPowerBar.fontSize, "NONE")
+        bar.TextValue:SetShadowOffset(1, -1)
         bar.TextValue:SetPoint("CENTER")
         vigor_bar = bar
         return bar
@@ -268,10 +280,16 @@ do
         if mount_speed_bar then return mount_speed_bar end
         local bar = sfui.common.CreateBar("mountSpeedBar", "StatusBar", UIParent)
         bar.TextValue = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        bar.TextValue:SetFont("Fonts\FRIZQT__.TTF", 10, "NONE")
+        bar.TextValue:SetFont("Fonts\\FRIZQT__.TTF", 18, "NONE")
+        bar.TextValue:SetShadowOffset(1, -1)
         bar.TextValue:SetPoint("CENTER")
+        local elapsedSince = 0
         bar:SetScript("OnUpdate", function(self, elapsed)
-            sfui.bars:UpdateMountSpeedBar()
+            elapsedSince = elapsedSince + elapsed
+            if elapsedSince > 0.1 then
+                sfui.bars:UpdateMountSpeedBar()
+                elapsedSince = 0
+            end
         end)
         mount_speed_bar = bar
         return bar
@@ -293,13 +311,15 @@ do
 
     function sfui.bars:SetBarTexture(texturePath)
         if primary_power_bar then primary_power_bar:SetStatusBarTexture(texturePath) end
-        if health_bar then health_bar:SetStatusBarTexture(texturePath) end
+        if health_bar then 
+            health_bar:SetStatusBarTexture(texturePath)
+            if health_bar.healPredBar then health_bar.healPredBar:SetStatusBarTexture(texturePath) end
+            if health_bar.absorbBar then health_bar.absorbBar:SetStatusBarTexture(texturePath) end
+        end
         if secondary_power_bar then secondary_power_bar:SetStatusBarTexture(texturePath) end
         if vigor_bar then vigor_bar:SetStatusBarTexture(texturePath) end
         if mount_speed_bar then mount_speed_bar:SetStatusBarTexture(texturePath) end
     end
-
-
 
     function sfui.bars:OnStateChanged()
         UpdatePrimaryPowerBar()

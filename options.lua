@@ -61,6 +61,54 @@ function sfui.create_options_panel()
         self:GetFontString():SetTextColor(1, 1, 1) -- White normally
     end)
 
+    local function CreateCheckbox(parent, label, dbKey, onClickFunc, tooltip)
+        local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+        cb:SetHitRectInsets(0, -100, 0, 0)
+        cb.text:SetText(label)
+        cb:SetScript("OnClick", function(self)
+            local checked = self:GetChecked()
+            SfuiDB[dbKey] = checked
+            if onClickFunc then onClickFunc(checked) end
+        end)
+        cb:SetScript("OnShow", function(self)
+            self:SetChecked(SfuiDB[dbKey])
+        end)
+        if tooltip then
+            cb:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText(tooltip)
+                GameTooltip:Show()
+            end)
+            cb:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
+        end
+        return cb
+    end
+
+    local function CreateSlider(parent, label, dbKey, minVal, maxVal, step, onValueChangedFunc)
+        local name = "sfui_option_slider_" .. dbKey
+        local slider = CreateFrame("Slider", name, parent, "OptionsSliderTemplate")
+        slider:SetOrientation("HORIZONTAL")
+        slider:SetHeight(20)
+        slider:SetWidth(150)
+        slider:SetMinMaxValues(minVal, maxVal)
+        slider:SetValueStep(step)
+        slider:SetObeyStepOnDrag(true)
+        
+        getglobal(slider:GetName() .. 'Low'):SetText(minVal)
+        getglobal(slider:GetName() .. 'High'):SetText(maxVal)
+        getglobal(slider:GetName() .. 'Text'):SetText(label)
+
+        slider:SetScript("OnValueChanged", function(self, value)
+            SfuiDB[dbKey] = value
+            if onValueChangedFunc then onValueChangedFunc(value) end
+        end)
+        
+        slider:SetScript("OnShow", function(self)
+            self:SetValue(SfuiDB[dbKey] or minVal) -- Default to minVal if nil, or handle specifically
+        end)
+        return slider
+    end
+
     local function OnTabClick(self)
         select_tab(self)
     end
@@ -153,30 +201,6 @@ function sfui.create_options_panel()
     minimap_header:SetTextColor(1, 1, 1)
     minimap_header:SetText("Minimap Settings")
 
-    
-    local function CreateCheckbox(parent, label, dbKey, onClickFunc, tooltip)
-        local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
-        cb:SetHitRectInsets(0, -100, 0, 0)
-        cb.text:SetText(label)
-        cb:SetScript("OnClick", function(self)
-            local checked = self:GetChecked()
-            SfuiDB[dbKey] = checked
-            if onClickFunc then onClickFunc(checked) end
-        end)
-        cb:SetScript("OnShow", function(self)
-            self:SetChecked(SfuiDB[dbKey])
-        end)
-        if tooltip then
-            cb:SetScript("OnEnter", function(self)
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:SetText(tooltip)
-                GameTooltip:Show()
-            end)
-            cb:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
-        end
-        return cb
-    end
-
     local show_gametime_checkbox = CreateCheckbox(minimap_panel, "Show Calendar / Game Time", "minimap_show_gametime", function(checked)
         if GameTimeFrame then
             if checked then GameTimeFrame:Show() else GameTimeFrame:Hide() end
@@ -184,12 +208,19 @@ function sfui.create_options_panel()
     end, "Toggles the display of the game time and calendar button on the minimap.")
     show_gametime_checkbox:SetPoint("TOPLEFT", minimap_header, "BOTTOMLEFT", 0, -10)
 
+    local show_clock_checkbox = CreateCheckbox(minimap_panel, "Show Clock", "minimap_show_clock", function(checked)
+        if TimeManagerClockButton then
+            if checked then TimeManagerClockButton:Show() else TimeManagerClockButton:Hide() end
+        end
+    end, "Toggles the display of the clock under the minimap.")
+    show_clock_checkbox:SetPoint("TOPLEFT", show_gametime_checkbox, "BOTTOMLEFT", 0, -10)
+
     local square_cb = CreateCheckbox(minimap_panel, "Square Minimap", "minimap_square", function(checked)
         if sfui.minimap and sfui.minimap.SetSquareMinimap then
             sfui.minimap.SetSquareMinimap(checked)
         end
     end, "Toggles between square and round minimap.")
-    square_cb:SetPoint("TOPLEFT", show_gametime_checkbox, "BOTTOMLEFT", 0, -10)
+    square_cb:SetPoint("TOPLEFT", show_clock_checkbox, "BOTTOMLEFT", 0, -10)
 
     local collect_cb = CreateCheckbox(minimap_panel, "Collect Buttons", "minimap_collect_buttons", function(checked)
         if sfui.minimap and sfui.minimap.EnableButtonManager then
@@ -198,13 +229,30 @@ function sfui.create_options_panel()
     end, "Collects minimap buttons into a bar.")
     collect_cb:SetPoint("TOPLEFT", square_cb, "BOTTOMLEFT", 0, -10)
 
+    local mouseover_cb = CreateCheckbox(minimap_panel, "Mouseover Only", "minimap_buttons_mouseover", function(checked)
+        if sfui.minimap and sfui.minimap.EnableButtonManager and SfuiDB.minimap_collect_buttons then
+             -- Re-enable to refresh logic
+             sfui.minimap.EnableButtonManager(false)
+             sfui.minimap.EnableButtonManager(true)
+        end
+    end, "Only show the button bar when hovering the minimap. Also moves Group Finder eye to Top Left.")
+    mouseover_cb:SetPoint("TOPLEFT", collect_cb, "BOTTOMLEFT", 0, -10)
+
     local autozoom_cb = CreateCheckbox(minimap_panel, "Auto Zoom", "minimap_auto_zoom", nil, "Automatically zooms out the minimap.")
-    autozoom_cb:SetPoint("TOPLEFT", collect_cb, "BOTTOMLEFT", 0, -10)
+    autozoom_cb:SetPoint("TOPLEFT", mouseover_cb, "BOTTOMLEFT", 0, -10)
     
     local masque_cb = CreateCheckbox(minimap_panel, "Use Masque", "minimap_masque", function(checked)
          print("sfui: Please reload UI (/rl) for Masque changes to fully apply.")
     end, "Enables Masque support for minimap buttons (requires Reload).")
     masque_cb:SetPoint("TOPLEFT", autozoom_cb, "BOTTOMLEFT", 0, -10)
+
+    local spacing_slider = CreateSlider(minimap_panel, "Button Spacing", "minimap_button_spacing", 0, 10, 1, function(value)
+        -- Assuming we need to re-arrange to see changes
+        if sfui.minimap and sfui.minimap.EnableButtonManager and SfuiDB.minimap_collect_buttons then
+            sfui.minimap.EnableButtonManager(true)
+        end
+    end)
+    spacing_slider:SetPoint("TOPLEFT", masque_cb, "BOTTOMLEFT", 0, -20) -- More padding for slider text
 
     -- (removed font size input section)
 
@@ -371,21 +419,43 @@ function sfui.create_options_panel()
     dropdown:SetPoint("LEFT", texture_label, "RIGHT", 10, 0)
 
     local function OnTextureSelect(self)
-        local texturePath = self.value
-        SfuiDB.barTexture = texturePath
+        local textureName = self.value
+        SfuiDB.barTexture = textureName
+        
+        local LSM = LibStub("LibSharedMedia-3.0", true)
+        local texturePath = LSM and LSM:Fetch("statusbar", textureName) or "Interface/Buttons/WHITE8X8"
+
         if sfui.bars and sfui.bars.SetBarTexture then
             sfui.bars:SetBarTexture(texturePath)
         end
-        UIDropDownMenu_SetSelectedValue(dropdown, texturePath)
+        UIDropDownMenu_SetSelectedValue(dropdown, textureName)
     end
 
     local function InitializeTextureDropdown(self, level)
+        local LSM = LibStub("LibSharedMedia-3.0", true)
         local info = UIDropDownMenu_CreateInfo()
-        for _, texture in ipairs(sfui.config.barTextures) do
-            info.text = texture.text
-            info.value = texture.value
+        
+        local sortedTextures = {}
+        -- Ensure Flat is always available
+        local seen = { ["Flat"] = true }
+        table.insert(sortedTextures, "Flat")
+        
+        if LSM then
+            local textures = LSM:HashTable("statusbar")
+            for name, _ in pairs(textures) do
+                if not seen[name] then
+                    table.insert(sortedTextures, name)
+                    seen[name] = true
+                end
+            end
+        end
+        table.sort(sortedTextures)
+
+        for _, name in ipairs(sortedTextures) do
+            info.text = name
+            info.value = name
             info.func = OnTextureSelect
-            info.checked = (SfuiDB.barTexture == texture.value)
+            info.checked = (SfuiDB.barTexture == name)
             UIDropDownMenu_AddButton(info)
         end
     end
