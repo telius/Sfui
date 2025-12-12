@@ -20,3 +20,4 @@ options.lua
 currency.lua
 minimap.lua
 bars.lua
+frames\vendor.lua

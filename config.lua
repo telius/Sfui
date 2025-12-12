@@ -199,4 +199,14 @@ sfui.config = {
         collect_buttons = true,
         masque = true,
     },
+
+    -- Vendor Frame settings
+    vendor = {
+        frame_width = 800,
+        frame_height = 480,
+        item_width = 190,
+        item_height = 58,
+        rows_per_column = 6,
+        icon_size = 46,
+    },
 }
