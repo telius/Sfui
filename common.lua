@@ -939,7 +939,26 @@ function sfui.events.RegisterEvent(event, callback)
         eventCallbacks[event] = {}
         central_event_frame:RegisterEvent(event)
     end
+    -- Prevent duplicate registrations of the same function
+    for _, cb in ipairs(eventCallbacks[event]) do
+        if cb == callback then return end
+    end
     table.insert(eventCallbacks[event], callback)
+end
+
+-- Unregister an event callback
+function sfui.events.UnregisterEvent(event, callback)
+    local cbs = eventCallbacks[event]
+    if not cbs then return end
+    for i = #cbs, 1, -1 do
+        if cbs[i] == callback then
+            table.remove(cbs, i)
+        end
+    end
+    if #cbs == 0 then
+        central_event_frame:UnregisterEvent(event)
+        eventCallbacks[event] = nil
+    end
 end
 
 -- Register a throttled update loop

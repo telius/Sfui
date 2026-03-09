@@ -411,12 +411,19 @@ local function UpdateIconGlow(icon, entrySettings, panelConfig, isReady)
 end
 
 local _cdInfoCache = {}
+local _cdInfoCacheCount = 0
 
 local function SafeGetCooldownViewerCooldownInfo(id)
     if not id or not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCooldownInfo then return nil end
     local cid = tonumber(id)
     if cid and cid >= -2147483648 and cid <= 2147483647 then
         if _cdInfoCache[cid] == nil then
+            _cdInfoCacheCount = _cdInfoCacheCount + 1
+            -- Wipe cache if it grows too large (e.g. 500 entries)
+            if _cdInfoCacheCount > 500 then
+                wipe(_cdInfoCache)
+                _cdInfoCacheCount = 1
+            end
             local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cid)
             _cdInfoCache[cid] = ok and info or false
         end
@@ -905,21 +912,54 @@ function sfui.trackedicons.UpdatePanelLayout(panelFrame, panelConfig)
         targetPoint = "TOP"
         anchorPoint = "BOTTOM"
     elseif anchorTo ~= "UIParent" then
-        -- Check if anchoring to another panel by name
+        -- Dynamic Anchor Resolution:
+        -- If we are anchoring to "CENTER" and it is hidden, we search for a "replacement" panel
+        -- (usually CAT, BEAR, STEALTH etc) that is currently visible.
+        local searchTarget = anchorTo
+        local resolvedTarget = nil
+
+        -- Initial search for the specific named target
         for _, otherPanel in pairs(panels) do
-            if otherPanel.config and otherPanel.config.name == anchorTo then
-                -- SAFETY: Ensure we are not anchoring to ourselves
-                if otherPanel ~= panelFrame then
-                    targetFrame = otherPanel
-                    targetPoint = "BOTTOM"
-                    anchorPoint = "TOP"
+            if otherPanel.config and otherPanel.config.name == searchTarget then
+                if otherPanel:IsShown() then
+                    resolvedTarget = otherPanel
+                    break
                 else
-                    -- Fallback to UIParent if self-anchoring detected
-                    targetFrame = UIParent
-                    targetPoint = "BOTTOM"
-                    anchorPoint = "BOTTOM"
+                    -- Target found but hidden. If it's "CENTER", we look for any visible
+                    -- "center-style" panel (one that anchors to Health Bar).
+                    if searchTarget == "CENTER" then
+                        for _, p in pairs(panels) do
+                            if p:IsShown() and p.config and p.config.anchorTo == "Health Bar" then
+                                resolvedTarget = p
+                                break
+                            end
+                        end
+                    end
                 end
-                break
+            end
+        end
+
+        if resolvedTarget and resolvedTarget ~= panelFrame then
+            targetFrame = resolvedTarget
+            targetPoint = "BOTTOM"
+            anchorPoint = "TOP"
+        else
+            -- Fallback or static search if dynamic resolution failed or wasn't "CENTER"
+            for _, otherPanel in pairs(panels) do
+                if otherPanel.config and otherPanel.config.name == anchorTo then
+                    -- SAFETY: Ensure we are not anchoring to ourselves
+                    if otherPanel ~= panelFrame then
+                        targetFrame = otherPanel
+                        targetPoint = "BOTTOM"
+                        anchorPoint = "TOP"
+                    else
+                        -- Fallback to UIParent if self-anchoring detected
+                        targetFrame = UIParent
+                        targetPoint = "BOTTOM"
+                        anchorPoint = "BOTTOM"
+                    end
+                    break
+                end
             end
         end
     end

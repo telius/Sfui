@@ -291,6 +291,12 @@ local function create_hammer_popup()
         update_hammer_popup()
     end)
 
+    hammerPopup:SetScript("PreClick", function(self)
+        if InCombatLockdown() then return end
+        -- Listen for the cast result only when we actually use the tool
+        sfui.automation.register_transient_listeners()
+    end)
+
     -- Make Movable
     hammerPopup:SetMovable(true)
     hammerPopup:RegisterForDrag("LeftButton")
@@ -495,20 +501,34 @@ sfui.events.RegisterEvent("MERCHANT_SHOW", function()
 end)
 sfui.events.RegisterEvent("MERCHANT_CLOSED", function() end)
 
-sfui.events.RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(unit, _, spellID)
-    if unit == "player" and (spellID == 382404 or spellID == 382403) then -- Master's Hammer cast IDs
-        currentTargetSlot = nil
-        update_hammer_popup()
-    end
-end)
-
-sfui.events.RegisterEvent("UNIT_SPELLCAST_INTERRUPTED", function(unit, _, spellID)
+local function on_hammer_cast_finished(unit, _, spellID)
     if unit == "player" and (spellID == 382404 or spellID == 382403) then
-        -- Cast was cancelled/interrupted, clear the current target so it doesn't get blocked
         currentTargetSlot = nil
         update_hammer_popup()
+        sfui.automation.unregister_transient_listeners()
     end
-end)
+end
+
+local function on_hammer_cast_interrupted(unit, _, spellID)
+    if unit == "player" and (spellID == 382404 or spellID == 382403) then
+        currentTargetSlot = nil
+        update_hammer_popup()
+        sfui.automation.unregister_transient_listeners()
+    end
+end
+
+function sfui.automation.register_transient_listeners()
+    sfui.events.RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", on_hammer_cast_finished)
+    sfui.events.RegisterEvent("UNIT_SPELLCAST_INTERRUPTED", on_hammer_cast_interrupted)
+
+    -- Auto-cleanup after 5 seconds if for some reason we don't catch the event
+    C_Timer.After(5, sfui.automation.unregister_transient_listeners)
+end
+
+function sfui.automation.unregister_transient_listeners()
+    sfui.events.UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED", on_hammer_cast_finished)
+    sfui.events.UnregisterEvent("UNIT_SPELLCAST_INTERRUPTED", on_hammer_cast_interrupted)
+end
 
 local function refreshHammer()
     update_hammer_popup()

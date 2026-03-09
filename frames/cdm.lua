@@ -713,7 +713,12 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
         zone.content = content
 
         -- Drop Handler & Hover Visuals
-        zone:SetScript("OnUpdate", function(self)
+        zone:SetScript("OnUpdate", function(self, elapsed)
+            self.throttle = (self.throttle or 0) + elapsed
+            local threshold = draggedInfo and 0.05 or 1.0
+            if self.throttle < threshold then return end
+            self.throttle = 0
+
             local function hideIndicator()
                 self.dropLine:Hide()
                 self.dropInsertIndex = nil
@@ -1407,7 +1412,11 @@ OnIconDragStart = function(self, isFromTrackedBars)
     }
 
     -- Creating a ghost cursor follows mouse
-    cursor:SetScript("OnUpdate", function(self)
+    cursor:SetScript("OnUpdate", function(self, elapsed)
+        self.throttle = (self.throttle or 0) + elapsed
+        if self.throttle < 0.05 then return end
+        self.throttle = 0
+
         if not self:IsShown() then return end
         local x, y = GetCursorPosition()
         local scale = UIParent:GetEffectiveScale()

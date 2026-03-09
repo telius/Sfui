@@ -665,7 +665,7 @@ do
         -- Speed requires polling as there is no gliding speed event
         bar:SetScript("OnUpdate", function(self, elapsed)
             self.timer = (self.timer or 0) + elapsed
-            if self.timer > 0.1 then -- Throttled to 10fps
+            if self.timer > 0.05 then -- Throttled to 20fps
                 self.timer = 0
                 update_mount_speed_bar_internal()
             end
