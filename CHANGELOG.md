@@ -1,3 +1,22 @@
+## v0.4.4 (2026-03-10)
+
+### Features
+- **Detachable WQS Panel**: The World Quest Summary frame can now be unpinned from the World Map, dragged freely, and its position is saved persistently.
+- **Dynamic WQS Sizing**: The frame now automatically adjusts its height based on the number of active quests.
+- **Improved Cursor Ring**: Re-optimized for pixel-perfect tracking on high-refresh displays.
+
+### Performance & Audit
+- **Comprehensive Frames Audit**: Conducted a full performance review of all 20 frame modules, ensuring strictly event-driven or throttled update logic.
+- **Transient Event Listeners**: Implemented temporary event registration for the Master's Hammer; the addon now only monitors spellcasts while a repair is active, ensuring zero background overhead during regular play.
+- **Throttling Optimizations**:
+    - Mount Speed Bar: Optimized to 20Hz (0.05s).
+    - Cooldown Manager: Dynamic 20Hz (active) / 1Hz (idle) throttles.
+- **Performance Manifest**: Added `docs/calls.txt` to document and monitor all high-frequency API interactions.
+
+### Core Improvements
+- **Event System Expansion**: Added `UnregisterEvent` to the central event manager to support transient module listeners.
+- **API Localization**: Completed localization of math and string libraries across the entire `frames/` directory.
+
 ## v0.4.3 (2026-03-07)
 
 ### Features
