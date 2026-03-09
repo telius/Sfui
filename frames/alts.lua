@@ -76,6 +76,7 @@ local function AcquireCell(parent)
         f:Show()
         if f.text then
             f.text:Show()
+            f.text:ClearAllPoints()
             f.text:SetText("")
             f.text:SetTextColor(1, 1, 1)
             f.text:SetFontObject("GameFontHighlightSmall")
@@ -271,9 +272,10 @@ end
 
 local syncTimer = nil
 local needsSync = false
+local leavingWorld = false
 
 function sfui.alts.SyncCurrentCharacter()
-    if InCombatLockdown() then
+    if leavingWorld or InCombatLockdown() then
         needsSync = true
         return
     end
@@ -305,7 +307,15 @@ end
 
 local preyLogDirty = true
 
-function sfui.alts.PerformSync()
+function sfui.alts.PerformSync(isLogout)
+    if not isLogout and leavingWorld then return end
+
+    -- Cancel any pending timer if we just performed a sync (manual or logout)
+    if syncTimer then
+        syncTimer:Cancel()
+        syncTimer = nil
+    end
+
     sfui.alts.RefreshDynamicCategories()
     SfuiDB.alts = SfuiDB.alts or {}
 
@@ -322,8 +332,10 @@ function sfui.alts.PerformSync()
     local name = UnitName("player")
     local level = UnitLevel("player")
 
-    -- VALIDATION GUARD: Do not sync if character and level data are not yet available (e.g., during login or world transitions).
-    if not guid or not name or name == "Unknown Entity" or not level or level <= 0 then
+    -- VALIDATION GUARD: Do not sync if character and level data are not yet available
+    -- Also guard against iLvl being 0 during logout transitions for max level characters
+    local _, avgItemLevelEquipped = GetAverageItemLevel()
+    if not guid or not name or name == "Unknown Entity" or not level or level <= 0 or (level >= 90 and avgItemLevelEquipped <= 0) then
         return
     end
 
@@ -833,8 +845,8 @@ function sfui.alts.UpdateUI(force)
 
     -- Update sidebar
     if frame.sidebar then
-        -- OPTIMIZATION: Avoid { GetChildren() }
-        for i = 1, frame.sidebar:GetNumChildren() do
+        -- OPTIMIZATION: Avoid { GetChildren() } and iterate backwards to safely orphan children
+        for i = frame.sidebar:GetNumChildren(), 1, -1 do
             local cell = select(i, frame.sidebar:GetChildren())
             if cell then ReleaseCell(cell) end
         end
@@ -875,11 +887,11 @@ function sfui.alts.UpdateUI(force)
 
     -- Release existing content to pools
     if not frame.content then return end
-    -- OPTIMIZATION: Avoid temporary tables for children iteration
-    for i = 1, frame.content:GetNumChildren() do
+    -- OPTIMIZATION: Avoid temporary tables and iterate backwards to safely orphan children
+    for i = frame.content:GetNumChildren(), 1, -1 do
         local col = select(i, frame.content:GetChildren())
         if col then
-            for j = 1, col:GetNumChildren() do
+            for j = col:GetNumChildren(), 1, -1 do
                 local cell = select(j, col:GetChildren())
                 if cell then ReleaseCell(cell) end
             end
@@ -1298,13 +1310,18 @@ function sfui.alts.initialize()
     eventFrame:RegisterEvent("PLAYER_LEAVING_WORLD")
 
     eventFrame:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_ENTERING_WORLD" then
+            leavingWorld = false
+        end
+
         if event == "QUEST_LOG_UPDATE" then
             preyLogDirty = true
         end
 
         if event == "PLAYER_LEAVING_WORLD" then
             -- Sync immediately on logout to catch final changes, protected by validation guards in PerformSync
-            sfui.alts.PerformSync()
+            leavingWorld = true
+            sfui.alts.PerformSync(true)
         else
             sfui.alts.SyncCurrentCharacter()
         end

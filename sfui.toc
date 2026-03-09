@@ -31,6 +31,7 @@ frames/research.lua
 frames/castbar.lua
 frames/merchant.lua
 frames/alts.lua
+
 frames/vehicle.lua
 frames/automation.lua
 frames/cdm.lua
@@ -41,3 +42,4 @@ frames/glows.lua
 frames/hotkeys.lua
 frames/trackedicons.lua
 frames/compare.lua
+frames/wqs.lua
