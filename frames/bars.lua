@@ -754,9 +754,10 @@ do
     event_frame:RegisterEvent("PLAYER_TARGET_CHANGED")
     event_frame:RegisterEvent("RUNE_POWER_UPDATE")
     event_frame:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
+    event_frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
     event_frame:SetScript("OnEvent", function(self, event, unit, ...)
-        if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "UPDATE_SHAPESHIFT_FORM" or event == "PLAYER_CAN_GLIDE_CHANGED" or event == "PLAYER_IS_GLIDING_CHANGED" or event == "PLAYER_MOUNT_DISPLAY_CHANGED" then
+        if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "UPDATE_SHAPESHIFT_FORM" or event == "PLAYER_CAN_GLIDE_CHANGED" or event == "PLAYER_IS_GLIDING_CHANGED" or event == "PLAYER_MOUNT_DISPLAY_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
             invalidate_dragonflying_cache()
             sfui.bars:on_state_changed()
         elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_TARGET_CHANGED" then

@@ -271,50 +271,6 @@ function sfui.create_options_panel()
         end, "automatically sets 'alwaysCompareItems' cvar.")
     enable_auto_compare_cb:SetPoint("TOPLEFT", enable_ring_cursor_cb, "BOTTOMLEFT", 0, -10)
 
-    local enable_prey_cb = create_checkbox(main_panel, "enable prey bar", "preyBar.enabled",
-        function(checked)
-            sfui.config.preyBar.enabled = checked
-            if sfui.prey and sfui.prey.bar and sfui.prey.bar.backdrop then
-                if not checked then
-                    sfui.prey.bar.backdrop:Hide()
-                end
-            end
-        end, "toggles the prey progress bar.")
-    enable_prey_cb:SetPoint("TOPLEFT", enable_auto_compare_cb, "BOTTOMLEFT", 0, -20)
-
-    local preview_prey_btn = CreateFlatButton(main_panel, "preview", 70, 22)
-    preview_prey_btn:SetPoint("LEFT", enable_prey_cb.text, "RIGHT", 10, 0)
-    preview_prey_btn:SetScript("OnClick", function()
-        if sfui.prey and sfui.prey.bar then
-            sfui.prey.preview = true
-            sfui.prey.UpdatePreyBar(sfui.prey.bar)
-            C_Timer.After(5, function()
-                sfui.prey.preview = false
-                sfui.prey.UpdatePreyBar(sfui.prey.bar)
-            end)
-        end
-    end)
-
-    local prey_x_input = sfui.common.create_input_field(main_panel, "position x:", "preyBar.pos.x", 120,
-        function(val)
-            SfuiDB.preyBar.pos.x = val
-            sfui.config.preyBar.pos.x = val
-            if sfui.prey and sfui.prey.bar then
-                sfui.prey.UpdatePreyBar(sfui.prey.bar)
-            end
-        end, "horizontal offset from top center.")
-    prey_x_input:SetPoint("TOPLEFT", enable_prey_cb, "BOTTOMLEFT", 0, -20)
-
-    local prey_y_input = sfui.common.create_input_field(main_panel, "position y:", "preyBar.pos.y", 120,
-        function(val)
-            SfuiDB.preyBar.pos.y = val
-            sfui.config.preyBar.pos.y = val
-            if sfui.prey and sfui.prey.bar then
-                sfui.prey.UpdatePreyBar(sfui.prey.bar)
-            end
-        end, "vertical offset from top.")
-    prey_y_input:SetPoint("LEFT", prey_x_input, "RIGHT", 10, 0)
-
     local enable_vehicle_cb = create_checkbox(main_panel, "enable vehicle ui", "enableVehicle", function(checked)
         if checked then
             print("|cff00ff00Sfui: Vehicle UI enabled. Please reload UI for changes to fully apply.|r")
@@ -322,7 +278,7 @@ function sfui.create_options_panel()
             print("|cffff0000Sfui: Vehicle UI disabled. Default WoW frame will be used on reload.|r")
         end
     end, "Enables the custom vehicle/overlay bar (requires reload).")
-    enable_vehicle_cb:SetPoint("TOPLEFT", prey_x_input, "BOTTOMLEFT", 0, -20)
+    enable_vehicle_cb:SetPoint("TOPLEFT", enable_auto_compare_cb, "BOTTOMLEFT", 0, -20)
 
 
     local use_spec_color_cb = create_checkbox(main_panel, "use spec color", "useSpecColor", function(checked)

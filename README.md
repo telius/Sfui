@@ -17,12 +17,6 @@ Comprehensive manager for all your tracking needs. Configure auras, cooldowns, a
 
 ![Tracking Manager](.previews/trackingmanager.png)
 
-### Prey Bar
-High-performance tracker for expansion hunts and area activities.
-- **Zone Aware**: Automatically toggles visibility based on hunt location.
-- **Clean Display**: Robust title cropping and final-stage "Ready" status tracking.
-- **API Driven**: Minimal CPU impact using direct Blizzard API data instead of UI scanning.
-
 ### Tracked Bars
 Powerful cooldown and aura tracking system that integrates seamlessly with your character frame.
 - **Smart Attachment**: Stack tracked bars directly above your Health or Secondary Power bar for a unified HUD.

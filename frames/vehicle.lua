@@ -15,6 +15,37 @@ local mult = sfui.pixelScale or 1
 frame:SetSize(cfg.width, cfg.height)
 frame:SetPoint(cfg.anchor.point, cfg.anchor.x, cfg.anchor.y)
 
+-- Reuse locals
+local _v_start, _v_duration, _v_enable, _v_count, _v_charges, _v_maxCharges, _v_chargeStart, _v_chargeDuration, _v_displayCount, _v_isSecret, _v_actionID, _v_icon, _v_barIndex
+
+local debounceFrame = CreateFrame("Frame")
+debounceFrame:Hide()
+debounceFrame:SetScript("OnUpdate", function(self)
+    self:Hide()
+    sfui.vehicle.UpdateActionButtons()
+end)
+
+local function RequestUpdate()
+    debounceFrame:Show()
+end
+
+local function OnEnter(self)
+    local action = self:GetAttribute("action")
+    if action then
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetAction(action)
+        GameTooltip:Show()
+    end
+end
+
+local function OnLeave() GameTooltip:Hide() end
+
+local function LeaveOnEnter(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:SetText(LEAVE_VEHICLE)
+    GameTooltip:Show()
+end
+
 -- Background
 frame.bg = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 frame.bg:SetAllPoints()
@@ -88,14 +119,8 @@ for i = 1, 12 do
 
     sfui.common.sync_masque(btn)
 
-    btn:SetScript("OnEnter", function(self)
-        if self:GetAttribute("action") then
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:SetAction(self:GetAttribute("action"))
-            GameTooltip:Show()
-        end
-    end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    btn:SetScript("OnEnter", OnEnter)
+    btn:SetScript("OnLeave", OnLeave)
 
     buttons[i] = btn
 end
@@ -124,12 +149,8 @@ leaveBtn.kb:SetText("=")
 
 sfui.common.sync_masque(leaveBtn)
 
-leaveBtn:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:SetText(LEAVE_VEHICLE)
-    GameTooltip:Show()
-end)
-leaveBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+leaveBtn:SetScript("OnEnter", LeaveOnEnter)
+leaveBtn:SetScript("OnLeave", OnLeave)
 
 leaveBtn:SetScript("OnClick", function()
     if UnitOnTaxi("player") then
@@ -155,36 +176,43 @@ local function UpdateCooldowns()
     if not frame:IsVisible() then return end
     for i = 1, 12 do
         local btn = buttons[i]
-        local actionID = btn:GetAttribute("action")
-        if btn:IsVisible() and actionID then
-            local start, duration, enable = GetActionCooldown(actionID)
-            local cd = _G[btn:GetName() .. "Cooldown"] or btn.cooldown
-            if cd then
-                cd:SetCooldown(start, duration)
-            end
-            if btn.shadowCooldown then
-                btn.shadowCooldown:SetCooldown(start, duration)
-            end
+        if btn:IsVisible() then
+            _v_actionID = btn:GetAttribute("action")
+            if _v_actionID then
+                _v_start, _v_duration, _v_enable = GetActionCooldown(_v_actionID)
 
-            local count = GetActionCount(actionID)
-            local charges, maxCharges, chargeStart, chargeDuration = GetActionCharges(actionID)
+                -- Gating: Cooldown
+                if _v_start ~= btn._lastStart or _v_duration ~= btn._lastDuration then
+                    local cd = _G[btn:GetName() .. "Cooldown"] or btn.cooldown
+                    if cd then cd:SetCooldown(_v_start, _v_duration) end
+                    if btn.shadowCooldown then btn.shadowCooldown:SetCooldown(_v_start, _v_duration) end
+                    btn._lastStart = _v_start
+                    btn._lastDuration = _v_duration
+                end
 
-            local displayCount = charges or count or 0
+                _v_count = GetActionCount(_v_actionID)
+                _v_charges, _v_maxCharges, _v_chargeStart, _v_chargeDuration = GetActionCharges(_v_actionID)
+                _v_displayCount = _v_charges or _v_count or 0
 
-            -- Check for secret values to avoid taint during comparison
-            local isSecret = sfui.common.issecretvalue(displayCount) or sfui.common.issecretvalue(maxCharges)
-
-            if btn.Count then
-                if not isSecret and (displayCount > 0 or (maxCharges and maxCharges > 1)) then
-                    btn.Count:SetText(tostring(displayCount))
-                    btn.Count:Show()
-                else
-                    btn.Count:Hide()
+                -- Gating: Count
+                if _v_displayCount ~= btn._lastCount or _v_maxCharges ~= btn._lastMaxCharges then
+                    _v_isSecret = sfui.common.issecretvalue(_v_displayCount) or sfui.common.issecretvalue(_v_maxCharges)
+                    if btn.Count then
+                        if not _v_isSecret and (_v_displayCount > 0 or (_v_maxCharges and _v_maxCharges > 1)) then
+                            btn.Count:SetText(tostring(_v_displayCount))
+                            btn.Count:Show()
+                        else
+                            btn.Count:Hide()
+                        end
+                    end
+                    btn._lastCount = _v_displayCount
+                    btn._lastMaxCharges = _v_maxCharges
                 end
             end
         end
     end
 end
+sfui.vehicle.UpdateCooldowns = UpdateCooldowns
 
 local function UpdateActionButtons()
     if InCombatLockdown() then
@@ -193,51 +221,51 @@ local function UpdateActionButtons()
     end
     frame.needsUpdate = false
 
-    local barIndex
     if C_ActionBar.HasVehicleActionBar() then
-        barIndex = C_ActionBar.GetVehicleBarIndex()
+        _v_barIndex = C_ActionBar.GetVehicleBarIndex()
     elseif C_ActionBar.HasOverrideActionBar() then
-        barIndex = C_ActionBar.GetOverrideBarIndex()
+        _v_barIndex = C_ActionBar.GetOverrideBarIndex()
     elseif C_ActionBar.HasTempShapeshiftActionBar() then
-        barIndex = C_ActionBar.GetTempShapeshiftBarIndex()
+        _v_barIndex = C_ActionBar.GetTempShapeshiftBarIndex()
     elseif C_ActionBar.HasBonusActionBar() then
-        barIndex = C_ActionBar.GetBonusBarIndex()
+        _v_barIndex = C_ActionBar.GetBonusBarIndex()
     else
-        barIndex = C_ActionBar.GetActionBarPage()
+        _v_barIndex = C_ActionBar.GetActionBarPage()
     end
 
-    if not barIndex or barIndex == 0 then barIndex = 1 end
+    if not _v_barIndex or _v_barIndex == 0 then _v_barIndex = 1 end
 
     local lastIdx = 0
     for i = 1, 12 do
         local btn = buttons[i]
-        local actionID = (barIndex - 1) * 12 + i
-        btn:SetAttribute("action", actionID)
+        _v_actionID = (_v_barIndex - 1) * 12 + i
+        btn:SetAttribute("action", _v_actionID)
 
-        local icon = C_ActionBar.GetActionTexture(actionID)
-        if icon then
-            btn.icon:SetTexture(icon)
-            btn:Show()
+        _v_icon = C_ActionBar.GetActionTexture(_v_actionID)
+        if _v_icon then
+            if btn.icon:GetTexture() ~= _v_icon then
+                btn.icon:SetTexture(_v_icon)
+            end
+            if not btn:IsShown() then btn:Show() end
             lastIdx = i
             -- Sync Masque state
             sfui.common.sync_masque(btn)
         else
-            btn:Hide()
+            if btn:IsShown() then btn:Hide() end
         end
     end
 
     -- Ensure Leave button is visible and correctly anchored
     if lastIdx > 0 then
         local totalWidth = (cfg.button_size + cfg.button_spacing) * (lastIdx + 1) + cfg.button_spacing
-        frame:SetWidth(totalWidth)
+        if frame:GetWidth() ~= totalWidth then frame:SetWidth(totalWidth) end
         leaveBtn:SetPoint("LEFT", buttons[lastIdx], "RIGHT", cfg.button_spacing, 0)
-        leaveBtn:Show()
-    else
-        -- Don't Hide() here, let the state driver handle main frame visibility
+        if not leaveBtn:IsShown() then leaveBtn:Show() end
     end
 
     UpdateCooldowns()
 end
+sfui.vehicle.UpdateActionButtons = UpdateActionButtons
 
 frame:RegisterEvent("UNIT_ENTERED_VEHICLE")
 frame:RegisterEvent("UNIT_EXITED_VEHICLE")
@@ -274,7 +302,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_ENTERING_WORLD" or event == "UPDATE_BONUS_ACTIONBAR" or event == "VEHICLE_UPDATE"
         or event == "UPDATE_VEHICLE_ACTIONBAR" or event == "UPDATE_OVERRIDE_ACTIONBAR" or event == "UPDATE_POSSESS_BAR"
         or event == "UNIT_ENTERED_VEHICLE" or (event == "PLAYER_REGEN_ENABLED" and self.needsUpdate) then
-        UpdateActionButtons()
+        RequestUpdate()
     end
 end)
 

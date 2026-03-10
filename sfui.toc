@@ -20,7 +20,6 @@ Libs/LibDataBroker-1.1/LibDataBroker-1.1.lua
 Libs/LibDBIcon-1.0/LibDBIcon-1.0.lua
 config.lua
 common.lua
-frames/prey.lua
 core.lua
 
 frames/options.lua
@@ -43,3 +42,4 @@ frames/hotkeys.lua
 frames/trackedicons.lua
 frames/compare.lua
 frames/wqs.lua
+frames/transfer.lua

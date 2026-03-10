@@ -28,12 +28,13 @@ local GetQuestInfoByQuestID = C_TaskQuest.GetQuestInfoByQuestID
 local GetDetailedItemLevelInfo = C_Item.GetDetailedItemLevelInfo
 local GetQuestRewardCurrencies = C_QuestLog.GetQuestRewardCurrencies
 local GetCurrencyInfo = C_CurrencyInfo.GetCurrencyInfo
-local GetQuestRewardLink = C_QuestLog.GetQuestRewardLink
+local GetQuestRewardLink = C_QuestLog.GetQuestLogRewardLink or C_QuestLog.GetQuestRewardLink or _G.GetQuestLogRewardLink
 local IsQuestWarbound = C_QuestLog.IsQuestWarbound
 local QuestContainsFirstTimeRepBonusForPlayer = C_QuestLog.QuestContainsFirstTimeRepBonusForPlayer
 local GetQuestLogRewardMoney = _G.GetQuestLogRewardMoney or function(...) return 0 end
 local GetNumQuestLogRewards = _G.GetNumQuestLogRewards or function(...) return 0 end
 local GetQuestLogRewardInfo = _G.GetQuestLogRewardInfo or function(...) end
+local GetItemInfo = _G.GetItemInfo or function(...) end
 local GetInventoryItemLink = _G.GetInventoryItemLink or function(...) end
 local GetMoneyString = _G.GetMoneyString or tostring
 local GetQuestLogLeaderBoard = _G.GetQuestLogLeaderBoard or function(...) end
@@ -43,7 +44,6 @@ local WorldMapFrame = _G.WorldMapFrame
 local GameTooltip, ITEM_QUALITY_COLORS = _G.GameTooltip, _G.ITEM_QUALITY_COLORS
 local C_SuperTrack = _G.C_SuperTrack
 local wipe = _G.wipe or (_G.table and _G.table.wipe)
-local ITEM_LEVEL_PLUS = _G.ITEM_LEVEL_PLUS or "Item Level %d"
 local STAT_AVERAGE_ITEM_LEVEL = _G.STAT_AVERAGE_ITEM_LEVEL or "Item Level"
 
 -- Advance Localization (Speed)
@@ -61,6 +61,8 @@ local requestCache = {}
 local rewardDataCache = {} -- Persistent cache for reward strings/values
 local refreshTimer
 local refreshCount = 0
+local WARBAND_BONUS_TEXT = " |TInterface\\Buttons\\WHITE8x8:12:6:0:0:1:1:0:1:0:1:0:255:255|t"
+local UPGRADE_ICON_TEXT = " |TInterface\\OptionsFrame\\UI-OptionsFrame-NewFeatureIcon:12:12:0:0|t"
 
 -- Pooling
 local framePool = {}
@@ -125,9 +127,22 @@ local SLOT_IDS = {
     ["INVTYPE_RELIC"] = 16,
 }
 
-local function UpdateEquippedCache()
+local function GetEquippedIlvl(slots)
+    if not slots then return 0 end
+    if type(slots) == "number" then
+        return equippedCache[slots] or 0
+    end
+    local minIlvl = 9999
+    for _, slotID in ipairs(slots) do
+        local slotIlvl = equippedCache[slotID] or 0
+        if slotIlvl < minIlvl then minIlvl = slotIlvl end
+    end
+    return minIlvl
+end
+
+local function UpdateGearCache()
     wipe(equippedCache)
-    for loc, slots in pairs(SLOT_IDS) do
+    for _, slots in pairs(SLOT_IDS) do
         if type(slots) == "table" then
             for _, slotID in ipairs(slots) do
                 local link = GetInventoryItemLink("player", slotID)
@@ -138,7 +153,7 @@ local function UpdateEquippedCache()
             equippedCache[slots] = link and GetDetailedItemLevelInfo(link) or 0
         end
     end
-    -- Invalidate reward cache for items when gear changes (upgrades might look different)
+    -- Invalidate reward cache for items when gear changes
     for qID, data in pairs(rewardDataCache) do
         if data.hasIlvl then
             rewardDataCache[qID] = nil
@@ -147,31 +162,134 @@ local function UpdateEquippedCache()
     end
 end
 
-local function IsUpgrade(itemLink)
+local function IsUpgrade(itemLink, overrideIlvl)
     if not itemLink then return false end
-    local ilvl = C_Item.GetDetailedItemLevelInfo(itemLink)
+    local ilvl = overrideIlvl or GetDetailedItemLevelInfo(itemLink)
     if not ilvl or ilvl <= 1 then return false end
 
-    local _, _, _, _, _, _, _, _, equipLoc = C_Item.GetItemInfo(itemLink)
-    if not equipLoc then return false end -- Not in cache or not equippable
-    local slots = SLOT_IDS[equipLoc]
+    local _, _, _, _, _, _, _, _, equipLoc = GetItemInfo(itemLink)
+    local slots = equipLoc and SLOT_IDS[equipLoc]
     if not slots then return false end
 
-    if type(slots) == "table" then
-        local minIlvl = 9999
-        for _, slotID in ipairs(slots) do
-            local slotIlvl = equippedCache[slotID] or 0
-            if slotIlvl < minIlvl then minIlvl = slotIlvl end
-        end
-        return ilvl > minIlvl
-    else
-        local slotIlvl = equippedCache[slots] or 0
-        return ilvl > slotIlvl
-    end
+    return ilvl > GetEquippedIlvl(slots)
 end
 
--- Warband Bonus Marker (Cyan Square) - Shrunk to 12x6
-local WARBAND_BONUS_TEXT = " |TInterface\\Buttons\\WHITE8x8:12:6:0:0:1:1:0:1:0:1:0:255:255|t"
+local function ScanQuestRewards(self, questID)
+    local rewardParts = AcquireTable()
+    local sortRewardValue = 0
+    local isWarbound = IsQuestWarbound and IsQuestWarbound(questID)
+    local questHasReputation = isWarbound
+    local questHasUpgrade = false
+    local allRewardsCached = true
+    local hasItems, hasGold = false, false
+
+    -- Currencies
+    local rewardCurrencies = GetQuestRewardCurrencies(questID)
+    if rewardCurrencies then
+        for _, currency in ipairs(rewardCurrencies) do
+            local currencyInfo = GetCurrencyInfo(currency.currencyID)
+            local isWarboundCurrency = (currency.currencyID >= 2800)
+            local isRep = (currencyInfo and (currencyInfo.categoryID == 2112 or currencyInfo.maxQuantity == 0))
+            if isWarboundCurrency then isWarbound = true end
+            local currentMarker = isWarbound and WARBAND_BONUS_TEXT or ""
+
+            if isRep or isWarboundCurrency then
+                questHasReputation = true
+                table.insert(rewardParts,
+                    "+" .. currency.totalRewardAmount .. " |T" .. currency.texture .. ":12:12:0:0:64:64:4:60:4:60|t" ..
+                    currentMarker)
+                sortRewardValue = sortRewardValue + (currency.totalRewardAmount / 10)
+            else
+                table.insert(rewardParts,
+                    "|T" .. currency.texture .. ":12:12:0:0:64:64:4:60:4:60|t " ..
+                    currency.totalRewardAmount .. currentMarker)
+                sortRewardValue = sortRewardValue + 100000 + currency.totalRewardAmount
+            end
+        end
+    end
+
+    -- Items
+    local numItems = GetNumQuestLogRewards(questID)
+    if numItems > 0 then
+        hasItems = true
+        for i = 1, numItems do
+            local itemName, itemTexture, quantity, quality, _, itemID = GetQuestLogRewardInfo(i, questID)
+            if itemTexture then
+                local itemLink = (GetQuestRewardLink and GetQuestRewardLink(questID, i)) or ("item:" .. (itemID or 0))
+                local ilvl = GetDetailedItemLevelInfo(itemLink) or 0
+                local upgradeIcon = ""
+
+                -- Cache check
+                if itemID and GetItemInfo then
+                    if not GetItemInfo(itemID) then
+                        allRewardsCached = false
+                        if C_Item and C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
+                    else
+                        local info = { GetItemInfo(itemID) }
+                        if info[14] == 4 then isWarbound = true end -- LE_ITEM_BIND_TO_BNET
+                    end
+                end
+
+                -- Tooltip Scan for scaling/warband
+                if self.ScanTooltip then
+                    self.ScanTooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
+                    self.ScanTooltip:SetQuestLogItem("reward", i, questID)
+                    local lines = self.ScanTooltip.leftLines
+                    for lineIdx = 2, math_min(self.ScanTooltip:NumLines(), 20) do
+                        local text = lines[lineIdx] and lines[lineIdx]:GetText()
+                        if text then
+                            if string_find(text, STAT_AVERAGE_ITEM_LEVEL) then
+                                local foundIlvl = string_match(text, "(%d+)")
+                                if foundIlvl then ilvl = math_max(ilvl, tonumber(foundIlvl) or 0) end
+                            end
+                            if string_find(text, "Warband reputation bonus") or string_find(text, "Account Bound") or string_find(text, "Warband Soulbound") then
+                                isWarbound = true
+                            end
+                        end
+                    end
+                end
+
+                local ilvlText = ""
+                if ilvl > 1 then
+                    local info = { GetItemInfo(itemID) }
+                    if info[12] == 2 or info[12] == 4 then -- Weapon or Armor
+                        local isUpgrade = IsUpgrade(itemLink, ilvl)
+                        if isUpgrade then
+                            questHasUpgrade = true
+                            upgradeIcon = UPGRADE_ICON_TEXT
+                        end
+                        ilvlText = "|c" .. (isUpgrade and "ff00ff00" or "ffffffff") .. "(" .. ilvl .. ")|r "
+                        sortRewardValue = sortRewardValue + 1000000 + (ilvl * 10)
+                    end
+                end
+
+                local color = (ITEM_QUALITY_COLORS[quality or 1] and ITEM_QUALITY_COLORS[quality or 1].hex) or "|cffffffff"
+                local qtyText = (quantity and quantity > 1) and (quantity .. " ") or ""
+                local currentMarker = isWarbound and WARBAND_BONUS_TEXT or ""
+                table.insert(rewardParts,
+                    "|T" .. itemTexture .. ":12:12:0:0:64:64:4:60:4:60|t " ..
+                    ilvlText .. color .. "[" .. qtyText .. (itemName or "Unknown") .. "]|r" .. currentMarker .. upgradeIcon)
+                if isWarbound then questHasReputation = true end
+            end
+        end
+    end
+
+    -- Money
+    local money = GetQuestLogRewardMoney(questID)
+    if money > 0 then
+        hasGold = true
+        table.insert(rewardParts, GetMoneyString(money))
+        sortRewardValue = sortRewardValue + (money / 10000)
+    end
+
+    local rewardText = table.concat(rewardParts, " | ")
+    ReleaseTable(rewardParts)
+
+    return rewardText, sortRewardValue, isWarbound, allRewardsCached, hasItems, hasGold, questHasReputation,
+        questHasUpgrade
+end
+
+
 
 -- Constants (Strict Midnight Zones)
 local MIDNIGHT_ZONES = {
@@ -182,6 +300,21 @@ local MIDNIGHT_ZONES = {
     2405, -- Voidstorm
     2444, -- Slayer's Rise
 }
+local function UpdateZoneCache()
+    if zoneCache["midnight"] then return zoneCache["midnight"] end
+    zoneCache["midnight"] = {}
+    for _, zoneID in ipairs(MIDNIGHT_ZONES) do
+        local info = C_Map.GetMapInfo(zoneID)
+        if info then
+            local name = info.name or ("Map " .. zoneID)
+            -- Zone Merging Overrides
+            if zoneID == 2393 then name = "Eversong Woods" end -- Silvermoon City
+            if zoneID == 2444 then name = "Voidstorm" end      -- Slayer's Rise
+            zoneCache["midnight"][zoneID] = name
+        end
+    end
+    return zoneCache["midnight"]
+end
 
 local WQS = CreateFrame("Frame", "SfuiWQS", UIParent, "BackdropTemplate")
 sfui.wqs = WQS
@@ -201,6 +334,8 @@ end
 
 -- Interaction handling for WorldMap
 function WQS:Initialize()
+    UpdateZoneCache()
+    UpdateGearCache()
     self:SetSize(620, 450) -- Adjusted to fit 100/100/300 layout comfortably
     self:SetMovable(false)
     self:EnableMouse(true)
@@ -499,7 +634,7 @@ function WQS:Initialize()
             self:AttachToMap()
             self:UnregisterEvent("ADDON_LOADED")
         elseif event == "PLAYER_EQUIPMENT_CHANGED" or (event == "UNIT_INVENTORY_CHANGED" and arg1 == "player") then
-            UpdateEquippedCache()
+            UpdateGearCache()
             self:Refresh()
         elseif event == "QUEST_DATA_LOAD_RESULT" or event == "ITEM_DATA_LOAD_RESULT" then
             -- Wipe request cache on data load events to retry
@@ -613,13 +748,74 @@ function WQS:CreateRow()
         row.Time:SetWidth(60)
         row.Time:SetJustifyH("RIGHT")
 
+        row.UpgradeGlow = row:CreateTexture(nil, "BACKGROUND")
+        row.UpgradeGlow:SetAllPoints()
+        row.UpgradeGlow:SetColorTexture(0, 1, 0, 0.08) -- Soft green glow
+        row.UpgradeGlow:Hide()
+
         row.Highlight = row:CreateTexture(nil, "ARTWORK")
         row.Highlight:SetAllPoints()
         row.Highlight:SetColorTexture(1, 1, 1, 0.05)
         row.Highlight:Hide()
 
-        row:SetScript("OnEnter", function(s) s.Highlight:Show() end)
-        row:SetScript("OnLeave", function(s) s.Highlight:Hide() end)
+        row:SetScript("OnEnter", function(s)
+            s.Highlight:Show()
+            GameTooltip:SetOwner(s, "ANCHOR_RIGHT")
+
+            local success = false
+            if GameTooltip.SetWorldQuestByID then
+                success = pcall(function() GameTooltip:SetWorldQuestByID(s.questID) end)
+            end
+            if not success then
+                success = pcall(function() GameTooltip:SetQuestLogItem("reward", 1, s.questID) end)
+            end
+
+            local numObjs = GetNumQuestLeaderBoards(s.questID)
+            if numObjs > 0 then
+                GameTooltip:AddLine(" ")
+                for i = 1, numObjs do
+                    local text, _, finished = GetQuestLogLeaderBoard(i, s.questID)
+                    if text then
+                        local r, g, b = 1, 1, 1
+                        if finished then r, g, b = 0.5, 0.5, 0.5 end
+                        GameTooltip:AddLine("- " .. text, r, g, b, true)
+                    end
+                end
+            end
+            GameTooltip:Show()
+
+            -- Map Highlight
+            if sfui.wqs.MapHighlight and s.posX and s.posY and WorldMapFrame:GetMapID() == s.mapID then
+                local mapWidth = WorldMapFrame.ScrollContainer.Child:GetWidth()
+                local mapHeight = WorldMapFrame.ScrollContainer.Child:GetHeight()
+                if mapWidth > 0 and mapHeight > 0 then
+                    sfui.wqs.MapHighlight:ClearAllPoints()
+                    sfui.wqs.MapHighlight:SetPoint("CENTER", WorldMapFrame.ScrollContainer.Child, "TOPLEFT", s.posX * mapWidth,
+                        -s.posY * mapHeight)
+                    sfui.wqs.MapHighlight:Show()
+                end
+            end
+        end)
+        row:SetScript("OnLeave", function(s)
+            s.Highlight:Hide()
+            GameTooltip:Hide()
+            if sfui.wqs.MapHighlight then sfui.wqs.MapHighlight:Hide() end
+        end)
+        row:SetScript("OnClick", function(s, button)
+            if IsShiftKeyDown() then
+                if C_QuestLog.GetQuestWatchType(s.questID) == Enum.QuestWatchType.Manual then
+                    C_QuestLog.RemoveWorldQuestWatch(s.questID)
+                else
+                    C_QuestLog.AddWorldQuestWatch(s.questID, Enum.QuestWatchType.Manual)
+                end
+            else
+                C_QuestLog.SetSelectedQuest(s.questID)
+                C_SuperTrack.SetSuperTrackedQuestID(s.questID)
+                if not WorldMapFrame:IsShown() then ShowUIPanel(WorldMapFrame) end
+                WorldMapFrame:SetMapID(s.mapID)
+                if WorldMapFrame.ScrollToQuest then WorldMapFrame:ScrollToQuest(s.questID) end
+            end
+        end)
     end
     row:Show()
     table.insert(activeFrames, row)
@@ -651,13 +847,45 @@ function WQS:Refresh()
     end)
 end
 
+local function UpdateHeader(btn, mode, text)
+    local indicator = ""
+    local purple = sfui.config.colors.purple
+    local white = sfui.config.colors.white
+    local wqs = sfui.wqs
+    if wqs.sortMode == mode then
+        indicator = wqs.sortOrder == 1 and "  ▼" or "  ▲"
+        btn.Text:SetTextColor(white[1], white[2], white[3])
+    else
+        btn.Text:SetTextColor(purple[1], purple[2], purple[3])
+    end
+    btn.Text:SetText(text .. indicator)
+end
+
+local function QuestSorter(a, b)
+    local self = sfui.wqs
+    if self.sortMode == "reward" then
+        if a.sortRewardValue ~= b.sortRewardValue then
+            if self.sortOrder == 1 then return a.sortRewardValue < b.sortRewardValue else return a.sortRewardValue > b.sortRewardValue end
+        end
+    elseif self.sortMode == "time" then
+        if a.timeLeft ~= b.timeLeft then
+            if self.sortOrder == 1 then return a.timeLeft < b.timeLeft else return a.timeLeft > b.timeLeft end
+        end
+    elseif self.sortMode == "zone" then
+        if a.zoneName ~= b.zoneName then
+            if self.sortOrder == 1 then return a.zoneName < b.zoneName else return a.zoneName > b.zoneName end
+        end
+    end
+    if self.sortOrder == 1 then return a.title < b.title else return a.title > b.title end
+end
+
 function WQS:DoRefresh()
     refreshCount = refreshCount + 1
     if refreshCount > 300 then
         refreshCount = 0
-        -- Prune caches (every ~5-10m of UI time)
+        local now = GetTime()
         for qID, data in pairs(rewardDataCache) do
-            if not GetQuestTimeLeftMinutes(qID) then
+            if not GetQuestTimeLeftMinutes(qID) or (data.lastSeen and (now - data.lastSeen > 600)) then
                 rewardDataCache[qID] = nil
                 ReleaseTable(data)
             end
@@ -665,6 +893,7 @@ function WQS:DoRefresh()
         for qID in pairs(warbandBonusCache) do
             if not GetQuestTimeLeftMinutes(qID) then warbandBonusCache[qID] = nil end
         end
+        wipe(requestCache)
     end
 
     if self:IsShown() then
@@ -674,28 +903,10 @@ function WQS:DoRefresh()
 
     local questsByZone = AcquireTable()
     local seenQuests = AcquireTable()
-    -- Hardcoded Midnight Discovery
-    if not zoneCache["midnight"] then
-        zoneCache["midnight"] = {}
-        for _, zoneID in ipairs(MIDNIGHT_ZONES) do
-            local info = C_Map.GetMapInfo(zoneID)
-            if info then
-                local name = info.name or ("Map " .. zoneID)
+    local currentMap = GetBestMapForUnit("player")
+    local midnightZones = UpdateZoneCache()
+    local now = GetTime()
 
-                -- Zone Merging Overrides
-                if zoneID == 2393 then     -- Silvermoon City
-                    name = "Eversong Woods"
-                elseif zoneID == 2444 then -- Slayer's Rise
-                    name = "Voidstorm"
-                end
-
-                zoneCache["midnight"][zoneID] = name
-            end
-        end
-    end
-    local midnightZones = zoneCache["midnight"]
-
-    -- ALWAYS SCAN (Background Caching)
     for mapID, zoneName in pairs(midnightZones) do
         local quests = (C_TaskQuest.GetQuestsForPlayerByMapID and C_TaskQuest.GetQuestsForPlayerByMapID(mapID)) or
             C_TaskQuest.GetQuestsOnMap(mapID)
@@ -703,196 +914,54 @@ function WQS:DoRefresh()
             questsByZone[mapID] = questsByZone[mapID] or AcquireTable()
             for _, q in ipairs(quests) do
                 local questID = q.questID or q.questId
-                local qX, qY = q.x, q.y
                 if questID and not seenQuests[questID] then
                     seenQuests[questID] = true
-
-                    local cached = rewardDataCache[questID]
                     local title = GetQuestInfoByQuestID(questID)
                     if not title then
                         if not requestCache[questID] then
                             RequestLoadQuestByID(questID)
                             requestCache[questID] = true
                         end
-                    end
-
-                    if title then
-                        local rewardText, sortRewardValue
-                        local hasWarbandBonus, numItems, money, questHasReputation
-                        local hasItems, hasGold
-
-                        -- CRITICAL: If cached is missing reputation tag, force a rescan
-                        if cached and cached.title == title and cached.hasReputationBonus == nil then
-                            rewardDataCache[questID] = nil
-                            ReleaseTable(cached)
-                            cached = nil
-                        end
+                    else
+                        local cached = rewardDataCache[questID]
+                        local rewardText, sortRewardValue, isWarbound, allRewardsCached
+                        local hasItems, hasGold, questHasReputation, questHasUpgrade
 
                         if cached and cached.title == title then
-                            rewardText = cached.text
-                            sortRewardValue = cached.sortValue or 0
-                            questHasReputation = cached.hasReputationBonus
-                            hasItems = cached.hasItems
-                            hasGold = cached.hasGold
+                            rewardText, sortRewardValue = cached.text, cached.sortValue
+                            isWarbound, questHasReputation = cached.isWarbound, cached.hasReputationBonus
+                            hasItems, hasGold, questHasUpgrade = cached.hasItems, cached.hasGold, cached.isUpgrade
                         else
-                            -- Releasing stale or mismatched cache table
                             if cached then
                                 rewardDataCache[questID] = nil
                                 ReleaseTable(cached)
-                                cached = nil
                             end
-                            local timeLeft = GetQuestTimeLeftMinutes(questID) or 0
-                            local rewardParts = AcquireTable()
-                            sortRewardValue = 0
-                            local hasIlvlIndicator = false
+                            rewardText, sortRewardValue, isWarbound, allRewardsCached, hasItems, hasGold, questHasReputation, questHasUpgrade =
+                                ScanQuestRewards(self, questID)
 
-                            -- Warband Check
-                            hasWarbandBonus = warbandBonusCache[questID]
-                            if hasWarbandBonus == nil then
-                                hasWarbandBonus = QuestContainsFirstTimeRepBonusForPlayer and
-                                    QuestContainsFirstTimeRepBonusForPlayer(questID)
-                                if not hasWarbandBonus and self.ScanTooltip then
-                                    self.ScanTooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
-                                    if self.ScanTooltip.SetWorldQuestByID then
-                                        self.ScanTooltip:SetWorldQuestByID(questID)
-                                    else
-                                        self.ScanTooltip:SetQuestLogItem("reward", 1, questID)
-                                    end
-                                    local lines = self.ScanTooltip.leftLines
-                                    for i = 2, math_min(self.ScanTooltip:NumLines(), 30) do
-                                        local leftLine = lines[i]
-                                        local text = leftLine and leftLine:GetText()
-                                        if text and string_find(text, "Warband reputation bonus") then
-                                            hasWarbandBonus = true; break
-                                        end
-                                    end
-                                end
-                                warbandBonusCache[questID] = hasWarbandBonus or false
-                            end
-
-                            local isWarbound = (IsQuestWarbound and IsQuestWarbound(questID)) or hasWarbandBonus
-                            questHasReputation = isWarbound
-
-                            -- Currencies
-                            local rewardCurrencies = GetQuestRewardCurrencies(questID)
-                            if rewardCurrencies then
-                                for _, currency in ipairs(rewardCurrencies) do
-                                    local currencyInfo = GetCurrencyInfo(currency.currencyID)
-                                    local isWarboundCurrency = (currency.currencyID >= 2800)
-                                    local isRep = (currencyInfo and (currencyInfo.categoryID == 2112 or currencyInfo.maxQuantity == 0))
-                                    if isWarboundCurrency then isWarbound = true end
-                                    local currentMarker = isWarbound and WARBAND_BONUS_TEXT or ""
-
-                                    if isRep or isWarboundCurrency then
-                                        questHasReputation = true
-                                        table.insert(rewardParts,
-                                            "+" ..
-                                            currency.totalRewardAmount ..
-                                            " |T" .. currency.texture .. ":12:12:0:0:64:64:4:60:4:60|t" .. currentMarker)
-                                        sortRewardValue = sortRewardValue + (currency.totalRewardAmount / 10)
-                                    else
-                                        table.insert(rewardParts,
-                                            "|T" ..
-                                            currency.texture ..
-                                            ":12:12:0:0:64:64:4:60:4:60|t " ..
-                                            currency.totalRewardAmount .. currentMarker)
-                                        sortRewardValue = sortRewardValue + 100000 + currency.totalRewardAmount
-                                    end
-                                end
-                            end
-
-                            -- Items
-                            numItems = GetNumQuestLogRewards(questID)
-                            for i = 1, numItems do
-                                local itemName, itemTexture, quantity, quality, _, itemID = GetQuestLogRewardInfo(i,
-                                    questID)
-                                if itemTexture then
-                                    local itemLink = (GetQuestRewardLink and GetQuestRewardLink(questID, i)) or
-                                    ("item:" .. (itemID or 0))
-                                    local ilvl = 0
-
-                                    if self.ScanTooltip then
-                                        self.ScanTooltip:SetOwner(self, "ANCHOR_NONE")
-                                        self.ScanTooltip:SetQuestLogItem("reward", i, questID)
-                                        local lines = self.ScanTooltip.leftLines
-                                        for lineIdx = 2, math_min(self.ScanTooltip:NumLines(), 30) do
-                                            local leftLine = lines[lineIdx]
-                                            local text = leftLine and leftLine:GetText()
-                                            if text then
-                                                local foundIlvl = string_match(text, "(%d+)%+?")
-                                                if foundIlvl and (string_find(text, string_sub(ITEM_LEVEL_PLUS, 1, 5)) or string_find(text, STAT_AVERAGE_ITEM_LEVEL)) then
-                                                    ilvl = tonumber(foundIlvl)
-                                                end
-                                                if string_find(text, "Warband reputation bonus") then
-                                                    isWarbound = true
-                                                end
-                                            end
-                                        end
-                                    end
-
-                                    if ilvl < 200 then
-                                        local detailed = GetDetailedItemLevelInfo(itemLink)
-                                        if detailed and detailed > ilvl then ilvl = detailed end
-                                    end
-
-                                    local ilvlText = ""
-                                    if ilvl and ilvl > 1 then
-                                        local isUpgrade = IsUpgrade(itemLink)
-                                        ilvlText = "|c" ..
-                                        (isUpgrade and "ff00ffff" or "ffffffff") .. "(" .. ilvl .. ")|r "
-                                        sortRewardValue = sortRewardValue + 1000000 + (ilvl * 10)
-                                        hasIlvlIndicator = true
-                                    end
-
-                                    local color = ITEM_QUALITY_COLORS[quality or 1].hex
-                                    local qtyCleanText = (quantity and quantity > 1) and (quantity .. " ") or ""
-                                    local currentMarker = isWarbound and WARBAND_BONUS_TEXT or ""
-                                    table.insert(rewardParts,
-                                        "|T" ..
-                                        itemTexture ..
-                                        ":12:12:0:0:64:64:4:60:4:60|t " ..
-                                        ilvlText .. color .. "[" .. qtyCleanText .. itemName .. "]|r" .. currentMarker)
-                                    if isWarbound then questHasReputation = true end
-                                end
-                            end
-
-                            money = GetQuestLogRewardMoney(questID)
-                            if money > 0 then
-                                table.insert(rewardParts, GetMoneyString(money))
-                                sortRewardValue = sortRewardValue + (money / 10000)
-                            end
-
-                            rewardText = table.concat(rewardParts, " | ")
-                            ReleaseTable(rewardParts)
-                            hasItems = (numItems and numItems > 0)
-                            hasGold = (money and money > 0)
-
-                            if rewardText ~= "" then
+                            if rewardText ~= "" and allRewardsCached then
                                 local c = AcquireTable()
                                 c.title, c.text, c.sortValue = title, rewardText, sortRewardValue
-                                c.hasIlvl, c.isWarbound, c.hasItems = hasIlvlIndicator, isWarbound, (numItems > 0)
-                                c.hasGold, c.hasReputationBonus = (money > 0), questHasReputation
+                                c.isWarbound, c.hasReputationBonus = isWarbound, questHasReputation
+                                c.hasItems, c.hasGold, c.isUpgrade = hasItems, hasGold, questHasUpgrade
+                                c.lastSeen = now
                                 rewardDataCache[questID] = c
                             end
                         end
 
-                        if rewardText == "" then
-                            if not requestCache[questID] then
-                                RequestLoadQuestByID(questID)
-                                requestCache[questID] = true
-                            end
+                        if rewardText == "" and not requestCache[questID] then
+                            RequestLoadQuestByID(questID)
+                            requestCache[questID] = true
                         end
 
                         local qData = AcquireTable()
                         qData.questID, qData.title, qData.zoneName = questID, title, zoneName
-                        qData.rewardText, qData.timeLeft = rewardText, GetQuestTimeLeftMinutes(questID) or 0
+                        qData.rewardText, qData.timeLeft = rewardText, (GetQuestTimeLeftMinutes(questID) or 0)
                         qData.sortRewardValue, qData.mapID = sortRewardValue, mapID
-                        qData.posX, qData.posY = qX, qY
+                        qData.posX, qData.posY = q.x, q.y
                         qData.hasReputationBonus = questHasReputation
-                        qData.hasItems = hasItems
-                        qData.hasGold = hasGold
+                        qData.hasItems, qData.hasGold, qData.isUpgrade = hasItems, hasGold, questHasUpgrade
 
-                        questsByZone[mapID] = questsByZone[mapID] or AcquireTable()
                         table.insert(questsByZone[mapID], qData)
                     end
                 end
@@ -900,23 +969,12 @@ function WQS:DoRefresh()
         end
     end
 
-    -- ONLY UPDATE UI IF VISIBLE
     if self:IsShown() then
-        local sortedMaps = AcquireTable()
-        for mapID in pairs(midnightZones) do if questsByZone[mapID] then table.insert(sortedMaps, mapID) end end
-        table.sort(sortedMaps, function(a, b) return (midnightZones[a] or "") < (midnightZones[b] or "") end)
-
-        local allQuests = AcquireTable()
-        -- Ensure filters exist
-        SfuiDB = SfuiDB or {}
-        SfuiDB.wqsFilters = SfuiDB.wqsFilters or {
-            reputation = false, items = false, gold = false, zone = false
-        }
         local filters = SfuiDB.wqsFilters
-        local currentMap = C_Map.GetBestMapForUnit("player")
+        local allQuests = AcquireTable()
 
-        for _, mapID in ipairs(sortedMaps) do
-            for _, qData in ipairs(questsByZone[mapID]) do
+        for mapID, qList in pairs(questsByZone) do
+            for _, qData in ipairs(qList) do
                 local skip = false
                 if filters.reputation and not qData.hasReputationBonus then skip = true end
                 if not skip and filters.items and not qData.hasItems then skip = true end
@@ -926,25 +984,9 @@ function WQS:DoRefresh()
             end
         end
 
-        table.sort(allQuests, function(a, b)
-            if self.sortMode == "reward" then
-                if a.sortRewardValue ~= b.sortRewardValue then
-                    if self.sortOrder == 1 then return a.sortRewardValue < b.sortRewardValue else return a
-                        .sortRewardValue > b.sortRewardValue end
-                end
-            elseif self.sortMode == "time" then
-                if a.timeLeft ~= b.timeLeft then
-                    if self.sortOrder == 1 then return a.timeLeft < b.timeLeft else return a.timeLeft > b.timeLeft end
-                end
-            elseif self.sortMode == "zone" then
-                if a.zoneName ~= b.zoneName then
-                    if self.sortOrder == 1 then return a.zoneName < b.zoneName else return a.zoneName > b.zoneName end
-                end
-            end
-            if self.sortOrder == 1 then return a.title < b.title else return a.title > b.title end
-        end)
+        table.sort(allQuests, QuestSorter)
 
-        local offset, stripeCount = 0, 0
+        local offset = 0
         if #allQuests == 0 then
             local row = self:CreateRow()
             row:SetPoint("TOPLEFT", 0, 0)
@@ -955,43 +997,25 @@ function WQS:DoRefresh()
             offset = 18
         else
             for i, qData in ipairs(allQuests) do
-                offset = self:DisplayQuestRow(qData, offset, i, qData.mapID)
+                offset = self:DisplayQuestRow(qData, offset, i)
             end
         end
 
         self.Content:SetHeight(offset)
-        local frameHeight = math_min((10 * 18) + 35 + 30, offset + 35 + 30)
-        self:SetHeight(frameHeight)
-        local maxScroll = math_max(0, offset - self.ScrollChild:GetHeight())
-        self.ScrollBar:SetMinMaxValues(0, maxScroll)
+        self:SetHeight(math_min((10 * 18) + 65, offset + 65))
+        self.ScrollBar:SetMinMaxValues(0, math_max(0, offset - self.ScrollChild:GetHeight()))
+
+        UpdateHeader(self.SortTitle, "title", "Quest Name")
+        UpdateHeader(self.SortZone, "zone", "Zone")
+        UpdateHeader(self.SortReward, "reward", "Rewards / Rep / ilvl")
+        UpdateHeader(self.SortTime, "time", "Time Left")
 
         ReleaseTable(allQuests)
-        ReleaseTable(sortedMaps)
-
-        local function updateHeader(btn, mode, text)
-            local indicator = ""
-            local purple = sfui.config.colors.purple
-            local white = sfui.config.colors.white
-            if self.sortMode == mode then
-                indicator = self.sortOrder == 1 and "  ▼" or "  ▲"
-                btn.Text:SetTextColor(white[1], white[2], white[3])
-            else
-                btn.Text:SetTextColor(purple[1], purple[2], purple[3])
-            end
-            btn.Text:SetText(text .. indicator)
-        end
-
-        updateHeader(self.SortTitle, "title", "Quest Name")
-        updateHeader(self.SortZone, "zone", "Zone")
-        updateHeader(self.SortReward, "reward", "Rewards / Rep / ilvl")
-        updateHeader(self.SortTime, "time", "Time Left")
     end
 
-    -- Consolidated Table Release (Fixes filtered quest leak)
+    -- Cleanup
     for _, qList in pairs(questsByZone) do
-        for _, qData in ipairs(qList) do
-            ReleaseTable(qData)
-        end
+        for _, qData in ipairs(qList) do ReleaseTable(qData) end
         ReleaseTable(qList)
     end
     ReleaseTable(questsByZone)
@@ -1032,67 +1056,13 @@ function WQS:DisplayQuestRow(qData, offset, stripeCount, mapID)
         row.Time:SetText("")
     end
 
+    if qData.isUpgrade then
+        row.UpgradeGlow:Show()
+    else
+        row.UpgradeGlow:Hide()
+    end
+
     row.Reward:SetText(qData.rewardText)
-
-    row:SetScript("OnEnter", function(s)
-        s.Highlight:Show()
-        GameTooltip:SetOwner(s, "ANCHOR_RIGHT")
-
-        local success = false
-        if GameTooltip.SetWorldQuestByID then
-            success = pcall(function() GameTooltip:SetWorldQuestByID(s.questID) end)
-        end
-        if not success then
-            success = pcall(function() GameTooltip:SetQuestLogItem("reward", 1, s.questID) end)
-        end
-
-        local numObjs = GetNumQuestLeaderBoards(s.questID)
-        if numObjs > 0 then
-            GameTooltip:AddLine(" ")
-            for i = 1, numObjs do
-                local text, _, finished = GetQuestLogLeaderBoard(i, s.questID)
-                if text then
-                    local r, g, b = 1, 1, 1
-                    if finished then r, g, b = 0.5, 0.5, 0.5 end
-                    GameTooltip:AddLine("- " .. text, r, g, b, true)
-                end
-            end
-        end
-        GameTooltip:Show()
-
-        -- Map Highlight
-        if self.MapHighlight and s.posX and s.posY and WorldMapFrame:GetMapID() == s.mapID then
-            local mapWidth = WorldMapFrame.ScrollContainer.Child:GetWidth()
-            local mapHeight = WorldMapFrame.ScrollContainer.Child:GetHeight()
-            if mapWidth > 0 and mapHeight > 0 then
-                self.MapHighlight:ClearAllPoints()
-                self.MapHighlight:SetPoint("CENTER", WorldMapFrame.ScrollContainer.Child, "TOPLEFT", s.posX * mapWidth,
-                    -s.posY * mapHeight)
-                self.MapHighlight:Show()
-            end
-        end
-    end)
-    row:SetScript("OnLeave", function(s)
-        s.Highlight:Hide()
-        GameTooltip:Hide()
-        if self.MapHighlight then self.MapHighlight:Hide() end
-    end)
-
-    row:SetScript("OnClick", function(s, button)
-        if IsShiftKeyDown() then
-            if C_QuestLog.GetQuestWatchType(s.questID) == Enum.QuestWatchType.Manual then
-                C_QuestLog.RemoveWorldQuestWatch(s.questID)
-            else
-                C_QuestLog.AddWorldQuestWatch(s.questID, Enum.QuestWatchType.Manual)
-            end
-        else
-            C_QuestLog.SetSelectedQuest(s.questID)
-            C_SuperTrack.SetSuperTrackedQuestID(s.questID)
-            if not WorldMapFrame:IsShown() then ShowUIPanel(WorldMapFrame) end
-            WorldMapFrame:SetMapID(mapID)
-            if WorldMapFrame.ScrollToQuest then WorldMapFrame:ScrollToQuest(s.questID) end
-        end
-    end)
 
     return offset + 18
 end

@@ -1607,7 +1607,7 @@ function sfui.common.create_input_field(parent, label, dbKeyOrGetter, width, onV
         local val = tonumber(self:GetText())
         if val then
             if type(dbKeyOrGetter) == "string" then
-                -- Support nested keys like "preyBar.pos.x"
+                -- Support nested keys like "healthBarX"
                 local keys = {}
                 for key in string.gmatch(dbKeyOrGetter, "([^.]+)") do
                     table.insert(keys, key)
@@ -2004,19 +2004,6 @@ function sfui.initialize_database()
     if SfuiDB.cursorRingScale == nil then SfuiDB.cursorRingScale = 1.0 end
     if SfuiDB.useSpecColor == nil then SfuiDB.useSpecColor = true end
     if SfuiDB.specColorFallback == nil then SfuiDB.specColorFallback = { 1, 1, 1, 1 } end
-
-    -- Prey Bar Settings
-    if SfuiDB.preyBar == nil then SfuiDB.preyBar = {} end
-    if SfuiDB.preyBar.enabled == nil or SfuiDB.preyBar.enabled == false then
-        -- Force enable for now since we just launched the feature as opt-out
-        SfuiDB.preyBar.enabled = true
-    end
-    if SfuiDB.preyBar.pos == nil then SfuiDB.preyBar.pos = {} end
-    if SfuiDB.preyBar.pos.x == nil then SfuiDB.preyBar.pos.x = sfui.config.preyBar.pos.x end
-    if SfuiDB.preyBar.pos.y == nil then SfuiDB.preyBar.pos.y = sfui.config.preyBar.pos.y end
-    sfui.config.preyBar.enabled = SfuiDB.preyBar.enabled
-    sfui.config.preyBar.pos.x = SfuiDB.preyBar.pos.x
-    sfui.config.preyBar.pos.y = SfuiDB.preyBar.pos.y
 
     -- Bar settings
     if SfuiDB.healthBarX == nil then SfuiDB.healthBarX = 0 end

@@ -149,9 +149,6 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
         if sfui.research and sfui.research.initialize then
             sfui.research.initialize()
         end
-        if sfui.prey and sfui.prey.initialize then
-            sfui.prey.initialize()
-        end
         if sfui.automation and sfui.automation.initialize then
             sfui.automation.initialize()
         end

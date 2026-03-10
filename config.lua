@@ -325,17 +325,7 @@ sfui.config = {
         }
     },
 
-    preyBar = {
-        enabled = true,
-        width = 250,
-        height = 16,
-        pos = { x = 0, y = -2 }, -- Top of screen like castbar request
-        alpha = 1,
-        backdrop = {
-            padding = 2,
-            color = { 0, 0, 0, 0.7 },
-        },
-    },
+
 
     targetCastBar = {
         enabled = true,
