@@ -282,7 +282,7 @@ function sfui.alts.SyncCurrentCharacter()
 
 
     if syncTimer then return end
-    syncTimer = C_Timer.After(1.0, function()
+    syncTimer = C_Timer.After(10.0, function()
         syncTimer = nil
         needsSync = false
         sfui.alts.PerformSync()
@@ -307,6 +307,50 @@ end
 
 local preyLogDirty = true
 
+function sfui.alts.CheckWeeklyResets()
+    local now = GetServerTime()
+    local thirtyDaysSecs = 30 * 24 * 60 * 60
+    local secondsToReset = C_DateAndTime and C_DateAndTime.GetSecondsUntilWeeklyReset and C_DateAndTime.GetSecondsUntilWeeklyReset() or 0
+    local currentNextReset = secondsToReset > 0 and (now + secondsToReset) or nil
+
+    for g, d in pairs(SfuiDB.alts or {}) do
+        if d.lastUpdate and (now - d.lastUpdate > thirtyDaysSecs) then
+            SfuiDB.alts[g] = nil
+        elseif d.nextWeeklyReset and now > d.nextWeeklyReset then
+            if d.prey then
+                d.prey.normal = 0
+                d.prey.hard = 0
+                d.prey.mythic = 0
+                d.prey.weekly = 0
+                d.prey.activeHuntProgress = 0
+                d.prey.isQuestActive = false
+            end
+            if d.profKP then
+                for _, pData in pairs(d.profKP) do
+                    pData.done = 0
+                    if pData.details then
+                        pData.details.treatise = false
+                        pData.details.quest = false
+                        pData.details.treasures = 0
+                    end
+                end
+            end
+            if d.vault then
+                if d.vault.raid then wipe(d.vault.raid) end
+                if d.vault.dungeon then wipe(d.vault.dungeon) end
+                if d.vault.world then wipe(d.vault.world) end
+            end
+            if d.m0 then wipe(d.m0) end
+            if d.raids then wipe(d.raids) end
+            
+            d.nextWeeklyReset = currentNextReset
+        end
+    end
+
+    -- Return the current next reset so PerformSync can save it
+    return currentNextReset
+end
+
 function sfui.alts.PerformSync(isLogout)
     if not isLogout and leavingWorld then return end
 
@@ -319,14 +363,7 @@ function sfui.alts.PerformSync(isLogout)
     sfui.alts.RefreshDynamicCategories()
     SfuiDB.alts = SfuiDB.alts or {}
 
-    -- Auto-prune characters not logged into for 30 days
-    local now = GetServerTime()
-    local thirtyDaysSecs = 30 * 24 * 60 * 60
-    for g, d in pairs(SfuiDB.alts) do
-        if d.lastUpdate and (now - d.lastUpdate > thirtyDaysSecs) then
-            SfuiDB.alts[g] = nil
-        end
-    end
+    local currentNextReset = sfui.alts.CheckWeeklyResets()
 
     local guid = GetCurrentCharacterGUID()
     local name = UnitName("player")
@@ -341,6 +378,10 @@ function sfui.alts.PerformSync(isLogout)
 
     SfuiDB.alts[guid] = SfuiDB.alts[guid] or {}
     local data = SfuiDB.alts[guid]
+
+    if currentNextReset then
+        data.nextWeeklyReset = currentNextReset
+    end
 
     local _, realm = UnitName("player")
     data.name = name
@@ -468,6 +509,14 @@ function sfui.alts.PerformSync(isLogout)
                 c.maxQuantity = info.maxQuantity
                 c.totalEarned = info.totalEarned
                 c.useTotalEarned = info.useTotalEarnedForMaxQty
+                
+                if info.maxQuantity and info.maxQuantity > 0 then
+                    local currentGlobalMax = SfuiDB.currencyCaps and SfuiDB.currencyCaps[currencyDef.id] or 0
+                    if info.maxQuantity > currentGlobalMax then
+                        SfuiDB.currencyCaps = SfuiDB.currencyCaps or {}
+                        SfuiDB.currencyCaps[currencyDef.id] = info.maxQuantity
+                    end
+                end
             end
         end
     end
@@ -1052,13 +1101,18 @@ function sfui.alts.UpdateUI(force)
 
                 -- Check weekly cap
                 local isCapped = false
+                local displayMaxQuantity = cData and type(cData) == "table" and cData.maxQuantity or 0
+                if SfuiDB.currencyCaps and SfuiDB.currencyCaps[cat.id] and SfuiDB.currencyCaps[cat.id] > displayMaxQuantity then
+                    displayMaxQuantity = SfuiDB.currencyCaps[cat.id]
+                end
+
                 if cData and type(cData) == "table" then
                     if cData.max and cData.max > 0 and cData.earned and cData.earned >= cData.max then
                         isCapped = true
-                    elseif cData.maxQuantity and cData.maxQuantity > 0 then
-                        if cData.useTotalEarned and cData.totalEarned and cData.totalEarned >= cData.maxQuantity then
+                    elseif displayMaxQuantity > 0 then
+                        if cData.useTotalEarned and cData.totalEarned and cData.totalEarned >= displayMaxQuantity then
                             isCapped = true
-                        elseif not cData.useTotalEarned and cData.val and cData.val >= cData.maxQuantity then
+                        elseif not cData.useTotalEarned and cData.val and cData.val >= displayMaxQuantity then
                             isCapped = true
                         end
                     end
@@ -1083,10 +1137,10 @@ function sfui.alts.UpdateUI(force)
                             if cData.max and cData.max > 0 then
                                 GameTooltip:AddDoubleLine("Weekly Earned:",
                                     string.format("%d / %d", cData.earned or 0, cData.max), 1, 1, 1, 1, 1, 1)
-                            elseif cData.maxQuantity and cData.maxQuantity > 0 then
+                            elseif displayMaxQuantity > 0 then
                                 local currentAmount = cData.useTotalEarned and cData.totalEarned or cData.val
                                 GameTooltip:AddDoubleLine("Season Earned:",
-                                    string.format("%d / %d", currentAmount or 0, cData.maxQuantity), 1, 1, 1, 1, 1, 1)
+                                    string.format("%d / %d", currentAmount or 0, displayMaxQuantity), 1, 1, 1, 1, 1, 1)
                             end
                             if isCapped then
                                 GameTooltip:AddLine("Season/Weekly cap reached!", 1, 0, 0)
@@ -1293,6 +1347,7 @@ function sfui.alts.Toggle()
     if frame:IsShown() then
         frame:Hide()
     else
+        sfui.alts.CheckWeeklyResets()
         frame:Show()
         if needsSync then
             sfui.alts.PerformSync()
@@ -1338,6 +1393,40 @@ function sfui.alts.initialize()
         end
     end)
 
-    SlashCmdList["SFUIALTS"] = function() sfui.alts.Toggle() end
+    SlashCmdList["SFUIALTS"] = function(msg)
+        if msg == "resetweeklies" then
+            for _, d in pairs(SfuiDB.alts or {}) do
+                if d.prey then
+                    d.prey.normal = 0
+                    d.prey.hard = 0
+                    d.prey.mythic = 0
+                    d.prey.weekly = 0
+                    d.prey.activeHuntProgress = 0
+                    d.prey.isQuestActive = false
+                end
+                if d.profKP then
+                    for _, pData in pairs(d.profKP) do
+                        pData.done = 0
+                        if pData.details then
+                            pData.details.treatise = false
+                            pData.details.quest = false
+                            pData.details.treasures = 0
+                        end
+                    end
+                end
+                if d.vault then
+                    if d.vault.raid then wipe(d.vault.raid) end
+                    if d.vault.dungeon then wipe(d.vault.dungeon) end
+                    if d.vault.world then wipe(d.vault.world) end
+                end
+                if d.m0 then wipe(d.m0) end
+                if d.raids then wipe(d.raids) end
+            end
+            sfui.alts.UpdateUI(true)
+            print("|cff9966ffSFUI:|r Manually reset all weekly data for alts.")
+        else
+            sfui.alts.Toggle()
+        end
+    end
     SLASH_SFUIALTS1 = "/alts"
 end
