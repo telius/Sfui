@@ -551,20 +551,23 @@ function sfui.alts.PerformSync(isLogout)
     for _, pIndex in ipairs(profsToCheck) do
         local name, icon, skillLevel, _, _, _, skillLine = GetProfessionInfo(pIndex)
         local tracking = PROF_KP_SOURCES[skillLine]
-        if tracking then
-            -- Re-use existing table or acquire new one
-            local pData = data.profKP[skillLine] or AcquireTable()
-            pData.name = name
-            pData.icon = icon
-            pData.skill = skillLevel
-            pData.done = 0
-            pData.total = 0
-            pData.catchUp = 0
-            pData.details = pData.details or AcquireTable()
-            local d = pData.details
-            d.treatise = false
-            d.quest = false
-            d.treasures = 0
+
+        local pData = data.profKP[skillLine] or AcquireTable()
+        pData.name = name
+        pData.icon = icon
+        pData.skill = skillLevel
+        pData.done = 0
+        pData.total = 0
+        pData.catchUp = 0
+        pData.details = pData.details or AcquireTable()
+        local d = pData.details
+        d.treatise = false
+        d.quest = false
+        d.treasures = 0
+        d.treasuresMax = 0
+
+        -- Only track KP for characters in the Midnight expansion (Level 81+)
+        if tracking and level >= 81 then
             d.treasuresMax = #tracking.treasures
 
             pData.total = pData.total + 1
@@ -607,8 +610,8 @@ function sfui.alts.PerformSync(isLogout)
                     end
                 end
             end
-            data.profKP[skillLine] = pData
         end
+        data.profKP[skillLine] = pData
     end
 
     if frame and frame:IsVisible() then
@@ -1122,14 +1125,19 @@ function sfui.alts.UpdateUI(force)
                     rightText:Show()
                     rightText:ClearAllPoints()
                     rightText:SetPoint("RIGHT", -15, 0)
-                    rightText:SetText(string.format("%d/%d", pData.done, pData.total))
+                    
+                    if pData.total > 0 then
+                        rightText:SetText(string.format("%d/%d", pData.done, pData.total))
 
-                    if pData.done >= pData.total then
-                        rightText:SetTextColor(0, 1, 0) -- Green
-                    elseif pData.done > 0 then
-                        rightText:SetTextColor(0, 1, 1) -- Cyan
+                        if pData.done >= pData.total then
+                            rightText:SetTextColor(0, 1, 0) -- Green
+                        elseif pData.done > 0 then
+                            rightText:SetTextColor(0, 1, 1) -- Cyan
+                        else
+                            rightText:SetTextColor(1, 1, 1)
+                        end
                     else
-                        rightText:SetTextColor(1, 1, 1)
+                        rightText:SetText("")
                     end
 
                     cell:SetScript("OnEnter", function(self)
@@ -1139,17 +1147,20 @@ function sfui.alts.UpdateUI(force)
                         if pData.catchUp and pData.catchUp > 0 then
                             GameTooltip:AddDoubleLine("Catch-up Available:", pData.catchUp, 1, 0.82, 0, 1, 0.82, 0)
                         end
-                        GameTooltip:AddLine("Weekly Progress", 1, 1, 1)
-                        local tStr = pData.details.treatise and "|cff00ff00Done|r" or "|cffff0000Missing|r"
-                        GameTooltip:AddDoubleLine("Treatise:", tStr, 1, 1, 1, 1, 1, 1)
-                        local qStr = pData.details.quest and "|cff00ff00Done|r" or "|cffff0000Missing|r"
-                        GameTooltip:AddDoubleLine("Weekly Quest/Patron:", qStr, 1, 1, 1, 1, 1, 1)
-                        if pData.details.treasuresMax > 0 then
-                            local gColor = pData.details.treasures >= pData.details.treasuresMax and "|cff00ff00" or
-                                "|cffff0000"
-                            GameTooltip:AddDoubleLine("Treasures/Drops:",
-                                string.format("%s%d/%d|r", gColor, pData.details.treasures, pData.details.treasuresMax),
-                                1, 1, 1, 1, 1, 1)
+                        
+                        if pData.total > 0 then
+                            GameTooltip:AddLine("Weekly Progress", 1, 1, 1)
+                            local tStr = pData.details.treatise and "|cff00ff00Done|r" or "|cffff0000Missing|r"
+                            GameTooltip:AddDoubleLine("Treatise:", tStr, 1, 1, 1, 1, 1, 1)
+                            local qStr = pData.details.quest and "|cff00ff00Done|r" or "|cffff0000Missing|r"
+                            GameTooltip:AddDoubleLine("Weekly Quest/Patron:", qStr, 1, 1, 1, 1, 1, 1)
+                            if pData.details.treasuresMax > 0 then
+                                local gColor = pData.details.treasures >= pData.details.treasuresMax and "|cff00ff00" or
+                                    "|cffff0000"
+                                GameTooltip:AddDoubleLine("Treasures/Drops:",
+                                    string.format("%s%d / %d|r", gColor, pData.details.treasures,
+                                        pData.details.treasuresMax), 1, 1, 1, 1, 1, 1)
+                            end
                         end
                         GameTooltip:Show()
                     end)

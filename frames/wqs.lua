@@ -557,15 +557,15 @@ function WQS:Initialize()
         return btn
     end
 
-    self.SortTitle = createSortBtn("Quest Name", 100, "title")
+    self.SortTitle = createSortBtn("Quest Name", 120, "title")
     self.SortZone = createSortBtn("Zone", 100, "zone")
-    self.SortReward = createSortBtn("Rewards / Rep / ilvl", 300, "reward")
+    self.SortReward = createSortBtn("Rewards / Rep / ilvl", 270, "reward")
     self.SortTime = createSortBtn("Time Left", 60, "time", "RIGHT")
 
     -- Grid Alignment
     self.SortTitle:SetPoint("LEFT", sortHeader, "LEFT", 5, 0)
-    self.SortZone:SetPoint("LEFT", self.SortTitle, "RIGHT", 10, 0)
-    self.SortReward:SetPoint("LEFT", self.SortZone, "RIGHT", 10, 0)
+    self.SortZone:SetPoint("LEFT", self.SortTitle, "RIGHT", 5, 0)
+    self.SortReward:SetPoint("LEFT", self.SortZone, "RIGHT", 5, 0)
     self.SortTime:SetPoint("RIGHT", sortHeader, "RIGHT", -5, 0)
 
     -- ScrollBar
@@ -593,7 +593,7 @@ function WQS:Initialize()
     self.ScrollChild = scrollChild
 
     local content = CreateFrame("Frame", nil, scrollChild)
-    content:SetSize(580, 500) -- Matches frame width minus scrollbar and padding
+    content:SetSize(570, 500) -- Matches scrollChild width (600 - 30 padding)
     content:SetPoint("TOPLEFT", 0, 0)
     content:SetPoint("TOPRIGHT", 0, 0)
     self.Content = content
@@ -711,7 +711,7 @@ function WQS:CreateRow()
     local row = table.remove(framePool)
     if not row then
         row = CreateFrame("Button", nil, self.Content)
-        row:SetHeight(18) -- Compacted height
+        row:SetSize(570, 20) -- Compacted height
         row:SetPoint("LEFT", 0, 0)
         row:SetPoint("RIGHT", 0, 0)
 
@@ -722,25 +722,25 @@ function WQS:CreateRow()
 
         local font = sfui.config and sfui.config.font
         row.Text = row:CreateFontString(nil, "OVERLAY")
-        SetFontStyle(row.Text, font, 12)
+        SetFontStyle(row.Text, font, 12, "OUTLINE")
         row.Text:SetPoint("LEFT", 5, 0)
-        row.Text:SetWidth(100)
+        row.Text:SetWidth(120)
         row.Text:SetJustifyH("LEFT")
         row.Text:SetWordWrap(false)
 
         row.Zone = row:CreateFontString(nil, "OVERLAY")
         SetFontStyle(row.Zone, font, 12)
-        row.Zone:SetPoint("LEFT", 115, 0) -- Quest(5 + 100) + gap(10)
+        row.Zone:SetPoint("LEFT", 130, 0)
         row.Zone:SetWidth(100)
         row.Zone:SetJustifyH("LEFT")
         row.Zone:SetTextColor(0.6, 0.6, 0.6)
 
         row.Reward = row:CreateFontString(nil, "OVERLAY")
         SetFontStyle(row.Reward, font, 12)
-        row.Reward:SetPoint("LEFT", 225, 0) -- Zone(115 + 100) + gap(10)
-        row.Reward:SetWidth(300)
+        row.Reward:SetPoint("LEFT", 235, 0) 
+        row.Reward:SetWidth(270)
         row.Reward:SetJustifyH("LEFT")
-        row.Reward:SetWordWrap(false) -- Crop instead of wrap
+        row.Reward:SetWordWrap(false)
 
         row.Time = row:CreateFontString(nil, "OVERLAY")
         SetFontStyle(row.Time, font, 12)
