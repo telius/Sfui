@@ -365,7 +365,8 @@ function WQS:Initialize()
 
         -- Map Highlight Frame (Red Ring)
         if not self.MapHighlight then
-            local hl = CreateFrame("Frame", nil, WorldMapFrame.ScrollContainer.Child)
+            -- Parent to WorldMapFrame instead of ScrollContainer.Child to avoid canvas taint
+            local hl = CreateFrame("Frame", nil, WorldMapFrame)
             hl:SetSize(128, 128)
             hl:SetFrameStrata("TOOLTIP")
             hl:Hide()
@@ -786,11 +787,13 @@ function WQS:CreateRow()
 
             -- Map Highlight
             if sfui.wqs.MapHighlight and s.posX and s.posY and WorldMapFrame:GetMapID() == s.mapID then
-                local mapWidth = WorldMapFrame.ScrollContainer.Child:GetWidth()
-                local mapHeight = WorldMapFrame.ScrollContainer.Child:GetHeight()
+                local scrollChild = WorldMapFrame.ScrollContainer.Child
+                local mapWidth = scrollChild:GetWidth()
+                local mapHeight = scrollChild:GetHeight()
                 if mapWidth > 0 and mapHeight > 0 then
                     sfui.wqs.MapHighlight:ClearAllPoints()
-                    sfui.wqs.MapHighlight:SetPoint("CENTER", WorldMapFrame.ScrollContainer.Child, "TOPLEFT", s.posX * mapWidth,
+                    -- Anchoring to the scroll child is fine as long as the parent is safe (Set above to WorldMapFrame)
+                    sfui.wqs.MapHighlight:SetPoint("CENTER", scrollChild, "TOPLEFT", s.posX * mapWidth,
                         -s.posY * mapHeight)
                     sfui.wqs.MapHighlight:Show()
                 end

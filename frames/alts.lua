@@ -264,7 +264,6 @@ function sfui.alts.RefreshDynamicCategories()
     categoriesBuilt = true
 end
 
-
 -- Character data collection
 local function GetCurrentCharacterGUID()
     return UnitGUID("player")
@@ -310,7 +309,8 @@ local preyLogDirty = true
 function sfui.alts.CheckWeeklyResets()
     local now = GetServerTime()
     local thirtyDaysSecs = 30 * 24 * 60 * 60
-    local secondsToReset = C_DateAndTime and C_DateAndTime.GetSecondsUntilWeeklyReset and C_DateAndTime.GetSecondsUntilWeeklyReset() or 0
+    local secondsToReset = C_DateAndTime and C_DateAndTime.GetSecondsUntilWeeklyReset and
+    C_DateAndTime.GetSecondsUntilWeeklyReset() or 0
     local currentNextReset = secondsToReset > 0 and (now + secondsToReset) or nil
 
     for g, d in pairs(SfuiDB.alts or {}) do
@@ -342,7 +342,7 @@ function sfui.alts.CheckWeeklyResets()
             end
             if d.m0 then wipe(d.m0) end
             if d.raids then wipe(d.raids) end
-            
+
             d.nextWeeklyReset = currentNextReset
         end
     end
@@ -370,9 +370,9 @@ function sfui.alts.PerformSync(isLogout)
     local level = UnitLevel("player")
 
     -- VALIDATION GUARD: Do not sync if character and level data are not yet available
-    -- Also guard against iLvl being 0 during logout transitions for max level characters
+    -- Also guard against iLvl being 0 during logout transitions to prevent data wiping
     local _, avgItemLevelEquipped = GetAverageItemLevel()
-    if not guid or not name or name == "Unknown Entity" or not level or level <= 0 or (level >= 90 and avgItemLevelEquipped <= 0) then
+    if not guid or not name or name == "Unknown Entity" or not level or level <= 0 or avgItemLevelEquipped <= 0 then
         return
     end
 
@@ -509,7 +509,7 @@ function sfui.alts.PerformSync(isLogout)
                 c.maxQuantity = info.maxQuantity
                 c.totalEarned = info.totalEarned
                 c.useTotalEarned = info.useTotalEarnedForMaxQty
-                
+
                 if info.maxQuantity and info.maxQuantity > 0 then
                     local currentGlobalMax = SfuiDB.currencyCaps and SfuiDB.currencyCaps[currencyDef.id] or 0
                     if info.maxQuantity > currentGlobalMax then
@@ -579,12 +579,14 @@ function sfui.alts.PerformSync(isLogout)
     end
 
     -- Active Hunt Quests
-    local questID = C_QuestLog.GetActivePreyQuest()
     data.prey.isQuestActive = false
-    if questID then
-        data.prey.title = C_QuestLog.GetTitleForQuestID(questID)
-        data.prey.activeHuntProgress = C_TaskQuest.GetQuestProgressBarInfo(questID) or 0
-        data.prey.isQuestActive = true
+    if C_QuestLog.GetActivePreyQuest then
+        local questID = C_QuestLog.GetActivePreyQuest()
+        if questID then
+            data.prey.title = C_QuestLog.GetTitleForQuestID(questID)
+            data.prey.activeHuntProgress = C_TaskQuest.GetQuestProgressBarInfo(questID) or 0
+            data.prey.isQuestActive = true
+        end
     end
 
     data.prey.lastUpdate = GetServerTime()
@@ -616,7 +618,7 @@ function sfui.alts.PerformSync(isLogout)
         d.treasuresMax = 0
 
         -- Only track KP for characters in the Midnight expansion (Level 81+)
-        if tracking and level >= 81 then
+        if tracking and level >= 80 then
             d.treasuresMax = #tracking.treasures
 
             pData.total = pData.total + 1
@@ -1179,7 +1181,7 @@ function sfui.alts.UpdateUI(force)
                     rightText:Show()
                     rightText:ClearAllPoints()
                     rightText:SetPoint("RIGHT", -15, 0)
-                    
+
                     if pData.total > 0 then
                         rightText:SetText(string.format("%d/%d", pData.done, pData.total))
 
@@ -1201,7 +1203,7 @@ function sfui.alts.UpdateUI(force)
                         if pData.catchUp and pData.catchUp > 0 then
                             GameTooltip:AddDoubleLine("Catch-up Available:", pData.catchUp, 1, 0.82, 0, 1, 0.82, 0)
                         end
-                        
+
                         if pData.total > 0 then
                             GameTooltip:AddLine("Weekly Progress", 1, 1, 1)
                             local tStr = pData.details.treatise and "|cff00ff00Done|r" or "|cffff0000Missing|r"

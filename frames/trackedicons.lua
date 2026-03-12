@@ -1020,13 +1020,17 @@ function sfui.trackedicons.UpdatePanelLayout(panelFrame, panelConfig)
     end
 
     -- Cleanup stale icons (from previous specs/layouts) that exceed the current entry count
-    for x = #entries + 1, #panelFrame.icons do
-        local oldIcon = panelFrame.icons[x]
-        if oldIcon then
-            oldIcon:Hide()
-            oldIcon.id = nil
-            oldIcon.entry = nil
-            panelFrame.icons[x] = nil
+    -- CRITICAL MEMORY OPTIMIZATION: Do not set panelFrame.icons[x] to nil, or we permanently
+    -- leak frames on every resize. Hide them and wipe references, keeping them pooled for reuse.
+    if panelFrame.icons then
+        for x = #entries + 1, #panelFrame.icons do
+            local oldIcon = panelFrame.icons[x]
+            if oldIcon then
+                if oldIcon._glowActive then StopGlow(oldIcon) end
+                oldIcon:Hide()
+                oldIcon.id = nil
+                oldIcon.entry = nil
+            end
         end
     end
 

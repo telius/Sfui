@@ -18,6 +18,10 @@ frame:SetPoint(cfg.anchor.point, cfg.anchor.x, cfg.anchor.y)
 -- Reuse locals
 local _v_start, _v_duration, _v_enable, _v_count, _v_charges, _v_maxCharges, _v_chargeStart, _v_chargeDuration, _v_displayCount, _v_isSecret, _v_actionID, _v_icon, _v_barIndex
 
+-- Secret Value detached caches (prevents button frame taint while preventing memory loops)
+local _secretCacheStart = {}
+local _secretCacheDuration = {}
+
 local debounceFrame = CreateFrame("Frame")
 debounceFrame:Hide()
 debounceFrame:SetScript("OnUpdate", function(self)
@@ -181,13 +185,27 @@ local function UpdateCooldowns()
             if _v_actionID then
                 _v_start, _v_duration, _v_enable = GetActionCooldown(_v_actionID)
 
-                -- Gating: Cooldown
-                if _v_start ~= btn._lastStart or _v_duration ~= btn._lastDuration then
-                    local cd = _G[btn:GetName() .. "Cooldown"] or btn.cooldown
-                    if cd then cd:SetCooldown(_v_start, _v_duration) end
-                    if btn.shadowCooldown then btn.shadowCooldown:SetCooldown(_v_start, _v_duration) end
-                    btn._lastStart = _v_start
-                    btn._lastDuration = _v_duration
+                if sfui.common.issecretvalue(_v_start) or sfui.common.issecretvalue(_v_duration) then
+                    -- Taint safety bypass: Secret values cannot be stored on the frame directly (taints the UI).
+                    -- We store a boolean flag to avoid infinite securecall loops.
+                    if not _secretCacheStart[btn] then
+                        local cd = _G[btn:GetName() .. "Cooldown"] or btn.cooldown
+                        if cd then securecall(cd.SetCooldown, cd, _v_start, _v_duration) end
+                        if btn.shadowCooldown then securecall(btn.shadowCooldown.SetCooldown, btn.shadowCooldown, _v_start, _v_duration) end
+                        _secretCacheStart[btn] = true
+                        _secretCacheDuration[btn] = true
+                    end
+                else
+                    _secretCacheStart[btn] = nil
+                    _secretCacheDuration[btn] = nil
+                    
+                    if _v_start ~= btn._lastStart or _v_duration ~= btn._lastDuration then
+                        local cd = _G[btn:GetName() .. "Cooldown"] or btn.cooldown
+                        if cd then cd:SetCooldown(_v_start, _v_duration) end
+                        if btn.shadowCooldown then btn.shadowCooldown:SetCooldown(_v_start, _v_duration) end
+                        btn._lastStart = _v_start
+                        btn._lastDuration = _v_duration
+                    end
                 end
 
                 _v_count = GetActionCount(_v_actionID)
@@ -195,18 +213,27 @@ local function UpdateCooldowns()
                 _v_displayCount = _v_charges or _v_count or 0
 
                 -- Gating: Count
-                if _v_displayCount ~= btn._lastCount or _v_maxCharges ~= btn._lastMaxCharges then
-                    _v_isSecret = sfui.common.issecretvalue(_v_displayCount) or sfui.common.issecretvalue(_v_maxCharges)
-                    if btn.Count then
-                        if not _v_isSecret and (_v_displayCount > 0 or (_v_maxCharges and _v_maxCharges > 1)) then
-                            btn.Count:SetText(tostring(_v_displayCount))
-                            btn.Count:Show()
-                        else
-                            btn.Count:Hide()
-                        end
+                _v_isSecret = sfui.common.issecretvalue(_v_displayCount) or sfui.common.issecretvalue(_v_maxCharges)
+                
+                if _v_isSecret then
+                    if btn.Count and btn.Count:IsShown() then
+                        btn.Count:Hide()
                     end
-                    btn._lastCount = _v_displayCount
-                    btn._lastMaxCharges = _v_maxCharges
+                    btn._lastCount = nil
+                    btn._lastMaxCharges = nil
+                else
+                    if _v_displayCount ~= btn._lastCount or _v_maxCharges ~= btn._lastMaxCharges then
+                        if btn.Count then
+                            if _v_displayCount > 0 or (_v_maxCharges and _v_maxCharges > 1) then
+                                btn.Count:SetText(tostring(_v_displayCount))
+                                btn.Count:Show()
+                            else
+                                btn.Count:Hide()
+                            end
+                        end
+                        btn._lastCount = _v_displayCount
+                        btn._lastMaxCharges = _v_maxCharges
+                    end
                 end
             end
         end

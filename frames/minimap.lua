@@ -496,7 +496,8 @@ end
 function sfui.minimap.enable_button_manager(enabled)
     if enabled then
         if not button_bar then
-            button_bar = CreateFrame("Frame", "sfui_minimap_button_bar", Minimap, "BackdropTemplate")
+            -- Parent to MinimapCluster instead of Minimap to avoid protected frame taint
+            button_bar = CreateFrame("Frame", "sfui_minimap_button_bar", MinimapCluster, "BackdropTemplate")
             button_bar:SetSize(sfui.config.minimap.default_size, 30)
             button_bar:SetBackdrop({
                 bgFile = "Interface/Buttons/WHITE8X8",
@@ -518,7 +519,8 @@ function sfui.minimap.enable_button_manager(enabled)
         if not button_bar.sfuiMouseoverHooked then
             -- Create an invisible detector frame over the Minimap to avoid HookScript on a secure frame
             if not sfui.minimap.detector then
-                sfui.minimap.detector = CreateFrame("Frame", nil, Minimap)
+                -- Parent to MinimapCluster instead of Minimap
+                sfui.minimap.detector = CreateFrame("Frame", nil, MinimapCluster)
                 sfui.minimap.detector:SetAllPoints(Minimap)
                 sfui.minimap.detector:SetFrameLevel(Minimap:GetFrameLevel() + 1)
                 sfui.minimap.detector:EnableMouse(false) -- Pass through by default
