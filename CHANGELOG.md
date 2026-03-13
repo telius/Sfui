@@ -1,3 +1,16 @@
+## v0.5.0 (2026-03-13)
+
+### Features
+- **Hero Talent UI Overhaul**: Implemented robust name and icon resolution for overrides. Corrected spec discovery logic using Blizzard v12.0.1 source.
+- **Alts UI Refinement**:
+    - Reduced weekly quest grid to 4 blocks (Abundance, Legends, Runestones, Stormarion).
+    - Updated currency tracking: Added Shard of Dundun (Dumdum) and Restored Coffer Key; removed lower-tier Dawncrests.
+    - Improved usability: Alts panel can now be closed with the Escape key.
+
+### Bug Fixes
+- **CDM Resolution**: Resolved "Unknown" labels for spells and items in the Tracking Manager.
+- **Filter Icons**: Fixed a bug where hero talent filter icons were missing in the overrides list.
+
 ## v0.4.4 (2026-03-10)
 
 ### Features
