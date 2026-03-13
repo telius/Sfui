@@ -1296,7 +1296,8 @@ function sfui.trackedoptions.RenderPanelSettings(parent, panel, xOffset, yOffset
         local s4y = 0
 
         local _, _, classID = UnitClass("player")
-        local heroSpecs = C_ClassTalents and classID and C_ClassTalents.GetHeroTalentSpecsForClassSpec(classID) or {}
+        -- Per Blizzard source, calling without args defaults to player config/spec
+        local heroSpecs = C_ClassTalents and C_ClassTalents.GetHeroTalentSpecsForClassSpec() or {}
 
         -- Draw Header
         local hIcon = s4c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1319,9 +1320,27 @@ function sfui.trackedoptions.RenderPanelSettings(parent, panel, xOffset, yOffset
             end
             if not entry.settings then entry.settings = {} end
 
-            local name
-            if typeHint == "item" then name = C_Item.GetItemNameByID(id) else name = C_Spell.GetSpellName(id) end
-            name = name or ("Unknown (" .. id .. ")")
+            local name = ""
+            local nid = tonumber(id)
+
+            if nid then
+                if typeHint == "item" then
+                    name = C_Item.GetItemNameByID(nid) or ("Item: " .. nid)
+                elseif typeHint == "spell" then
+                    name = C_Spell.GetSpellName(nid) or ("Spell: " .. nid)
+                else
+                    -- Resolve 'cooldown' type to its underlying name
+                    local cdInfo = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo(nid)
+                    if cdInfo then
+                        if cdInfo.spellID and cdInfo.spellID > 0 then
+                            name = C_Spell.GetSpellName(cdInfo.spellID) or ("Spell: " .. cdInfo.spellID)
+                        elseif cdInfo.itemID and cdInfo.itemID > 0 then
+                            name = C_Item.GetItemNameByID(cdInfo.itemID) or ("Item: " .. cdInfo.itemID)
+                        end
+                    end
+                end
+            end
+            if not name or name == "" then name = "Unknown (" .. (id or "nil") .. ")" end
 
             local row = CreateFrame("Frame", nil, s4c, "BackdropTemplate")
             row:SetSize(SEC_W - 10, 36)
@@ -1333,14 +1352,8 @@ function sfui.trackedoptions.RenderPanelSettings(parent, panel, xOffset, yOffset
             local iconTex = row:CreateTexture(nil, "ARTWORK")
             iconTex:SetSize(24, 24)
             iconTex:SetPoint("LEFT", 4, 0)
-            local texPath
-            if typeHint == "item" then
-                texPath = C_Item.GetItemIconByID(id)
-            else
-                local spellInfo = C_Spell.GetSpellInfo(id)
-                texPath = spellInfo and spellInfo.iconID
-            end
-            iconTex:SetTexture(texPath or 134400)
+            local tex, _ = sfui.trackedicons.GetIconTexture(id, typeHint, entry)
+            iconTex:SetTexture(tex or 134400)
 
             local lName = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             lName:SetPoint("LEFT", iconTex, "RIGHT", 8, 0)
@@ -1386,7 +1399,11 @@ function sfui.trackedoptions.RenderPanelSettings(parent, panel, xOffset, yOffset
                 local traitInfo = configID and C_Traits and C_Traits.GetSubTreeInfo and
                     C_Traits.GetSubTreeInfo(configID, heroInfo)
                 if traitInfo and traitInfo.iconElementID then
-                    tex:SetAtlas(traitInfo.iconElementID)
+                    if type(traitInfo.iconElementID) == "number" then
+                        tex:SetTexture(traitInfo.iconElementID)
+                    else
+                        tex:SetAtlas(traitInfo.iconElementID)
+                    end
                 else
                     tex:SetTexture(134400)
                 end
@@ -1399,7 +1416,7 @@ function sfui.trackedoptions.RenderPanelSettings(parent, panel, xOffset, yOffset
 
                 local function UpdateVisuals()
                     if whitelist[heroInfo] then
-                        btn:SetBackdropBorderColor(0, 0, 0, 1) -- Active = Black
+                        btn:SetBackdropBorderColor(0, 1, 1, 1) -- Active = Cyan
                         tex:SetDesaturated(false)
                         tex:SetVertexColor(1, 1, 1)
                     else
@@ -1414,14 +1431,18 @@ function sfui.trackedoptions.RenderPanelSettings(parent, panel, xOffset, yOffset
                     whitelist[heroInfo] = not whitelist[heroInfo]
                     UpdateVisuals()
                     if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
-                    if sfui.cdm and sfui.cdm.RefreshLayout then sfui.cdm.RefreshLayout() end
                 end)
 
                 btn:SetScript("OnEnter", function(self)
                     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                     local tInfo = configID and C_Traits and C_Traits.GetSubTreeInfo and
                         C_Traits.GetSubTreeInfo(configID, heroInfo)
-                    GameTooltip:SetText(tInfo and tInfo.name or "Unknown")
+                    GameTooltip:SetText(tInfo and tInfo.name or "Unknown Spec")
+                    if whitelist[heroInfo] then
+                        GameTooltip:AddLine("Filter: ENABLED (Only show in this spec)", 0, 1, 0)
+                    else
+                        GameTooltip:AddLine("Filter: DISABLED (Always show)", 0.6, 0.6, 0.6)
+                    end
                     GameTooltip:Show()
                 end)
                 btn:SetScript("OnLeave", function() GameTooltip:Hide() end)

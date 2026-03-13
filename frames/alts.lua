@@ -139,34 +139,34 @@ local PROF_KP_SOURCES = {
 -- Configuration & Data Tables
 local CATEGORIES = {}
 local CURRENCIES = {
-    { id = 3383, label = "Adventurer", icon = 7639517 }, -- Adventurer's Dawncrest
-    { id = 3341, label = "Veteran",    icon = 7639525 }, -- Veteran Dawncrest
-    { id = 3343, label = "Champ",      icon = 7639519 }, -- Champion Dawncrest
-    { id = 3345, label = "Hero",       icon = 7639521 }, -- Hero Dawncrest
-    { id = 3347, label = "Myth",       icon = 7639523 }, -- Gilded Dawncrest
-    { id = 3212, label = "Spark",      icon = 7551418 }, -- Spark of Fortune
-    { id = 3378, label = "Catalyst",   icon = 4622294 }, -- Catalyst Charges
+    { id = 3343, label = "Champ",    icon = 7639519 },   -- Champion Dawncrest
+    { id = 3345, label = "Hero",     icon = 7639521 },   -- Hero Dawncrest
+    { id = 3347, label = "Myth",     icon = 7639523 },   -- Gilded Dawncrest
+    { id = 3212, label = "Spark",    icon = 7551418 },   -- Spark of Fortune
+    { id = 3378, label = "Catalyst", icon = 4622294 },   -- Catalyst Charges
+    { id = 3376, label = "Dumdum",   icon = 134569 },    -- Shard of Dundun
+    { id = 3028, label = "Key",      icon = 4622270 },   -- Restored Coffer Key
 }
 
 local BASE_CATEGORIES = {
     { name = "GENERAL",       label = "Character",     type = "header" },
-    { name = "ILVL",          label = "Level / iLvl",  type = "stat",      key = "iLvl",     format = "%.1f" },
-    { name = "RATING",        label = "M+ Rating",     type = "stat",      key = "rating" },
+    { name = "ILVL",          label = "Level / iLvl",  type = "stat",       key = "iLvl",     format = "%.1f" },
+    { name = "RATING",        label = "M+ Rating",     type = "stat",       key = "rating" },
     { name = "KEystone",      label = "Current Key",   type = "keystone" },
 
-    { name = "QUESTS_HEADER",  label = "Weekly Quests",  type = "header" },
-    { name = "QUESTS_GRID",    label = "Quests",         type = "quests_grid" },
+    { name = "QUESTS_HEADER", label = "Weekly Quests", type = "header" },
+    { name = "QUESTS_GRID",   label = "Quests",        type = "quests_grid" },
     { name = "PREY",          label = "Hunt Progress", type = "prey" },
 
     { name = "VAULT_HEADER",  label = "Great Vault",   type = "header" },
-    { name = "VAULT_RAID",    label = "Raid",          type = "vault_row", group = "raid" },
-    { name = "VAULT_DUNGEON", label = "Dungeon",       type = "vault_row", group = "dungeon" },
-    { name = "VAULT_WORLD",   label = "World/Delve",   type = "vault_row", group = "world" },
+    { name = "VAULT_RAID",    label = "Raid",          type = "vault_row",  group = "raid" },
+    { name = "VAULT_DUNGEON", label = "Dungeon",       type = "vault_row",  group = "dungeon" },
+    { name = "VAULT_WORLD",   label = "World/Delve",   type = "vault_row",  group = "world" },
 
     { name = "RAID_HEADER",   label = "Raid Progress", type = "header" },
-    { name = "RAID_M",        label = "Mythic",        type = "raid_grid", difficulty = 16 },
-    { name = "RAID_H",        label = "Heroic",        type = "raid_grid", difficulty = 15 },
-    { name = "RAID_N",        label = "Normal",        type = "raid_grid", difficulty = 14 },
+    { name = "RAID_M",        label = "Mythic",        type = "raid_grid",  difficulty = 16 },
+    { name = "RAID_H",        label = "Heroic",        type = "raid_grid",  difficulty = 15 },
+    { name = "RAID_N",        label = "Normal",        type = "raid_grid",  difficulty = 14 },
 }
 
 local function ReleaseDynamicCategories()
@@ -327,7 +327,7 @@ function sfui.alts.CheckWeeklyResets()
     local now = GetServerTime()
     local thirtyDaysSecs = 30 * 24 * 60 * 60
     local secondsToReset = C_DateAndTime and C_DateAndTime.GetSecondsUntilWeeklyReset and
-    C_DateAndTime.GetSecondsUntilWeeklyReset() or 0
+        C_DateAndTime.GetSecondsUntilWeeklyReset() or 0
     local currentNextReset = secondsToReset > 0 and (now + secondsToReset) or nil
 
     for g, d in pairs(SfuiDB.alts or {}) do
@@ -557,7 +557,7 @@ function sfui.alts.PerformSync(isLogout)
                 progress = C_TaskQuest.GetQuestProgressBarInfo(questID) or 0
                 isActive = true
             end
-            
+
             local numLeaderBoards = GetNumQuestLeaderBoards(questID)
             if numLeaderBoards > 0 then
                 isActive = true
@@ -599,21 +599,6 @@ function sfui.alts.PerformSync(isLogout)
     -- Stormarion
     q.stormarion = GetQuestStatus(90962)
 
-    -- Special Assignments
-    q.sa = q.sa or {}
-    wipe(q.sa)
-    local saPool = {
-        { q = 92145, u = 92848 }, { q = 92063, u = 94390 }, { q = 93013, u = 94391 },
-        { q = 93438, u = 94743 }, { q = 93244, u = 94795 }, { q = 91390, u = 94865 },
-        { q = 91796, u = 94866 }, { q = 92139, u = 95435 }
-    }
-    for _, sa in ipairs(saPool) do
-        local status = GetQuestStatus(sa.q)
-        if status.completed or status.active then
-            table.insert(q.sa, status)
-        end
-        if #q.sa >= 2 then break end
-    end
 
     q.lastUpdate = GetServerTime()
 
@@ -789,6 +774,7 @@ function sfui.alts.CreateFrame()
     if frame then return frame end
 
     frame = CreateFrame("Frame", "SfuiAltsFrame", UIParent, "BackdropTemplate")
+    table.insert(UISpecialFrames, "SfuiAltsFrame")
     frame:SetFrameStrata("DIALOG")
     frame:SetSize(cfg.width, cfg.height)
     frame:SetPoint("CENTER")
@@ -1230,7 +1216,7 @@ function sfui.alts.UpdateUI(force)
             elseif cat.type == "quests_grid" then
                 text:Hide()
                 local q = alt.data.quests
-                local blockLabels = { "Abundance", "Legends", "Runestones", "SA:#1", "SA:#2", "Stormarion" }
+                local blockLabels = { "Abundance", "Legends", "Runestones", "Stormarion" }
                 local numBlocks = #blockLabels
                 local squareSize = (cfg.columnWidth - 10) / numBlocks
 
@@ -1243,12 +1229,14 @@ function sfui.alts.UpdateUI(force)
 
                     -- Determine Color
                     local status
-                    if bIdx == 1 then status = q and q.abundance
-                    elseif bIdx == 2 then status = q and q.legends
-                    elseif bIdx == 3 then status = q and q.runestones
-                    elseif bIdx == 4 then status = q and q.sa and q.sa[1]
-                    elseif bIdx == 5 then status = q and q.sa and q.sa[2]
-                    elseif bIdx == 6 then status = q and q.stormarion
+                    if bIdx == 1 then
+                        status = q and q.abundance
+                    elseif bIdx == 2 then
+                        status = q and q.legends
+                    elseif bIdx == 3 then
+                        status = q and q.runestones
+                    elseif bIdx == 4 then
+                        status = q and q.stormarion
                     end
 
                     local sColors = cfg.statusColors
@@ -1266,12 +1254,14 @@ function sfui.alts.UpdateUI(force)
                     GameTooltip:SetText("Weekly Quests Progress")
                     for bIdx, label in ipairs(blockLabels) do
                         local status
-                        if bIdx == 1 then status = q and q.abundance
-                        elseif bIdx == 2 then status = q and q.legends
-                        elseif bIdx == 3 then status = q and q.runestones
-                        elseif bIdx == 4 then status = q and q.sa and q.sa[1]
-                        elseif bIdx == 5 then status = q and q.sa and q.sa[2]
-                        elseif bIdx == 6 then status = q and q.stormarion
+                        if bIdx == 1 then
+                            status = q and q.abundance
+                        elseif bIdx == 2 then
+                            status = q and q.legends
+                        elseif bIdx == 3 then
+                            status = q and q.runestones
+                        elseif bIdx == 4 then
+                            status = q and q.stormarion
                         end
 
                         local color = "|cff888888"
@@ -1306,7 +1296,8 @@ function sfui.alts.UpdateUI(force)
                     local mythic = p.mythic or 0
                     text:SetText(string.format("%d/%d/%d", normal, hard, mythic))
                     -- Completed ONLY if a specific category is 4
-                    local isCompleted = (p.normal and p.normal >= 4) or (p.hard and p.hard >= 4) or (p.mythic and p.mythic >= 4)
+                    local isCompleted = (p.normal and p.normal >= 4) or (p.hard and p.hard >= 4) or
+                    (p.mythic and p.mythic >= 4)
                     if isCompleted then
                         text:SetTextColor(unpack(sColors and sColors.completed or { 0, 1, 1 }))
                     elseif p.weekly and p.weekly > 0 then
@@ -1323,18 +1314,21 @@ function sfui.alts.UpdateUI(force)
                     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                     GameTooltip:SetText("Hunt Progress (Weekly)")
                     if alt.data.prey then
-                        GameTooltip:AddDoubleLine("Progress:", string.format("%d / 4", alt.data.prey.weekly or 0), 1, 1, 1, 1,
+                        GameTooltip:AddDoubleLine("Progress:", string.format("%d / 4", alt.data.prey.weekly or 0), 1, 1,
+                            1, 1,
                             1, 1)
                         if alt.data.prey.isQuestActive then
                             GameTooltip:AddLine(" ")
                             GameTooltip:AddLine("Active: " .. (alt.data.prey.title or "Unknown"), 1, 0.82, 0)
-                            GameTooltip:AddDoubleLine("Quest Progress:", (alt.data.prey.activeHuntProgress or 0) .. "%", 1, 1,
+                            GameTooltip:AddDoubleLine("Quest Progress:", (alt.data.prey.activeHuntProgress or 0) .. "%",
+                                1, 1,
                                 1, 1, 1, 1)
                         end
                         if alt.data.prey.rank then
                             GameTooltip:AddLine(" ")
                             GameTooltip:AddDoubleLine("Renown Rank:", alt.data.prey.rank, 1, 1, 1, 1, 1, 1)
-                            GameTooltip:AddDoubleLine("Rank Progress:", (alt.data.prey.rankProgress or 0) .. "%", 1, 1, 1, 1, 1,
+                            GameTooltip:AddDoubleLine("Rank Progress:", (alt.data.prey.rankProgress or 0) .. "%", 1, 1, 1,
+                                1, 1,
                                 1)
                         end
                     end
