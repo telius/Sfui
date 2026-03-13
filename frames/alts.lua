@@ -21,6 +21,7 @@ local AbbreviateLargeNumbers = AbbreviateLargeNumbers
 local table = table
 local wipe = wipe
 local C_Timer = C_Timer
+local unpack = unpack or table.unpack
 
 -- Frame Pooling
 local columnPool = {}
@@ -28,7 +29,9 @@ local cellPool = {}
 local tablePool = {}
 
 local function AcquireTable()
-    return table.remove(tablePool) or {}
+    local t = table.remove(tablePool) or {}
+    t.isDynamic = true
+    return t
 end
 
 local function ReleaseTable(t)
@@ -151,7 +154,8 @@ local BASE_CATEGORIES = {
     { name = "RATING",        label = "M+ Rating",     type = "stat",      key = "rating" },
     { name = "KEystone",      label = "Current Key",   type = "keystone" },
 
-    { name = "PREY_HEADER",   label = "Prey Hunt",     type = "header" },
+    { name = "QUESTS_HEADER",  label = "Weekly Quests",  type = "header" },
+    { name = "QUESTS_GRID",    label = "Quests",         type = "quests_grid" },
     { name = "PREY",          label = "Hunt Progress", type = "prey" },
 
     { name = "VAULT_HEADER",  label = "Great Vault",   type = "header" },
@@ -165,15 +169,25 @@ local BASE_CATEGORIES = {
     { name = "RAID_N",        label = "Normal",        type = "raid_grid", difficulty = 14 },
 }
 
+local function ReleaseDynamicCategories()
+    for i = #CATEGORIES, 1, -1 do
+        local cat = table.remove(CATEGORIES, i)
+        if cat.isDynamic then
+            ReleaseTable(cat)
+        end
+    end
+end
+
 local categoriesBuilt = false
-function sfui.alts.RefreshDynamicCategories()
-    if categoriesBuilt then
-        -- Only add Professions dynamically based on characters data, as it might change
-        -- Remove old profession headers/slots if they exist
+function sfui.alts.RefreshDynamicCategories(force)
+    if categoriesBuilt and not force then
+        -- Standard incremental update (professions only)
         for i = #CATEGORIES, 1, -1 do
             if CATEGORIES[i].type == "prof_slot" or CATEGORIES[i].name == "PROFESSION_HEADER" then
                 local cat = table.remove(CATEGORIES, i)
-                ReleaseTable(cat)
+                if cat.isDynamic then
+                    ReleaseTable(cat)
+                end
             end
         end
 
@@ -201,7 +215,8 @@ function sfui.alts.RefreshDynamicCategories()
         return
     end
 
-    -- Initialize with base categories
+    -- Full rebuild
+    ReleaseDynamicCategories()
     wipe(CATEGORIES)
     for i, cat in ipairs(BASE_CATEGORIES) do
         CATEGORIES[i] = cat
@@ -213,9 +228,11 @@ function sfui.alts.RefreshDynamicCategories()
         dh.name, dh.label, dh.type = "DUNGEONS_HEADER", "Dungeons", "header"
         table.insert(CATEGORIES, dh)
 
-        local m0 = AcquireTable()
-        m0.name, m0.label, m0.type = "M0_GRID", "Mythic 0", "m0_grid"
-        table.insert(CATEGORIES, m0)
+        if SfuiDB.showM0Dungeons ~= false then
+            local m0 = AcquireTable()
+            m0.name, m0.label, m0.type = "M0_GRID", "Mythic 0", "m0_grid"
+            table.insert(CATEGORIES, m0)
+        end
 
         for _, mapID in ipairs(maps) do
             local name = C_ChallengeMode.GetMapUIInfo(mapID)
@@ -288,12 +305,13 @@ function sfui.alts.SyncCurrentCharacter()
     end)
 end
 
+local preyLogDirty = true
+
 local ejInstanceCache = nil
 local function GetEJInstanceCache()
     if ejInstanceCache then return ejInstanceCache end
     ejInstanceCache = {}
     local currentTier = EJ_GetCurrentTier()
-    EJ_SelectTier(currentTier)
     local index = 1
     while true do
         local instanceID, name = EJ_GetInstanceByIndex(index, false)
@@ -304,7 +322,6 @@ local function GetEJInstanceCache()
     return ejInstanceCache
 end
 
-local preyLogDirty = true
 
 function sfui.alts.CheckWeeklyResets()
     local now = GetServerTime()
@@ -317,21 +334,17 @@ function sfui.alts.CheckWeeklyResets()
         if d.lastUpdate and (now - d.lastUpdate > thirtyDaysSecs) then
             SfuiDB.alts[g] = nil
         elseif d.nextWeeklyReset and now > d.nextWeeklyReset then
-            if d.prey then
-                d.prey.normal = 0
-                d.prey.hard = 0
-                d.prey.mythic = 0
-                d.prey.weekly = 0
-                d.prey.activeHuntProgress = 0
-                d.prey.isQuestActive = false
-            end
+            if d.quests then wipe(d.quests) end
+            if d.prey then wipe(d.prey) end
             if d.profKP then
                 for _, pData in pairs(d.profKP) do
-                    pData.done = 0
-                    if pData.details then
-                        pData.details.treatise = false
-                        pData.details.quest = false
-                        pData.details.treasures = 0
+                    if type(pData) == "table" then
+                        pData.done = 0
+                        if pData.details then
+                            pData.details.treatise = false
+                            pData.details.quest = false
+                            pData.details.treasures = 0
+                        end
                     end
                 end
             end
@@ -394,8 +407,6 @@ function sfui.alts.PerformSync(isLogout)
     data.race = race
 
     data.level = level
-
-    local _, avgItemLevelEquipped = GetAverageItemLevel()
     data.iLvl = avgItemLevelEquipped
 
     data.lastUpdate = GetServerTime()
@@ -407,9 +418,17 @@ function sfui.alts.PerformSync(isLogout)
     local mapID = C_MythicPlus.GetOwnedKeystoneChallengeMapID()
     local keystoneLevel = C_MythicPlus.GetOwnedKeystoneLevel()
     if mapID and keystoneLevel then
-        data.keystone = data.keystone or AcquireTable()
+        if not data.keystone then
+            data.keystone = AcquireTable()
+            data.keystone.isDynamic = nil
+        end
         data.keystone.mapID = mapID
         data.keystone.level = keystoneLevel
+    else
+        if data.keystone then
+            ReleaseTable(data.keystone)
+            data.keystone = nil
+        end
     end
 
     -- Mythic+ Dungeon Best Scores
@@ -521,18 +540,95 @@ function sfui.alts.PerformSync(isLogout)
         end
     end
 
+    -- Quests tracking (Midnight expansion)
+    data.quests = data.quests or {}
+    local q = data.quests
+
+    -- Store Quest Details
+    local function GetQuestStatus(questID, pool)
+        if not questID then return { completed = false, progress = 0, active = false } end
+        local isCompleted = C_QuestLog.IsQuestFlaggedCompleted(questID)
+        local progress = 0
+        local progressText = nil
+        local isActive = false
+
+        if not isCompleted then
+            if C_TaskQuest.GetQuestProgressBarInfo(questID) then
+                progress = C_TaskQuest.GetQuestProgressBarInfo(questID) or 0
+                isActive = true
+            end
+            
+            local numLeaderBoards = GetNumQuestLeaderBoards(questID)
+            if numLeaderBoards > 0 then
+                isActive = true
+                local finishedCount = 0
+                for i = 1, numLeaderBoards do
+                    local _, _, finished = GetQuestLogLeaderBoard(i, questID)
+                    if finished then finishedCount = finishedCount + 1 end
+                end
+                progressText = string.format("%d/%d", finishedCount, numLeaderBoards)
+            end
+
+            if pool then
+                for _, pID in ipairs(pool) do
+                    if C_QuestLog.IsQuestFlaggedCompleted(pID) then
+                        isCompleted = true
+                        break
+                    elseif C_TaskQuest.GetQuestProgressBarInfo(pID) then
+                        progress = C_TaskQuest.GetQuestProgressBarInfo(pID) or 0
+                        isActive = true
+                        break
+                    end
+                end
+            end
+        end
+        return { completed = isCompleted, progress = progress, progressText = progressText, active = isActive }
+    end
+
+    -- Abundance
+    q.abundance = GetQuestStatus(89507)
+
+    -- Legends
+    local legendsPool = { 88993, 88994, 88996, 88997, 88995 }
+    q.legends = GetQuestStatus(89268, legendsPool)
+
+    -- Runestones
+    local runestonesPool = { 90573, 90574, 90575, 90576 }
+    q.runestones = GetQuestStatus(91966, runestonesPool)
+
+    -- Stormarion
+    q.stormarion = GetQuestStatus(90962)
+
+    -- Special Assignments
+    q.sa = q.sa or {}
+    wipe(q.sa)
+    local saPool = {
+        { q = 92145, u = 92848 }, { q = 92063, u = 94390 }, { q = 93013, u = 94391 },
+        { q = 93438, u = 94743 }, { q = 93244, u = 94795 }, { q = 91390, u = 94865 },
+        { q = 91796, u = 94866 }, { q = 92139, u = 95435 }
+    }
+    for _, sa in ipairs(saPool) do
+        local status = GetQuestStatus(sa.q)
+        if status.completed or status.active then
+            table.insert(q.sa, status)
+        end
+        if #q.sa >= 2 then break end
+    end
+
+    q.lastUpdate = GetServerTime()
+
     -- Prey tracking (Midnight expansion)
     data.prey = data.prey or {}
+    local p = data.prey
 
     -- Season 1 Progress (ID 2764 from HomeworkTracker)
     local progInfo = C_MajorFactions.GetMajorFactionData(cfg.expansion and cfg.expansion.preyFactionID or 2764)
     if progInfo then
-        data.prey.rank = progInfo.renownLevel
+        p.rank = progInfo.renownLevel
         if progInfo.renownLevelThreshold and progInfo.renownLevelThreshold > 0 then
-            data.prey.rankProgress = math.floor((progInfo.renownReputationEarned or 0) / progInfo.renownLevelThreshold *
-                100)
+            p.rankProgress = math.floor((progInfo.renownReputationEarned or 0) / progInfo.renownLevelThreshold * 100)
         else
-            data.prey.rankProgress = 0
+            p.rankProgress = 0
         end
     end
 
@@ -553,47 +649,38 @@ function sfui.alts.PerformSync(isLogout)
         91260, 91261, 91262, 91263, 91264, 91265, 91266, 91267, 91268, 91269
     }
 
-    if preyLogDirty then
-        data.prey.normal = 0
-        data.prey.hard = 0
-        data.prey.mythic = 0
-        for _, qID in ipairs(huntNormal) do
-            if C_QuestLog.IsQuestFlaggedCompleted(qID) then data.prey.normal = data.prey.normal + 1 end
-        end
-        for _, qID in ipairs(huntHard) do
-            if C_QuestLog.IsQuestFlaggedCompleted(qID) then data.prey.hard = data.prey.hard + 1 end
-        end
-        for _, qID in ipairs(huntMythic) do
-            if C_QuestLog.IsQuestFlaggedCompleted(qID) then data.prey.mythic = data.prey.mythic + 1 end
-        end
-        data.prey.weekly = data.prey.normal + data.prey.hard + data.prey.mythic
-        -- Active Hunt Progress using config ID
-        local remnants = C_CurrencyInfo.GetCurrencyInfo(cfg.expansion and cfg.expansion.activeHuntCurrencyID or 3392)
-        if remnants and remnants.quantity then
-            data.prey.activeHuntProgress = remnants.quantity
-        else
-            data.prey.activeHuntProgress = 0
-        end
-
-        preyLogDirty = false
+    p.normal = 0
+    p.hard = 0
+    p.mythic = 0
+    for _, qID in ipairs(huntNormal) do
+        if C_QuestLog.IsQuestFlaggedCompleted(qID) then p.normal = p.normal + 1 end
     end
+    for _, qID in ipairs(huntHard) do
+        if C_QuestLog.IsQuestFlaggedCompleted(qID) then p.hard = p.hard + 1 end
+    end
+    for _, qID in ipairs(huntMythic) do
+        if C_QuestLog.IsQuestFlaggedCompleted(qID) then p.mythic = p.mythic + 1 end
+    end
+    p.weekly = p.normal + p.hard + p.mythic
 
     -- Active Hunt Quests
-    data.prey.isQuestActive = false
+    p.isQuestActive = false
     if C_QuestLog.GetActivePreyQuest then
         local questID = C_QuestLog.GetActivePreyQuest()
         if questID then
-            data.prey.title = C_QuestLog.GetTitleForQuestID(questID)
-            data.prey.activeHuntProgress = C_TaskQuest.GetQuestProgressBarInfo(questID) or 0
-            data.prey.isQuestActive = true
+            p.title = C_QuestLog.GetTitleForQuestID(questID)
+            p.activeHuntProgress = C_TaskQuest.GetQuestProgressBarInfo(questID) or 0
+            p.isQuestActive = true
         end
     end
 
-    data.prey.lastUpdate = GetServerTime()
+    p.lastUpdate = GetServerTime()
 
     -- Professions Knowledge Points
     data.profKP = data.profKP or {}
-    wipe(data.profKP)
+    ReleaseTableRecursive(data.profKP)
+    data.profKP = AcquireTable()
+    data.profKP.isDynamic = nil -- Remove pollution for storage
     local prof1, prof2 = GetProfessions()
     local profsToCheck = {}
     if prof1 then table.insert(profsToCheck, prof1) end
@@ -603,14 +690,21 @@ function sfui.alts.PerformSync(isLogout)
         local name, icon, skillLevel, _, _, _, skillLine = GetProfessionInfo(pIndex)
         local tracking = PROF_KP_SOURCES[skillLine]
 
-        local pData = data.profKP[skillLine] or AcquireTable()
+        local pData = data.profKP[skillLine]
+        if not pData then
+            pData = AcquireTable()
+            pData.isDynamic = nil
+        end
         pData.name = name
         pData.icon = icon
         pData.skill = skillLevel
         pData.done = 0
         pData.total = 0
         pData.catchUp = 0
-        pData.details = pData.details or AcquireTable()
+        if not pData.details then
+            pData.details = AcquireTable()
+            pData.details.isDynamic = nil
+        end
         local d = pData.details
         d.treatise = false
         d.quest = false
@@ -703,6 +797,7 @@ function sfui.alts.CreateFrame()
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", frame.StartMoving)
     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+    frame:SetScript("OnHide", function() CloseDropDownMenus() end)
 
     frame:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -808,6 +903,32 @@ function sfui.alts.CreateFrame()
                 })
             end
         end
+
+        -- Add M0 Toggle manually
+        table.insert(options, {
+            label = "M0 Dungeons",
+            keepOpen = true,
+            onRender = function(parent, opt)
+                local t = parent.textString
+                t:SetText(opt.label)
+                if parent.xBtn then parent.xBtn:Hide() end
+
+                local isHidden = SfuiDB.showM0Dungeons == false
+                local hStatus = isHidden and "|cffff0000H|r" or "|cff00ff00V|r"
+                parent.hBtn = parent.hBtn or sfui.common.create_flat_button(parent, "", 18, 16)
+                local hBtn = parent.hBtn
+                hBtn:Show()
+                hBtn:SetText(hStatus)
+                hBtn:SetPoint("RIGHT", -5, 0)
+                hBtn:SetScript("OnClick", function()
+                    SfuiDB.showM0Dungeons = not (SfuiDB.showM0Dungeons ~= false)
+                    sfui.alts.RefreshDynamicCategories(true)
+                    sfui.alts.UpdateUI()
+                    hBtn:SetText(SfuiDB.showM0Dungeons == false and "|cffff0000H|r" or "|cff00ff00V|r")
+                end)
+            end
+        })
+
         return options
     end
 
@@ -1030,52 +1151,6 @@ function sfui.alts.UpdateUI(force)
                     text:SetText("-")
                     text:SetTextColor(0.5, 0.5, 0.5)
                 end
-            elseif cat.type == "prey" then
-                if alt.data.prey then
-                    local normal = alt.data.prey.normal or 0
-                    local hard = alt.data.prey.hard or 0
-                    local mythic = alt.data.prey.mythic or 0
-                    local activeProgress = alt.data.prey.activeHuntProgress or 0
-                    local isQuestActive = alt.data.prey.isQuestActive
-                    local rank = alt.data.prey.rank or 1
-                    local rankProgress = alt.data.prey.rankProgress or 0
-
-                    local progressStr = isQuestActive and string.format("%d%%", activeProgress) or
-                        tostring(activeProgress)
-                    text:SetText(string.format("%d/%d/%d (%s)", normal, hard, mythic, progressStr))
-
-                    if (normal + hard + mythic) >= 4 then
-                        text:SetTextColor(0, 1, 0) -- Completed weekly goal (at least 4 hunts of any diff)
-                    elseif isQuestActive and activeProgress >= 100 then
-                        text:SetTextColor(1, 0, 1) -- Ready for confrontation
-                    else
-                        text:SetTextColor(0, 1, 1)
-                    end
-
-                    -- Add tooltip for more details
-                    cell:SetScript("OnEnter", function(self)
-                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                        GameTooltip:SetText("Prey Hunt Progress")
-                        GameTooltip:AddDoubleLine("Normal:", string.format("%d / 4", normal), 1, 1, 1, 1, 1, 1)
-                        GameTooltip:AddDoubleLine("Hard:", string.format("%d / 4", hard), 1, 1, 1, 1, 1, 1)
-                        GameTooltip:AddDoubleLine("Mythic:", string.format("%d / 4", mythic), 1, 1, 1, 1, 1, 1)
-                        if alt.data.prey.title then
-                            GameTooltip:AddDoubleLine("Active Hunt:", alt.data.prey.title, 1, 1, 1, 1, 1, 1)
-                        end
-                        GameTooltip:AddDoubleLine(isQuestActive and "Hunt Progress:" or "Remnants of Anguish:",
-                            progressStr, 1, 1, 1, 1, 1, 1)
-                        GameTooltip:AddLine(" ")
-                        GameTooltip:AddDoubleLine("Renown Rank:", string.format("%d (%d%%)", rank, rankProgress), 1, 1,
-                            1, 1, 1, 1)
-                        GameTooltip:Show()
-                    end)
-                    cell:SetScript("OnLeave", function()
-                        GameTooltip:Hide()
-                    end)
-                else
-                    text:SetText("-")
-                    text:SetTextColor(0.5, 0.5, 0.5)
-                end
             elseif cat.type == "dungeon" then
                 local best = alt.data.dungeons and alt.data.dungeons[cat.mapID]
                 if best and best.level > 0 then
@@ -1151,15 +1226,129 @@ function sfui.alts.UpdateUI(force)
                     end
                     GameTooltip:Show()
                 end)
-                cell:SetScript("OnLeave", function()
-                    GameTooltip:Hide()
+                cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            elseif cat.type == "quests_grid" then
+                text:Hide()
+                local q = alt.data.quests
+                local blockLabels = { "Abundance", "Legends", "Runestones", "SA:#1", "SA:#2", "Stormarion" }
+                local numBlocks = #blockLabels
+                local squareSize = (cfg.columnWidth - 10) / numBlocks
+
+                for bIdx = 1, numBlocks do
+                    local rect = cell["qRect" .. bIdx] or cell:CreateTexture(nil, "ARTWORK")
+                    cell["qRect" .. bIdx] = rect
+                    rect:Show()
+                    rect:SetSize(squareSize - 2, cfg.rowHeight - 12)
+                    rect:SetPoint("LEFT", (bIdx - 1) * squareSize + 5, 0)
+
+                    -- Determine Color
+                    local status
+                    if bIdx == 1 then status = q and q.abundance
+                    elseif bIdx == 2 then status = q and q.legends
+                    elseif bIdx == 3 then status = q and q.runestones
+                    elseif bIdx == 4 then status = q and q.sa and q.sa[1]
+                    elseif bIdx == 5 then status = q and q.sa and q.sa[2]
+                    elseif bIdx == 6 then status = q and q.stormarion
+                    end
+
+                    local sColors = cfg.statusColors
+                    if status and status.completed then
+                        rect:SetColorTexture(unpack(sColors and sColors.completed or { 0, 1, 1, 0.8 }))
+                    elseif status and (status.progress > 0 or status.active) then
+                        rect:SetColorTexture(unpack(sColors and sColors.inProgress or { 0, 0.2, 0.2, 0.8 }))
+                    else
+                        rect:SetColorTexture(unpack(sColors and sColors.available or { 0, 0, 0, 0.5 }))
+                    end
+                end
+
+                cell:SetScript("OnEnter", function(self)
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetText("Weekly Quests Progress")
+                    for bIdx, label in ipairs(blockLabels) do
+                        local status
+                        if bIdx == 1 then status = q and q.abundance
+                        elseif bIdx == 2 then status = q and q.legends
+                        elseif bIdx == 3 then status = q and q.runestones
+                        elseif bIdx == 4 then status = q and q.sa and q.sa[1]
+                        elseif bIdx == 5 then status = q and q.sa and q.sa[2]
+                        elseif bIdx == 6 then status = q and q.stormarion
+                        end
+
+                        local color = "|cff888888"
+                        local valStr = "Not Started"
+                        if status then
+                            local sColors = cfg.statusColors
+                            if status.completed then
+                                color = sColors and sColors.textCompleted or "|cff00ffff"
+                                valStr = "Completed"
+                            elseif status.progressText then
+                                color = sColors and sColors.textInProgress or "|cff003333"
+                                valStr = status.progressText
+                            elseif status.progress > 0 then
+                                color = sColors and sColors.textInProgress or "|cff003333"
+                                valStr = bIdx == 6 and (status.progress .. "%") or status.progress
+                            elseif status.active then
+                                color = sColors and sColors.textInProgress or "|cff003333"
+                                valStr = "In Progress"
+                            end
+                        end
+                        GameTooltip:AddDoubleLine(label, color .. valStr .. "|r", 1, 1, 1, 1, 1, 1)
+                    end
+                    GameTooltip:Show()
                 end)
+                cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            elseif cat.type == "prey" then
+                if alt.data.prey then
+                    local p = alt.data.prey
+                    local sColors = cfg.statusColors
+                    local normal = p.normal or 0
+                    local hard = p.hard or 0
+                    local mythic = p.mythic or 0
+                    text:SetText(string.format("%d/%d/%d", normal, hard, mythic))
+                    -- Completed ONLY if a specific category is 4
+                    local isCompleted = (p.normal and p.normal >= 4) or (p.hard and p.hard >= 4) or (p.mythic and p.mythic >= 4)
+                    if isCompleted then
+                        text:SetTextColor(unpack(sColors and sColors.completed or { 0, 1, 1 }))
+                    elseif p.weekly and p.weekly > 0 then
+                        text:SetTextColor(unpack(sColors and sColors.inProgress or { 0, 0.2, 0.2 }))
+                    else
+                        text:SetTextColor(unpack(sColors and sColors.available or { 0, 0, 0 }))
+                    end
+                else
+                    text:SetText("0 / 4")
+                    text:SetTextColor(0.5, 0.5, 0.5)
+                end
+
+                cell:SetScript("OnEnter", function(self)
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetText("Hunt Progress (Weekly)")
+                    if alt.data.prey then
+                        GameTooltip:AddDoubleLine("Progress:", string.format("%d / 4", alt.data.prey.weekly or 0), 1, 1, 1, 1,
+                            1, 1)
+                        if alt.data.prey.isQuestActive then
+                            GameTooltip:AddLine(" ")
+                            GameTooltip:AddLine("Active: " .. (alt.data.prey.title or "Unknown"), 1, 0.82, 0)
+                            GameTooltip:AddDoubleLine("Quest Progress:", (alt.data.prey.activeHuntProgress or 0) .. "%", 1, 1,
+                                1, 1, 1, 1)
+                        end
+                        if alt.data.prey.rank then
+                            GameTooltip:AddLine(" ")
+                            GameTooltip:AddDoubleLine("Renown Rank:", alt.data.prey.rank, 1, 1, 1, 1, 1, 1)
+                            GameTooltip:AddDoubleLine("Rank Progress:", (alt.data.prey.rankProgress or 0) .. "%", 1, 1, 1, 1, 1,
+                                1)
+                        end
+                    end
+                    GameTooltip:Show()
+                end)
+                cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
             elseif cat.type == "prof_slot" then
                 local pData
                 local profs = {}
                 if alt.data.profKP then
                     for skillLine, data in pairs(alt.data.profKP) do
-                        table.insert(profs, data)
+                        if type(data) == "table" then
+                            table.insert(profs, data)
+                        end
                     end
                 end
                 table.sort(profs, function(a, b) return (a.name or "") < (b.name or "") end)
@@ -1185,10 +1374,12 @@ function sfui.alts.UpdateUI(force)
                     if pData.total > 0 then
                         rightText:SetText(string.format("%d/%d", pData.done, pData.total))
 
+                        local sColors = cfg.statusColors
                         if pData.done >= pData.total then
-                            rightText:SetTextColor(0, 1, 0) -- Green
-                        elseif pData.done > 0 then
                             rightText:SetTextColor(0, 1, 1) -- Cyan
+                        elseif pData.done > 0 then
+                            local c = sColors and sColors.inProgress or { 0, 0.2, 0.2 }
+                            rightText:SetTextColor(c[1], c[2], c[3])
                         else
                             rightText:SetTextColor(1, 1, 1)
                         end
@@ -1237,10 +1428,11 @@ function sfui.alts.UpdateUI(force)
                     rect:SetPoint("LEFT", (slotIdx - 1) * squareSize + 5, 0)
 
                     local vData = alt.data.vault and alt.data.vault[group] and alt.data.vault[group][slotIdx]
+                    local sColors = cfg.statusColors
                     if vData and vData.progress >= vData.threshold and vData.threshold > 0 then
-                        rect:SetColorTexture(0, 1, 0, 0.8)       -- Green
+                        rect:SetColorTexture(unpack(sColors and sColors.completed or { 0, 1, 1, 0.8 }))
                     else
-                        rect:SetColorTexture(0.2, 0.2, 0.2, 0.5) -- Gray
+                        rect:SetColorTexture(unpack(sColors and sColors.available or { 0, 0, 0, 0.5 }))
                     end
                 end
 
@@ -1280,10 +1472,11 @@ function sfui.alts.UpdateUI(force)
                     rect:SetSize(squareSize - 2, cfg.rowHeight - 12)
                     rect:SetPoint("LEFT", (bIdx - 1) * squareSize + 5, 0)
 
+                    local sColors = cfg.statusColors
                     if m0Data and m0Data[inst.id] then
-                        rect:SetColorTexture(0, 1, 1, 0.8) -- #00ffff completed
+                        rect:SetColorTexture(unpack(sColors and sColors.completed or { 0, 1, 1, 0.8 }))
                     else
-                        rect:SetColorTexture(0, 0, 0, 0.5) -- black (available)
+                        rect:SetColorTexture(unpack(sColors and sColors.available or { 0, 0, 0, 0.5 }))
                     end
                 end
 
@@ -1324,7 +1517,8 @@ function sfui.alts.UpdateUI(force)
                     if bossData and bossData[bIdx] then
                         rect:SetColorTexture(r, g, b, 0.8)
                     else
-                        rect:SetColorTexture(0, 0, 0, 0.5)
+                        local sColors = cfg.statusColors
+                        rect:SetColorTexture(unpack(sColors and sColors.available or { 0, 0, 0, 0.5 }))
                     end
                 end
             end
@@ -1398,21 +1592,17 @@ function sfui.alts.initialize()
     SlashCmdList["SFUIALTS"] = function(msg)
         if msg == "resetweeklies" then
             for _, d in pairs(SfuiDB.alts or {}) do
-                if d.prey then
-                    d.prey.normal = 0
-                    d.prey.hard = 0
-                    d.prey.mythic = 0
-                    d.prey.weekly = 0
-                    d.prey.activeHuntProgress = 0
-                    d.prey.isQuestActive = false
-                end
+                if d.quests then wipe(d.quests) end
+                if d.prey then wipe(d.prey) end
                 if d.profKP then
                     for _, pData in pairs(d.profKP) do
-                        pData.done = 0
-                        if pData.details then
-                            pData.details.treatise = false
-                            pData.details.quest = false
-                            pData.details.treasures = 0
+                        if type(pData) == "table" then
+                            pData.done = 0
+                            if pData.details then
+                                pData.details.treatise = false
+                                pData.details.quest = false
+                                pData.details.treasures = 0
+                            end
                         end
                     end
                 end

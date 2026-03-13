@@ -655,5 +655,14 @@ sfui.config = {
             preyFactionID = 2764,          -- Midnight Season 1 Progress
             activeHuntCurrencyID = 3392,   -- Remnant of Anguish
         },
+        showM0Dungeons = true,
+        statusColors = {
+            completed = { 0, 1, 1, 0.8 },      -- Cyan
+            inProgress = { 0, 0.2, 0.2, 0.8 }, -- Dark Teal (Strict)
+            available = { 0, 0, 0, 0.5 }, -- Black (Available)
+            textCompleted = "|cff00ffff",
+            textInProgress = "|cff003333", -- Matching 0, 0.2, 0.2 hex approximately
+            textAvailable = "|cff888888",
+        },
     }
 }
