@@ -160,6 +160,18 @@ function sfui.common.SafeLT(val, target)
     return ok and result or false
 end
 
+-- Safe arithmetic to bypass "arithmetic on secret number" errors when tainted.
+function sfui.common.SafeArithmetic(op, v1, v2)
+    if v1 == nil or v2 == nil then return 0 end
+    local ok, res = pcall(function()
+        if op == "+" then return v1 + v2 end
+        if op == "-" then return v1 - v2 end
+        if op == "*" then return v1 * v2 end
+        if op == "/" then return (v2 ~= 0) and (v1 / v2) or 0 end
+    end)
+    return ok and res or 0
+end
+
 function sfui.common.SafeValue(val, fallback)
     if val == nil then return fallback end
     if issecretvalue(val) then return val end

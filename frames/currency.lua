@@ -3,8 +3,8 @@ do
     local widget_frame, icons, value_labels = nil, {}, {}
 
     local function OnCurrencyIconEnter(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetCurrencyByID(self.id)
+        securecall(pcall, GameTooltip.SetOwner, GameTooltip, self, "ANCHOR_RIGHT")
+        securecall(pcall, GameTooltip.SetCurrencyByID, GameTooltip, self.id)
         GameTooltip:Show()
     end
 
@@ -86,8 +86,8 @@ do
     end
 
     local function OnItemIconEnter(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetItemByID(self.id)
+        securecall(pcall, GameTooltip.SetOwner, GameTooltip, self, "ANCHOR_RIGHT")
+        securecall(pcall, GameTooltip.SetItemByID, GameTooltip, self.id)
         GameTooltip:Show()
     end
 

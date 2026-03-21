@@ -146,6 +146,7 @@ local CURRENCIES = {
     { id = 3378, label = "Catalyst", icon = 4622294 },   -- Catalyst Charges
     { id = 3376, label = "Dumdum",   icon = 134569 },    -- Shard of Dundun
     { id = 3028, label = "Key",      icon = 4622270 },   -- Restored Coffer Key
+    { id = 3310, label = "Shard",    icon = 133016 },    -- Coffer Key Shard
 }
 
 local BASE_CATEGORIES = {
@@ -598,6 +599,9 @@ function sfui.alts.PerformSync(isLogout)
 
     -- Stormarion
     q.stormarion = GetQuestStatus(90962)
+
+    -- Trovehunter's Bounty
+    q.bounty = GetQuestStatus(86371)
 
 
     q.lastUpdate = GetServerTime()
@@ -1216,7 +1220,7 @@ function sfui.alts.UpdateUI(force)
             elseif cat.type == "quests_grid" then
                 text:Hide()
                 local q = alt.data.quests
-                local blockLabels = { "Abundance", "Legends", "Runestones", "Stormarion" }
+                local blockLabels = { "Abundance", "Legends", "Runestones", "Stormarion", "Bounty" }
                 local numBlocks = #blockLabels
                 local squareSize = (cfg.columnWidth - 10) / numBlocks
 
@@ -1237,6 +1241,8 @@ function sfui.alts.UpdateUI(force)
                         status = q and q.runestones
                     elseif bIdx == 4 then
                         status = q and q.stormarion
+                    elseif bIdx == 5 then
+                        status = q and q.bounty
                     end
 
                     local sColors = cfg.statusColors
@@ -1262,6 +1268,8 @@ function sfui.alts.UpdateUI(force)
                             status = q and q.runestones
                         elseif bIdx == 4 then
                             status = q and q.stormarion
+                        elseif bIdx == 5 then
+                            status = q and q.bounty
                         end
 
                         local color = "|cff888888"
@@ -1414,6 +1422,34 @@ function sfui.alts.UpdateUI(force)
                 text:Hide()
                 local group = cat.group
                 local squareSize = (cfg.columnWidth - 10) / 3
+
+                local GetVaultColor = function(g, l)
+                    if g == "raid" then
+                        if l == 16 then return { 1.0, 0.5, 0.0, 0.8 } end
+                        if l == 15 then return { 0.64, 0.21, 0.93, 0.8 } end
+                        if l == 14 then return { 0.0, 0.44, 0.87, 0.8 } end
+                        return { 0.12, 1.0, 0.0, 0.8 }
+                    elseif g == "world" then
+                        if l >= 8 then return { 1.0, 0.5, 0.0, 0.8 } end
+                        if l >= 6 then return { 0.64, 0.21, 0.93, 0.8 } end
+                        if l >= 4 then return { 0.0, 0.44, 0.87, 0.8 } end
+                        return { 0.12, 1.0, 0.0, 0.8 }
+                    else
+                        if l >= 10 then return { 1.0, 0.5, 0.0, 0.8 } end
+                        if l >= 7 then return { 0.64, 0.21, 0.93, 0.8 } end
+                        if l >= 4 then return { 0.0, 0.44, 0.87, 0.8 } end
+                        return { 0.12, 1.0, 0.0, 0.8 }
+                    end
+                end
+
+                local GetDifficultyName = function(l)
+                    if l == 17 then return "LFR" end
+                    if l == 14 then return "Normal" end
+                    if l == 15 then return "Heroic" end
+                    if l == 16 then return "Mythic" end
+                    return tostring(l)
+                end
+
                 for slotIdx = 1, 3 do
                     local rect = cell["rect" .. slotIdx] or cell:CreateTexture(nil, "ARTWORK")
                     cell["rect" .. slotIdx] = rect
@@ -1422,10 +1458,10 @@ function sfui.alts.UpdateUI(force)
                     rect:SetPoint("LEFT", (slotIdx - 1) * squareSize + 5, 0)
 
                     local vData = alt.data.vault and alt.data.vault[group] and alt.data.vault[group][slotIdx]
-                    local sColors = cfg.statusColors
                     if vData and vData.progress >= vData.threshold and vData.threshold > 0 then
-                        rect:SetColorTexture(unpack(sColors and sColors.completed or { 0, 1, 1, 0.8 }))
+                        rect:SetColorTexture(unpack(GetVaultColor(group, vData.level)))
                     else
+                        local sColors = cfg.statusColors
                         rect:SetColorTexture(unpack(sColors and sColors.available or { 0, 0, 0, 0.5 }))
                     end
                 end
@@ -1439,7 +1475,10 @@ function sfui.alts.UpdateUI(force)
                         if v and v.threshold > 0 then
                             local status = v.progress >= v.threshold and "|cff00ff00Unlocked|r" or
                                 string.format("%d/%d", v.progress, v.threshold)
-                            local levelStr = v.level > 0 and string.format(" (Level: %d)", v.level) or ""
+                            local levelStr = ""
+                            if v.level > 0 then
+                                levelStr = group == "raid" and string.format(" (%s)", GetDifficultyName(v.level)) or string.format(" (Level: %d)", v.level)
+                            end
                             GameTooltip:AddDoubleLine("Slot " .. idx .. ":", status .. levelStr, 1, 1, 1, 1, 1, 1)
                         end
                     end

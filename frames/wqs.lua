@@ -51,7 +51,7 @@ local tonumber, tostring, math_floor, math_min, math_max = _G.tonumber, _G.tostr
     _G.math.max
 local string_find, string_format, string_match, string_sub = _G.string.find, _G.string.format, _G.string.match,
     _G.string.sub
-local pcall, select, unpack = _G.pcall, _G.select, _G.unpack
+local pcall, select, unpack, securecall = _G.pcall, _G.select, _G.unpack, _G.securecall
 
 -- Performance Cache
 local zoneCache = {}
@@ -171,7 +171,7 @@ local function IsUpgrade(itemLink, overrideIlvl)
     local slots = equipLoc and SLOT_IDS[equipLoc]
     if not slots then return false end
 
-    return ilvl > GetEquippedIlvl(slots)
+    return sfui.common.SafeGT(ilvl, GetEquippedIlvl(slots))
 end
 
 local function ScanQuestRewards(self, questID)
@@ -198,12 +198,12 @@ local function ScanQuestRewards(self, questID)
                 table.insert(rewardParts,
                     "+" .. currency.totalRewardAmount .. " |T" .. currency.texture .. ":12:12:0:0:64:64:4:60:4:60|t" ..
                     currentMarker)
-                sortRewardValue = sortRewardValue + (currency.totalRewardAmount / 10)
+                sortRewardValue = sfui.common.SafeArithmetic("+", sortRewardValue, sfui.common.SafeArithmetic("/", currency.totalRewardAmount, 10))
             else
                 table.insert(rewardParts,
                     "|T" .. currency.texture .. ":12:12:0:0:64:64:4:60:4:60|t " ..
                     currency.totalRewardAmount .. currentMarker)
-                sortRewardValue = sortRewardValue + 100000 + currency.totalRewardAmount
+                sortRewardValue = sfui.common.SafeArithmetic("+", sortRewardValue, sfui.common.SafeArithmetic("+", 100000, currency.totalRewardAmount))
             end
         end
     end
@@ -232,8 +232,8 @@ local function ScanQuestRewards(self, questID)
 
                 -- Tooltip Scan for scaling/warband
                 if self.ScanTooltip then
-                    self.ScanTooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
-                    self.ScanTooltip:SetQuestLogItem("reward", i, questID)
+                    securecall(pcall, self.ScanTooltip.SetOwner, self.ScanTooltip, WorldFrame, "ANCHOR_NONE")
+                    securecall(pcall, self.ScanTooltip.SetQuestLogItem, self.ScanTooltip, "reward", i, questID)
                     local lines = self.ScanTooltip.leftLines
                     for lineIdx = 2, math_min(self.ScanTooltip:NumLines(), 20) do
                         local text = lines[lineIdx] and lines[lineIdx]:GetText()
@@ -250,7 +250,7 @@ local function ScanQuestRewards(self, questID)
                 end
 
                 local ilvlText = ""
-                if ilvl > 1 then
+                if sfui.common.SafeGT(ilvl, 1) then
                     local info = { GetItemInfo(itemID) }
                     if info[12] == 2 or info[12] == 4 then -- Weapon or Armor
                         local isUpgrade = IsUpgrade(itemLink, ilvl)
@@ -259,12 +259,12 @@ local function ScanQuestRewards(self, questID)
                             upgradeIcon = UPGRADE_ICON_TEXT
                         end
                         ilvlText = "|c" .. (isUpgrade and "ff00ff00" or "ffffffff") .. "(" .. ilvl .. ")|r "
-                        sortRewardValue = sortRewardValue + 1000000 + (ilvl * 10)
+                        sortRewardValue = sfui.common.SafeArithmetic("+", sortRewardValue, sfui.common.SafeArithmetic("+", 1000000, sfui.common.SafeArithmetic("*", ilvl, 10)))
                     end
                 end
 
                 local color = (ITEM_QUALITY_COLORS[quality or 1] and ITEM_QUALITY_COLORS[quality or 1].hex) or "|cffffffff"
-                local qtyText = (quantity and quantity > 1) and (quantity .. " ") or ""
+                local qtyText = (sfui.common.SafeGT(quantity, 1)) and (quantity .. " ") or ""
                 local currentMarker = isWarbound and WARBAND_BONUS_TEXT or ""
                 table.insert(rewardParts,
                     "|T" .. itemTexture .. ":12:12:0:0:64:64:4:60:4:60|t " ..
@@ -276,17 +276,17 @@ local function ScanQuestRewards(self, questID)
 
     -- Money
     local money = GetQuestLogRewardMoney(questID)
-    if money > 0 then
+    if sfui.common.SafeGT(money, 0) then
         hasGold = true
-        table.insert(rewardParts, GetMoneyString(money))
-        sortRewardValue = sortRewardValue + (money / 10000)
+        table.insert(rewardParts, sfui.common.SafeGetCoinTextureString(money))
+        sortRewardValue = sfui.common.SafeArithmetic("+", sortRewardValue, sfui.common.SafeArithmetic("/", money, 10000))
     end
 
     local rewardText = table.concat(rewardParts, " | ")
     ReleaseTable(rewardParts)
 
     return rewardText, sortRewardValue, isWarbound, allRewardsCached, hasItems, hasGold, questHasReputation,
-        questHasUpgrade
+        questHasUpgrade, hasItems -- Return hasItems as hasIlvl indicator for caching
 end
 
 
@@ -307,9 +307,6 @@ local function UpdateZoneCache()
         local info = C_Map.GetMapInfo(zoneID)
         if info then
             local name = info.name or ("Map " .. zoneID)
-            -- Zone Merging Overrides
-            if zoneID == 2393 then name = "Eversong Woods" end -- Silvermoon City
-            if zoneID == 2444 then name = "Voidstorm" end      -- Slayer's Rise
             zoneCache["midnight"][zoneID] = name
         end
     end
@@ -347,69 +344,7 @@ function WQS:Initialize()
     local cyan = sfui.config and sfui.config.colors and sfui.config.colors.cyan or { 0, 1, 1 }
     local white = sfui.config and sfui.config.colors and sfui.config.colors.white or { 1, 1, 1 }
 
-    -- Interaction handling for WorldMap
-    if WorldMapFrame then
-        WorldMapFrame:HookScript("OnShow", function()
-            if not (SfuiDB and SfuiDB.wqsState and SfuiDB.wqsState.detached) then
-                self:Show()
-                self:Refresh()
-            end
-            -- Second refresh after a short delay for data loading
-            C_Timer.After(1, function() if self:IsShown() then self:Refresh() end end)
-        end)
-        WorldMapFrame:HookScript("OnHide", function()
-            if not (SfuiDB and SfuiDB.wqsState and SfuiDB.wqsState.detached) then
-                self:Hide()
-            end
-        end)
-
-        -- Map Highlight Frame (Red Ring)
-        if not self.MapHighlight then
-            -- Parent to WorldMapFrame instead of ScrollContainer.Child to avoid canvas taint
-            local hl = CreateFrame("Frame", nil, WorldMapFrame)
-            hl:SetSize(128, 128)
-            hl:SetFrameStrata("TOOLTIP")
-            hl:Hide()
-
-            -- Inner Ring
-            local tex = hl:CreateTexture(nil, "OVERLAY")
-            tex:SetPoint("CENTER")
-            tex:SetSize(160, 160)
-            tex:SetTexture("Interface\\AddOns\\sfui\\ring.tga")
-            tex:SetVertexColor(1, 0, 0, 1)
-
-            -- Outer Glow Ring
-            local glow = hl:CreateTexture(nil, "BACKGROUND")
-            glow:SetPoint("CENTER")
-            glow:SetSize(128, 128)
-            glow:SetTexture("Interface\\AddOns\\sfui\\ring.tga")
-            glow:SetVertexColor(1, 0.2, 0, 0.6) -- Slightly orange-red glow
-
-            -- Pulse Animation
-            local ag = hl:CreateAnimationGroup()
-
-            local scale = ag:CreateAnimation("Scale")
-            scale:SetScale(1.1, 1.1)
-            scale:SetDuration(0.8)
-            scale:SetSmoothing("IN_OUT")
-            scale:SetOrder(1)
-
-            local alpha = ag:CreateAnimation("Alpha")
-            alpha:SetFromAlpha(0.6)
-            alpha:SetToAlpha(1)
-            alpha:SetDuration(0.8)
-            alpha:SetSmoothing("IN_OUT")
-            alpha:SetOrder(1)
-
-            ag:SetLooping("BOUNCE")
-            hl.Pulse = ag
-
-            hl:SetScript("OnShow", function(s) if s.Pulse then s.Pulse:Play() end end)
-            hl:SetScript("OnHide", function(s) if s.Pulse then s.Pulse:Stop() end end)
-
-            self.MapHighlight = hl
-        end
-    end
+    -- SetupMapHooks will be called later to handle late-loading WorldMap
 
     -- Interaction handling for WorldMap
 
@@ -632,6 +567,7 @@ function WQS:Initialize()
 
     self:SetScript("OnEvent", function(_, event, arg1)
         if event == "ADDON_LOADED" and arg1 == "Blizzard_WorldMap" then
+            self:SetupMapHooks()
             self:AttachToMap()
             self:UnregisterEvent("ADDON_LOADED")
         elseif event == "PLAYER_EQUIPMENT_CHANGED" or (event == "UNIT_INVENTORY_CHANGED" and arg1 == "player") then
@@ -675,6 +611,7 @@ end
 
 function WQS:AttachToMap()
     if not WorldMapFrame then return end
+    self:SetupMapHooks()
     self:ClearAllPoints()
     self:SetParent(WorldMapFrame)
     self:SetFrameStrata("HIGH")
@@ -682,6 +619,72 @@ function WQS:AttachToMap()
     -- Correct positioning (Bottom Right of World Map)
     self:SetPoint("TOPRIGHT", WorldMapFrame, "BOTTOMRIGHT", 5, -13) -- Shifted 5 right, 13 down
     self:SetSize(620, 200)
+end
+
+function WQS:SetupMapHooks()
+    if not WorldMapFrame or self.mapHooksDone then return end
+    self.mapHooksDone = true
+
+    WorldMapFrame:HookScript("OnShow", function()
+        if not (SfuiDB and SfuiDB.wqsState and SfuiDB.wqsState.detached) then
+            self:Show()
+            self:Refresh()
+        end
+        -- Second refresh after a short delay for data loading
+        C_Timer.After(1, function() if self:IsShown() then self:Refresh() end end)
+    end)
+    WorldMapFrame:HookScript("OnHide", function()
+        if not (SfuiDB and SfuiDB.wqsState and SfuiDB.wqsState.detached) then
+            self:Hide()
+        end
+    end)
+
+    -- Map Highlight Frame (Red Ring)
+    if not self.MapHighlight then
+        local canvas = WorldMapFrame:GetCanvas() or WorldMapFrame.ScrollContainer.Child or WorldMapFrame
+        local hl = CreateFrame("Frame", "SfuiWQSMapHighlight", canvas)
+        hl:SetSize(128, 128)
+        hl:SetFrameStrata("TOOLTIP")
+        hl:Hide()
+
+        -- Inner Ring
+        local tex = hl:CreateTexture(nil, "OVERLAY")
+        tex:SetPoint("CENTER")
+        tex:SetSize(160, 160)
+        tex:SetTexture("Interface\\AddOns\\sfui\\ring.tga")
+        tex:SetVertexColor(1, 0, 0, 1)
+
+        -- Outer Glow Ring
+        local glow = hl:CreateTexture(nil, "BACKGROUND")
+        glow:SetPoint("CENTER")
+        glow:SetSize(128, 128)
+        glow:SetTexture("Interface\\AddOns\\sfui\\ring.tga")
+        glow:SetVertexColor(1, 0.2, 0, 0.6) -- Slightly orange-red glow
+
+        -- Pulse Animation
+        local ag = hl:CreateAnimationGroup()
+
+        local scale = ag:CreateAnimation("Scale")
+        scale:SetScale(1.1, 1.1)
+        scale:SetDuration(0.8)
+        scale:SetSmoothing("IN_OUT")
+        scale:SetOrder(1)
+
+        local alpha = ag:CreateAnimation("Alpha")
+        alpha:SetFromAlpha(0.6)
+        alpha:SetToAlpha(1)
+        alpha:SetDuration(0.8)
+        alpha:SetSmoothing("IN_OUT")
+        alpha:SetOrder(1)
+
+        ag:SetLooping("BOUNCE")
+        hl.Pulse = ag
+
+        hl:SetScript("OnShow", function(s) if s.Pulse then s.Pulse:Play() end end)
+        hl:SetScript("OnHide", function(s) if s.Pulse then s.Pulse:Stop() end end)
+
+        self.MapHighlight = hl
+    end
 end
 
 function WQS:UpdateAttachment()
@@ -749,9 +752,9 @@ function WQS:CreateRow()
         row.Time:SetWidth(60)
         row.Time:SetJustifyH("RIGHT")
 
-        row.UpgradeGlow = row:CreateTexture(nil, "BACKGROUND")
+        row.UpgradeGlow = row:CreateTexture(nil, "OVERLAY")
         row.UpgradeGlow:SetAllPoints()
-        row.UpgradeGlow:SetColorTexture(0, 1, 0, 0.08) -- Soft green glow
+        row.UpgradeGlow:SetColorTexture(0, 1, 0, 0.15) -- Increased visibility
         row.UpgradeGlow:Hide()
 
         row.Highlight = row:CreateTexture(nil, "ARTWORK")
@@ -761,18 +764,18 @@ function WQS:CreateRow()
 
         row:SetScript("OnEnter", function(s)
             s.Highlight:Show()
-            GameTooltip:SetOwner(s, "ANCHOR_RIGHT")
+            securecall(pcall, GameTooltip.SetOwner, GameTooltip, s, "ANCHOR_RIGHT")
 
             local success = false
             if GameTooltip.SetWorldQuestByID then
-                success = pcall(function() GameTooltip:SetWorldQuestByID(s.questID) end)
+                success = securecall(pcall, GameTooltip.SetWorldQuestByID, GameTooltip, s.questID)
             end
             if not success then
-                success = pcall(function() GameTooltip:SetQuestLogItem("reward", 1, s.questID) end)
+                success = securecall(pcall, GameTooltip.SetQuestLogItem, GameTooltip, "reward", 1, s.questID)
             end
 
             local numObjs = GetNumQuestLeaderBoards(s.questID)
-            if numObjs > 0 then
+            if sfui.common.SafeGT(numObjs, 0) then
                 GameTooltip:AddLine(" ")
                 for i = 1, numObjs do
                     local text, _, finished = GetQuestLogLeaderBoard(i, s.questID)
@@ -786,16 +789,18 @@ function WQS:CreateRow()
             GameTooltip:Show()
 
             -- Map Highlight
-            if sfui.wqs.MapHighlight and s.posX and s.posY and WorldMapFrame:GetMapID() == s.mapID then
-                local scrollChild = WorldMapFrame.ScrollContainer.Child
-                local mapWidth = scrollChild:GetWidth()
-                local mapHeight = scrollChild:GetHeight()
-                if mapWidth > 0 and mapHeight > 0 then
-                    sfui.wqs.MapHighlight:ClearAllPoints()
-                    -- Anchoring to the scroll child is fine as long as the parent is safe (Set above to WorldMapFrame)
-                    sfui.wqs.MapHighlight:SetPoint("CENTER", scrollChild, "TOPLEFT", s.posX * mapWidth,
-                        -s.posY * mapHeight)
-                    sfui.wqs.MapHighlight:Show()
+            if WorldMapFrame and sfui.wqs.MapHighlight and s.posX and s.posY and WorldMapFrame:GetMapID() == s.mapID then
+                local canvas = WorldMapFrame:GetCanvas() or WorldMapFrame.ScrollContainer.Child
+                if canvas then
+                    local mapWidth = canvas:GetWidth()
+                    local mapHeight = canvas:GetHeight()
+                    if mapWidth > 0 and mapHeight > 0 then
+                        sfui.wqs.MapHighlight:SetParent(canvas)
+                        sfui.wqs.MapHighlight:ClearAllPoints()
+                        -- Explicitly anchor to TopLeft of canvas using physical pixel distances derived from percentage
+                        sfui.wqs.MapHighlight:SetPoint("CENTER", canvas, "TOPLEFT", s.posX * mapWidth, -s.posY * mapHeight)
+                        sfui.wqs.MapHighlight:Show()
+                    end
                 end
             end
         end)
@@ -947,6 +952,7 @@ function WQS:DoRefresh()
                                 c.title, c.text, c.sortValue = title, rewardText, sortRewardValue
                                 c.isWarbound, c.hasReputationBonus = isWarbound, questHasReputation
                                 c.hasItems, c.hasGold, c.isUpgrade = hasItems, hasGold, questHasUpgrade
+                                c.hasIlvl = hasItems -- Mark for gear-change invalidation
                                 c.lastSeen = now
                                 rewardDataCache[questID] = c
                             end

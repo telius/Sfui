@@ -334,11 +334,11 @@ function sfui.merchant.create_item_button(id, parent)
     btn:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
 
     btn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        securecall(pcall, GameTooltip.SetOwner, GameTooltip, self, "ANCHOR_RIGHT")
         if self.link then
-            GameTooltip:SetHyperlink(self.link)
+            securecall(pcall, GameTooltip.SetHyperlink, GameTooltip, self.link)
         elseif self.hasItem then
-            GameTooltip:SetMerchantItem(self:GetID())
+            securecall(pcall, GameTooltip.SetMerchantItem, GameTooltip, self:GetID())
         end
         GameTooltip:Show()
         if self.hasItem then
@@ -485,11 +485,11 @@ function sfui.merchant.update_currency_display(frame)
 
             display:EnableMouse(true)
             display:SetScript("OnEnter", function(self)
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                securecall(pcall, GameTooltip.SetOwner, GameTooltip, self, "ANCHOR_RIGHT")
                 if self.type == "item" then
-                    GameTooltip:SetItemByID(self.currencyID)
+                    securecall(pcall, GameTooltip.SetItemByID, GameTooltip, self.currencyID)
                 elseif self.currencyID then
-                    GameTooltip:SetCurrencyByID(self.currencyID)
+                    securecall(pcall, GameTooltip.SetCurrencyByID, GameTooltip, self.currencyID)
                 elseif self.currencyName == "Gold" then
                     GameTooltip:SetText("Gold")
                     GameTooltip:AddLine("Total money on character", 1, 1, 1)

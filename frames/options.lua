@@ -196,6 +196,10 @@ function sfui.create_options_panel()
     minimap_tab_button:SetPoint("TOPLEFT", last_tab_button, "BOTTOMLEFT", 0, 5)
     last_tab_button = minimap_tab_button
 
+    local gear_panel, gear_tab_button = create_tab("gear swapper")
+    gear_tab_button:SetPoint("TOPLEFT", last_tab_button, "BOTTOMLEFT", 0, 5)
+    last_tab_button = gear_tab_button
+
     local research_panel, research_tab_button = create_tab("research")
     research_tab_button:SetPoint("TOPLEFT", last_tab_button, "BOTTOMLEFT", 0, 5)
     last_tab_button = research_tab_button
@@ -791,6 +795,102 @@ function sfui.create_options_panel()
         pos_y_slider:SetSliderValue(def.defaultY)
         if sfui.minimap and sfui.minimap.update_button_bar_position then
             sfui.minimap.update_button_bar_position()
+        end
+    end)
+
+    -- Gear Swapper Settings
+    local gear_header = gear_panel:CreateFontString(nil, "OVERLAY", g.font)
+    gear_header:SetPoint("TOPLEFT", 15, -15)
+    gear_header:SetTextColor(white[1], white[2], white[3])
+    gear_header:SetText("automatic gear swapper settings")
+
+    local gear_info = gear_panel:CreateFontString(nil, "OVERLAY", g.font)
+    gear_info:SetPoint("TOPLEFT", gear_header, "BOTTOMLEFT", 0, -10)
+    gear_info:SetPoint("RIGHT", -15, 0)
+    gear_info:SetJustifyH("LEFT")
+    gear_info:SetText(
+        "automatically swap to a configured gear set based on the content. entering pvp instances or warmode world zones will equip the pvp set. everything else will equip the pve set."
+    )
+
+    local function GetEquipmentSetOptions()
+        local options = { { text = "None", value = "" } }
+        local setIDs = C_EquipmentSet.GetEquipmentSetIDs()
+        if setIDs then
+            for _, id in ipairs(setIDs) do
+                local name = C_EquipmentSet.GetEquipmentSetInfo(id)
+                if name then table.insert(options, { text = name, value = name }) end
+            end
+        end
+        return options
+    end
+
+    local updateFuncs = {}
+
+    gear_panel:SetScript("OnShow", function(self)
+        if self.initialized then
+            for _, f in ipairs(updateFuncs) do f() end
+            return
+        end
+        self.initialized = true
+
+        local numSpecs = GetNumSpecializations()
+        if numSpecs == 0 then numSpecs = 1 end
+
+        SfuiDB.gear = SfuiDB.gear or {}
+
+        local gear_auto_open_cb = sfui.common.create_checkbox(gear_panel, "Auto-show with Character Panel")
+        gear_auto_open_cb:SetPoint("TOPLEFT", gear_info, "BOTTOMLEFT", 0, -10)
+        local isAutoOpen = SfuiDB.gear.auto_open
+        if isAutoOpen == nil then isAutoOpen = true end
+        gear_auto_open_cb:SetChecked(isAutoOpen)
+        gear_auto_open_cb:SetScript("OnClick", function(self)
+            SfuiDB.gear.auto_open = self:GetChecked()
+        end)
+
+        local pveHeader = self:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        pveHeader:SetPoint("TOPLEFT", gear_auto_open_cb, "BOTTOMLEFT", 65, -10)
+        pveHeader:SetText("PvE Target")
+
+        local pvpHeader = self:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        pvpHeader:SetPoint("TOPLEFT", gear_auto_open_cb, "BOTTOMLEFT", 190, -10)
+        pvpHeader:SetText("PvP Target")
+
+        local yOffset = -50
+        local rowHeight = 45
+        for i = 1, numSpecs do
+            local id, name, _, icon = GetSpecializationInfo(i)
+            if not id then return end
+            
+            local iconTex = self:CreateTexture(nil, "ARTWORK")
+            iconTex:SetSize(32, 32)
+            iconTex:SetPoint("TOPLEFT", gear_info, "BOTTOMLEFT", 0, yOffset)
+            iconTex:SetTexture(icon)
+
+            local pveDrop = sfui.common.create_dropdown(gear_panel, 120, GetEquipmentSetOptions, function(val)
+                SfuiDB.gear[id] = SfuiDB.gear[id] or { pve_set = "", pvp_set = "" }
+                SfuiDB.gear[id].pve_set = val
+                if sfui.gear and sfui.gear.Update then sfui.gear.Update() end
+            end, "")
+            pveDrop:SetPoint("BOTTOMLEFT", iconTex, "BOTTOMRIGHT", 5, -5)
+
+            local pvpDrop = sfui.common.create_dropdown(gear_panel, 120, GetEquipmentSetOptions, function(val)
+                SfuiDB.gear[id] = SfuiDB.gear[id] or { pve_set = "", pvp_set = "" }
+                SfuiDB.gear[id].pvp_set = val
+                if sfui.gear and sfui.gear.Update then sfui.gear.Update() end
+            end, "")
+            pvpDrop:SetPoint("LEFT", pveDrop, "RIGHT", 5, 0)
+
+            table.insert(updateFuncs, function()
+                local db = SfuiDB.gear[id]
+                if db then
+                    pveDrop:SetText(db.pve_set ~= "" and db.pve_set or "None")
+                    pvpDrop:SetText(db.pvp_set ~= "" and db.pvp_set or "None")
+                end
+            end)
+            
+            updateFuncs[#updateFuncs]()
+            
+            yOffset = yOffset - rowHeight
         end
     end)
 

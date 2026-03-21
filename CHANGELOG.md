@@ -1,3 +1,17 @@
+## v0.5.1 (2026-03-21)
+
+### Features
+- **Automatic Gear Swapper**:
+    - Added a dedicated, floating Gear Manager window accessed via a new button on the Character panel.
+    - Supports multi-spec gear profiles (independent PvE and PvP configurations per specialization).
+    - Includes dual "Equip Highest" utilities to scan inventory and optimize equipped ilevels.
+    - Added an options checkbox to optionally disable auto-tracking alongside the Character panel.
+
+### Bug Fixes
+- **Gear Manager Combat Desyncs**: Implemented deferred equipment queues and increased server-sync delays to 3 seconds. This fixes a bug where entering a Battleground or Arena with a "Preparation" buff would silently block the automatic PvP gear swap sequence.
+- **WQS Map Ping**: Re-parented the World Quest highlight ring dynamically to the Viewport Canvas instead of the static WorldMapFrame, restoring accurate coordinate tracking when the map zoom scale changes.
+- **Alts Great Vault (Delves)**: Corrected the Vault color logic to appropriately scale Delve completions based off of a Tier 8 (Mythic) reward cap instead of the +10 Tier fallback array used by M+ Dungeons.
+
 ## v0.5.0 (2026-03-13)
 
 ### Features

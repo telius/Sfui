@@ -91,6 +91,7 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
             SfuiDB = SfuiDB or {}
             SfuiDB.alts = SfuiDB.alts or {}
             SfuiDB.minimap_icon = SfuiDB.minimap_icon or {}
+            SfuiDB.gear = SfuiDB.gear or {}
             SfuiDecorDB = SfuiDecorDB or {}
             SfuiDecorDB.items = SfuiDecorDB.items or {}
 
