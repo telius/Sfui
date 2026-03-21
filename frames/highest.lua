@@ -85,14 +85,15 @@ sfui.highest.rules = {
 local function HasPrimaryStat(itemLink, primaryStatName)
     local stats = C_Item.GetItemStats(itemLink)
     if not stats then return false end
-    
+
     -- If there's literally NO primary stats on the item, we allow it (generic trinkets/rings)
-    local hasAnyPrimary = stats["ITEM_MOD_STRENGTH_SHORT"] or stats["ITEM_MOD_AGILITY_SHORT"] or stats["ITEM_MOD_INTELLECT_SHORT"]
+    local hasAnyPrimary = stats["ITEM_MOD_STRENGTH_SHORT"] or stats["ITEM_MOD_AGILITY_SHORT"] or
+        stats["ITEM_MOD_INTELLECT_SHORT"]
     if not hasAnyPrimary then return true end
-    
+
     -- But if it DOES have primary stats, it must have OUR primary stat
     if stats[primaryStatName] then return true end
-    
+
     return false
 end
 
@@ -100,6 +101,89 @@ local function GetPrimaryStatValue(itemLink, primaryStatName)
     local stats = C_Item.GetItemStats(itemLink)
     if not stats then return 0 end
     return stats[primaryStatName] or 0
+end
+
+local pvpIlvlCache = {}
+
+-- Returns true, itemLevel, statVal, itemEquipLoc if the item is valid for the spec rules
+function sfui.highest.IsItemValidForSpec(itemLink, specID)
+    local rule = sfui.highest.rules[specID]
+    if not rule then return false end
+
+    local primaryStatName = STAT_MAP[rule.stat]
+    local optimalArmor = rule.armor
+
+    local itemName, _, _, itemLevel, _, itemType, itemSubType, _, itemEquipLoc, _, _, classID, subclassID = GetItemInfo(
+        itemLink)
+    if not itemEquipLoc or itemEquipLoc == "" then return false end
+
+    -- Use robust numeric ID checks instead of localized strings. classID 4 = Armor
+    if classID == 4 then
+        if itemEquipLoc ~= "INVTYPE_CLOAK" and itemEquipLoc ~= "INVTYPE_FINGER" and itemEquipLoc ~= "INVTYPE_TRINKET" and itemEquipLoc ~= "INVTYPE_NECK" and itemEquipLoc ~= "INVTYPE_HOLDABLE" and itemEquipLoc ~= "INVTYPE_SHIELD" then
+            if subclassID ~= optimalArmor and subclassID ~= 5 then return false end -- subclassID 5 is Cosmetic
+        end
+    end
+
+    -- Weapon restriction rules
+    if classID == 2 then
+        if itemEquipLoc == "INVTYPE_2HWEAPON" or itemEquipLoc == "INVTYPE_RANGED" or itemEquipLoc == "INVTYPE_RANGEDRIGHT" then
+            if not rule.weaps["2H"] and not rule.weaps["2H_Dual"] and not rule.weaps["Ranged"] then return false end
+        elseif itemEquipLoc == "INVTYPE_WEAPON" or itemEquipLoc == "INVTYPE_WEAPONMAINHAND" then
+            if not rule.weaps["1H_Dual"] and not rule.weaps["1H_Off"] and not rule.weaps["1H_Shield"] then return false end
+        end
+    elseif classID == 4 then
+        if itemEquipLoc == "INVTYPE_SHIELD" then
+            if not rule.weaps["1H_Shield"] then return false end
+        elseif itemEquipLoc == "INVTYPE_HOLDABLE" or itemEquipLoc == "INVTYPE_WEAPONOFFHAND" then
+            if not rule.weaps["1H_Off"] and not rule.weaps["1H_Dual"] then return false end
+        end
+    end
+
+    local isNonDynamicStatPiece = (classID == 2 or itemEquipLoc == "INVTYPE_TRINKET" or itemEquipLoc == "INVTYPE_CLOAK" or itemEquipLoc == "INVTYPE_NECK" or itemEquipLoc == "INVTYPE_FINGER" or itemEquipLoc == "INVTYPE_HOLDABLE" or itemEquipLoc == "INVTYPE_SHIELD")
+
+    if isNonDynamicStatPiece then
+        if not HasPrimaryStat(itemLink, primaryStatName) then return false end
+    end
+
+    local statVal = GetPrimaryStatValue(itemLink, primaryStatName)
+    return true, itemLevel, statVal, itemEquipLoc
+end
+
+-- Returns: isUpgrade, isOffSpec
+function sfui.highest.EvaluateItemUpgrade(itemLink, overrideIlvl, currentEquippedIlvl)
+    if not itemLink then return false, false end
+    local specIndex = GetSpecialization()
+    if not specIndex then return false, false end
+    local activeSpecID = GetSpecializationInfo(specIndex)
+
+    local function CheckSpecUpgrade(specID)
+        local isValid, baseIlvl = sfui.highest.IsItemValidForSpec(itemLink, specID)
+        if not isValid then return false end
+
+        local itemLevel = overrideIlvl or baseIlvl
+        local effectiveILvl = GetDetailedItemLevelInfo(itemLink)
+        if effectiveILvl and not overrideIlvl then itemLevel = effectiveILvl end
+
+        if itemLevel and itemLevel > currentEquippedIlvl then
+            return true
+        end
+        return false
+    end
+
+    -- Check Main Spec
+    if CheckSpecUpgrade(activeSpecID) then return true, false end
+
+    -- Check Off Specs
+    local numSpecs = _G["GetNumSpecializations"] and _G["GetNumSpecializations"]() or 0
+    if numSpecs > 1 then
+        for i = 1, numSpecs do
+            if i ~= specIndex then
+                local offSpecID = GetSpecializationInfo(i)
+                if CheckSpecUpgrade(offSpecID) then return true, true end
+            end
+        end
+    end
+    return false, false
 end
 
 -- Scan bags and return a table mapping slotId -> {link, ilvl} of best possible items
@@ -117,97 +201,110 @@ function sfui.highest.GetBestItems(isPvP)
     local pooledTargetSlots = {}
 
     local function evaluate(itemLink, isEquipped, slotOverride)
-        local itemName, _, _, itemLevel, _, itemType, itemSubType, _, itemEquipLoc, _, _, classID, subclassID = GetItemInfo(itemLink)
-        if not itemEquipLoc or itemEquipLoc == "" then return end
-        
+        local isValid, baseIlvl, statVal, itemEquipLoc = sfui.highest.IsItemValidForSpec(itemLink, specID)
+        if not isValid then return end
+
+        local itemLevel = baseIlvl
+
         -- Use true effective item level from the server
         local effectiveILvl = GetDetailedItemLevelInfo(itemLink)
         if effectiveILvl then itemLevel = effectiveILvl end
-        
+
         -- PvP Tooltip parsing for scaled ilvls
         if isPvP then
-            local tooltipData = C_TooltipInfo.GetHyperlink(itemLink)
-            if tooltipData then
-                for _, line in ipairs(tooltipData.lines) do
-                    local leftText = line.leftText
-                    if leftText then
-                        -- Strip UI color escapes
-                        local cleanText = leftText:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-                        local ltext = cleanText:lower()
-                        
-                        -- Match flexibly for ANY line indicating PvP level scaling (ignores exact localized strings)
-                        if ltext:find("level") and (ltext:find("pvp") or ltext:find("arena") or ltext:find("battleground")) then
-                            local pvpMatch = cleanText:match("(%d%d%d)")
-                            if pvpMatch then
-                                local scaledIlvl = tonumber(pvpMatch)
-                                if scaledIlvl and scaledIlvl > itemLevel and scaledIlvl < 1000 then
-                                    itemLevel = scaledIlvl
+            local cachedIlvl = pvpIlvlCache[itemLink]
+            if cachedIlvl then
+                if cachedIlvl > 0 and cachedIlvl > itemLevel then
+                    itemLevel = cachedIlvl
+                end
+            else
+                local foundScaling = false
+                local tooltipData = C_TooltipInfo.GetHyperlink(itemLink)
+                if tooltipData then
+                    for _, line in ipairs(tooltipData.lines) do
+                        local leftText = line.leftText
+                        if leftText then
+                            -- Strip UI color escapes
+                            local cleanText = leftText:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+                            local ltext = cleanText:lower()
+
+                            -- Match flexibly for ANY line indicating PvP level scaling (ignores exact localized strings)
+                            if ltext:find("level") and (ltext:find("pvp") or ltext:find("arena") or ltext:find("battleground")) then
+                                local pvpMatch = cleanText:match("(%d%d%d)")
+                                if pvpMatch then
+                                    local scaledIlvl = tonumber(pvpMatch)
+                                    local maxScaled = (sfui.config and sfui.config.gear and sfui.config.gear.maxScaledILvl) or
+                                        1000
+                                    if scaledIlvl and scaledIlvl > itemLevel and scaledIlvl < maxScaled then
+                                        itemLevel = scaledIlvl
+                                        pvpIlvlCache[itemLink] = scaledIlvl
+                                        foundScaling = true
+                                    end
                                 end
                             end
                         end
                     end
                 end
-            end
-        end
 
-        -- Use robust numeric ID checks instead of localized strings. classID 4 = Armor
-        if classID == 4 then
-            if itemEquipLoc ~= "INVTYPE_CLOAK" and itemEquipLoc ~= "INVTYPE_FINGER" and itemEquipLoc ~= "INVTYPE_TRINKET" and itemEquipLoc ~= "INVTYPE_NECK" and itemEquipLoc ~= "INVTYPE_HOLDABLE" and itemEquipLoc ~= "INVTYPE_SHIELD" then
-                if subclassID ~= optimalArmor and subclassID ~= 5 then return end -- subclassID 5 is Cosmetic
+                -- If we processed a valid tooltip but found no scaling, cache it as -1 so we don't re-process it constantly
+                if not foundScaling and tooltipData and tooltipData.lines and #tooltipData.lines > 1 then
+                    pvpIlvlCache[itemLink] = -1
+                end
             end
         end
-        
-        -- Weapon restriction rules
-        if classID == 2 then
-            if itemEquipLoc == "INVTYPE_2HWEAPON" or itemEquipLoc == "INVTYPE_RANGED" or itemEquipLoc == "INVTYPE_RANGEDRIGHT" then
-                if not rule.weaps["2H"] and not rule.weaps["2H_Dual"] and not rule.weaps["Ranged"] then return end
-            elseif itemEquipLoc == "INVTYPE_WEAPON" or itemEquipLoc == "INVTYPE_WEAPONMAINHAND" then
-                if not rule.weaps["1H_Dual"] and not rule.weaps["1H_Off"] and not rule.weaps["1H_Shield"] then return end
-            end
-        elseif classID == 4 then
-            if itemEquipLoc == "INVTYPE_SHIELD" then
-                if not rule.weaps["1H_Shield"] then return end
-            elseif itemEquipLoc == "INVTYPE_HOLDABLE" or itemEquipLoc == "INVTYPE_WEAPONOFFHAND" then
-                if not rule.weaps["1H_Off"] and not rule.weaps["1H_Dual"] then return end
-            end
-        end
-
-        local isNonDynamicStatPiece = (classID == 2 or itemEquipLoc == "INVTYPE_TRINKET" or itemEquipLoc == "INVTYPE_CLOAK" or itemEquipLoc == "INVTYPE_NECK" or itemEquipLoc == "INVTYPE_FINGER" or itemEquipLoc == "INVTYPE_HOLDABLE" or itemEquipLoc == "INVTYPE_SHIELD")
-        
-        if isNonDynamicStatPiece then
-            if not HasPrimaryStat(itemLink, primaryStatName) then return end
-        end
-        
-        local statVal = GetPrimaryStatValue(itemLink, primaryStatName)
 
         local numSlots = 0
         if slotOverride then
             numSlots = 1
             pooledTargetSlots[1] = slotOverride
         else
-            if itemEquipLoc == "INVTYPE_HEAD" then numSlots = 1; pooledTargetSlots[1] = 1
-            elseif itemEquipLoc == "INVTYPE_NECK" then numSlots = 1; pooledTargetSlots[1] = 2
-            elseif itemEquipLoc == "INVTYPE_SHOULDER" then numSlots = 1; pooledTargetSlots[1] = 3
-            elseif itemEquipLoc == "INVTYPE_CHEST" or itemEquipLoc == "INVTYPE_ROBE" then numSlots = 1; pooledTargetSlots[1] = 5
-            elseif itemEquipLoc == "INVTYPE_WAIST" then numSlots = 1; pooledTargetSlots[1] = 6
-            elseif itemEquipLoc == "INVTYPE_LEGS" then numSlots = 1; pooledTargetSlots[1] = 7
-            elseif itemEquipLoc == "INVTYPE_FEET" then numSlots = 1; pooledTargetSlots[1] = 8
-            elseif itemEquipLoc == "INVTYPE_WRIST" then numSlots = 1; pooledTargetSlots[1] = 9
-            elseif itemEquipLoc == "INVTYPE_HAND" then numSlots = 1; pooledTargetSlots[1] = 10
-            elseif itemEquipLoc == "INVTYPE_FINGER" then numSlots = 2; pooledTargetSlots[1] = 11; pooledTargetSlots[2] = 12
-            elseif itemEquipLoc == "INVTYPE_TRINKET" then numSlots = 2; pooledTargetSlots[1] = 13; pooledTargetSlots[2] = 14
-            elseif itemEquipLoc == "INVTYPE_CLOAK" then numSlots = 1; pooledTargetSlots[1] = 15
-            elseif itemEquipLoc == "INVTYPE_WEAPON" then numSlots = 2; pooledTargetSlots[1] = 16; pooledTargetSlots[2] = 17
-            elseif itemEquipLoc == "INVTYPE_SHIELD" or itemEquipLoc == "INVTYPE_HOLDABLE" or itemEquipLoc == "INVTYPE_WEAPONOFFHAND" then numSlots = 1; pooledTargetSlots[1] = 17
-            elseif itemEquipLoc == "INVTYPE_2HWEAPON" or itemEquipLoc == "INVTYPE_RANGED" or itemEquipLoc == "INVTYPE_RANGEDRIGHT" then numSlots = 1; pooledTargetSlots[1] = 16
-            elseif itemEquipLoc == "INVTYPE_WEAPONMAINHAND" then numSlots = 1; pooledTargetSlots[1] = 16
+            if itemEquipLoc == "INVTYPE_HEAD" then
+                numSlots = 1; pooledTargetSlots[1] = 1
+            elseif itemEquipLoc == "INVTYPE_NECK" then
+                numSlots = 1; pooledTargetSlots[1] = 2
+            elseif itemEquipLoc == "INVTYPE_SHOULDER" then
+                numSlots = 1; pooledTargetSlots[1] = 3
+            elseif itemEquipLoc == "INVTYPE_CHEST" or itemEquipLoc == "INVTYPE_ROBE" then
+                numSlots = 1; pooledTargetSlots[1] = 5
+            elseif itemEquipLoc == "INVTYPE_WAIST" then
+                numSlots = 1; pooledTargetSlots[1] = 6
+            elseif itemEquipLoc == "INVTYPE_LEGS" then
+                numSlots = 1; pooledTargetSlots[1] = 7
+            elseif itemEquipLoc == "INVTYPE_FEET" then
+                numSlots = 1; pooledTargetSlots[1] = 8
+            elseif itemEquipLoc == "INVTYPE_WRIST" then
+                numSlots = 1; pooledTargetSlots[1] = 9
+            elseif itemEquipLoc == "INVTYPE_HAND" then
+                numSlots = 1; pooledTargetSlots[1] = 10
+            elseif itemEquipLoc == "INVTYPE_FINGER" then
+                numSlots = 2; pooledTargetSlots[1] = 11; pooledTargetSlots[2] = 12
+            elseif itemEquipLoc == "INVTYPE_TRINKET" then
+                numSlots = 2; pooledTargetSlots[1] = 13; pooledTargetSlots[2] = 14
+            elseif itemEquipLoc == "INVTYPE_CLOAK" then
+                numSlots = 1; pooledTargetSlots[1] = 15
+            elseif itemEquipLoc == "INVTYPE_WEAPON" then
+                numSlots = 2; pooledTargetSlots[1] = 16; pooledTargetSlots[2] = 17
+            elseif itemEquipLoc == "INVTYPE_SHIELD" or itemEquipLoc == "INVTYPE_HOLDABLE" or itemEquipLoc == "INVTYPE_WEAPONOFFHAND" then
+                numSlots = 1; pooledTargetSlots[1] = 17
+            elseif itemEquipLoc == "INVTYPE_2HWEAPON" or itemEquipLoc == "INVTYPE_RANGED" or itemEquipLoc == "INVTYPE_RANGEDRIGHT" then
+                numSlots = 1; pooledTargetSlots[1] = 16
+            elseif itemEquipLoc == "INVTYPE_WEAPONMAINHAND" then
+                numSlots = 1; pooledTargetSlots[1] = 16
             end
         end
 
         for i = 1, numSlots do
             local s = pooledTargetSlots[i]
             if not best[s] then best[s] = {} end
-            table.insert(best[s], { link = itemLink, ilvl = itemLevel, statVal = statVal, is2H = (itemEquipLoc == "INVTYPE_2HWEAPON" or itemEquipLoc == "INVTYPE_RANGED" or itemEquipLoc == "INVTYPE_RANGEDRIGHT"), isEquipped = isEquipped })
+            table.insert(best[s],
+                {
+                    link = itemLink,
+                    ilvl = itemLevel,
+                    statVal = statVal,
+                    is2H = (itemEquipLoc == "INVTYPE_2HWEAPON" or itemEquipLoc == "INVTYPE_RANGED" or itemEquipLoc == "INVTYPE_RANGEDRIGHT"),
+                    isEquipped =
+                        isEquipped
+                })
         end
     end
 
@@ -231,7 +328,7 @@ function sfui.highest.GetBestItems(isPvP)
     for slotID, items in pairs(best) do
         table.sort(items, function(a, b) return a.ilvl > b.ilvl end)
     end
-    
+
     local finalPick = {}
 
     -- Resolve Weapons first (combinatorics based on primary stat)
@@ -247,7 +344,9 @@ function sfui.highest.GetBestItems(isPvP)
     end
     if best[17] then
         for _, itm in ipairs(best[17]) do
-            if not itm.is2H then bestOH = itm; break end
+            if not itm.is2H then
+                bestOH = itm; break
+            end
         end
     end
 
@@ -270,11 +369,19 @@ function sfui.highest.GetBestItems(isPvP)
         if items then
             for _, itm in ipairs(items) do
                 local alreadyPicked = false
+                local itemID = _G["GetItemInfoInstant"] and _G["GetItemInfoInstant"](itm.link)
+                
                 for _, picked in pairs(finalPick) do
+                    -- Prevent picking the exact same physical bag item for two slots
                     if picked.link == itm.link and not picked.isEquipped then
                         alreadyPicked = true; break
                     end
+                    -- Prevent equipping two different versions of the same item (avoids Unique-Equipped errors for rings/trinkets)
+                    if itemID and _G["GetItemInfoInstant"] and _G["GetItemInfoInstant"](picked.link) == itemID then
+                        alreadyPicked = true; break
+                    end
                 end
+                
                 if not alreadyPicked then
                     finalPick[slotID] = itm
                     break
@@ -282,14 +389,20 @@ function sfui.highest.GetBestItems(isPvP)
             end
         end
     end
-    
+
     return finalPick
 end
 
-function sfui.highest.EquipHighestILvl(isPvP)
+function sfui.highest.EquipHighestILvl(isPvP, silent)
     local modeText = isPvP and "PvP" or "PvE"
-    print(string.format("|cff6600ffsfui:|r Scanning bags for highest %s gear...", modeText))
-    
+    if not silent then
+        if sfui.common and sfui.common.print then
+            sfui.common.print(string.format("Scanning bags for highest %s gear...", modeText))
+        else
+            print(string.format("|cff6600ffsfui:|r Scanning bags for highest %s gear...", modeText))
+        end
+    end
+
     local best = sfui.highest.GetBestItems(isPvP)
     if not best then return end
 
@@ -300,10 +413,28 @@ function sfui.highest.EquipHighestILvl(isPvP)
             equipCount = equipCount + 1
         end
     end
-    
+
     if equipCount > 0 then
-        print("|cff6600ffsfui:|r Automatically equipped " .. equipCount .. " upgrades!")
+        if not silent then
+            if sfui.common and sfui.common.print then
+                sfui.common.print("Automatically equipped " .. equipCount .. " upgrades!")
+            else
+                print("|cff6600ffsfui:|r Automatically equipped " .. equipCount .. " upgrades!")
+            end
+        else
+            if sfui.common and sfui.common.print then
+                sfui.common.print("Automatically equipped higher item level gear!")
+            else
+                print("|cff6600ffsfui:|r Automatically equipped higher item level gear!")
+            end
+        end
     else
-        print("|cff6600ffsfui:|r You are already wearing your highest item level gear.")
+        if not silent then
+            if sfui.common and sfui.common.print then
+                sfui.common.print("You are already wearing your highest item level gear.")
+            else
+                print("|cff6600ffsfui:|r You are already wearing your highest item level gear.")
+            end
+        end
     end
 end

@@ -847,15 +847,24 @@ function sfui.create_options_panel()
             SfuiDB.gear.auto_open = self:GetChecked()
         end)
 
+        local auto_equip_highest_cb = sfui.common.create_checkbox(gear_panel, "Auto-equip highest ilvl (while not max level)")
+        auto_equip_highest_cb:SetPoint("TOPLEFT", gear_auto_open_cb, "BOTTOMLEFT", 0, -10)
+        local isAutoEquip = SfuiDB.gear.auto_equip_highest
+        if isAutoEquip == nil then isAutoEquip = true end
+        auto_equip_highest_cb:SetChecked(isAutoEquip)
+        auto_equip_highest_cb:SetScript("OnClick", function(self)
+            SfuiDB.gear.auto_equip_highest = self:GetChecked()
+        end)
+
         local pveHeader = self:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        pveHeader:SetPoint("TOPLEFT", gear_auto_open_cb, "BOTTOMLEFT", 65, -10)
+        pveHeader:SetPoint("TOPLEFT", auto_equip_highest_cb, "BOTTOMLEFT", 65, -10)
         pveHeader:SetText("PvE Target")
 
         local pvpHeader = self:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        pvpHeader:SetPoint("TOPLEFT", gear_auto_open_cb, "BOTTOMLEFT", 190, -10)
+        pvpHeader:SetPoint("TOPLEFT", auto_equip_highest_cb, "BOTTOMLEFT", 190, -10)
         pvpHeader:SetText("PvP Target")
 
-        local yOffset = -50
+        local yOffset = -80
         local rowHeight = 45
         for i = 1, numSpecs do
             local id, name, _, icon = GetSpecializationInfo(i)

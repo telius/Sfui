@@ -7,13 +7,13 @@ local function Process()
     while #scanQueue > 0 and not processed do
         local task = scanQueue[1]
         local l = C_Container.GetContainerItemLink(task.c, task.s)
-        
+
         if not l then
             table.remove(scanQueue, 1)
         else
             local itemID = GetItemInfoInstant(l)
             local exp = select(15, GetItemInfo(l))
-            
+
             if exp == nil then
                 if itemID and C_Item and C_Item.RequestLoadItemData then
                     C_Item.RequestLoadItemData(ItemLocation:CreateFromBagAndSlot(task.c, task.s))
@@ -46,7 +46,7 @@ local function Action(expTarget)
         local n = C_Container.GetContainerNumSlots(c)
         if n and n > 0 then
             for s = 1, n do
-                table.insert(scanQueue, {c = c, s = s})
+                table.insert(scanQueue, { c = c, s = s })
             end
         end
     end
@@ -57,17 +57,18 @@ local function Action(expTarget)
 end
 
 local expacs = {
-    {id = 0, name = "Vanilla"},
-    {id = 1, name = "TBC"},
-    {id = 2, name = "WotLK"},
-    {id = 3, name = "Cata"},
-    {id = 4, name = "MoP"},
-    {id = 5, name = "WoD"},
-    {id = 6, name = "Legion"},
-    {id = 7, name = "BfA"},
-    {id = 8, name = "SL"},
-    {id = 9, name = "DF"},
-    {id = 10, name = "TWW"}
+    { id = 0,  name = "Vanilla" },
+    { id = 1,  name = "TBC" },
+    { id = 2,  name = "WotLK" },
+    { id = 3,  name = "Cata" },
+    { id = 4,  name = "MoP" },
+    { id = 5,  name = "WoD" },
+    { id = 6,  name = "Legion" },
+    { id = 7,  name = "BfA" },
+    { id = 8,  name = "SL" },
+    { id = 9,  name = "DF" },
+    { id = 10, name = "TWW" },
+    { id = 11, name = "Mid" }
 }
 
 local function SetupUI()
@@ -84,7 +85,7 @@ local function SetupUI()
             end
         end
     end
-    
+
     if not parent and BankFrame and BankFrame:IsShown() then parent = BankFrame end
     if not parent then return end
 

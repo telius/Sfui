@@ -171,7 +171,14 @@ local function IsUpgrade(itemLink, overrideIlvl)
     local slots = equipLoc and SLOT_IDS[equipLoc]
     if not slots then return false end
 
-    return sfui.common.SafeGT(ilvl, GetEquippedIlvl(slots))
+    local equippedIlvl = GetEquippedIlvl(slots)
+    
+    -- Use highest.lua robust scaling/class-validation if available
+    if sfui.highest and sfui.highest.EvaluateItemUpgrade then
+        return sfui.highest.EvaluateItemUpgrade(itemLink, ilvl, equippedIlvl)
+    end
+
+    return sfui.common.SafeGT(ilvl, equippedIlvl), false
 end
 
 local function ScanQuestRewards(self, questID)
@@ -253,12 +260,16 @@ local function ScanQuestRewards(self, questID)
                 if sfui.common.SafeGT(ilvl, 1) then
                     local info = { GetItemInfo(itemID) }
                     if info[12] == 2 or info[12] == 4 then -- Weapon or Armor
-                        local isUpgrade = IsUpgrade(itemLink, ilvl)
+                        local isUpgrade, isOffSpec = IsUpgrade(itemLink, ilvl)
                         if isUpgrade then
                             questHasUpgrade = true
                             upgradeIcon = UPGRADE_ICON_TEXT
                         end
-                        ilvlText = "|c" .. (isUpgrade and "ff00ff00" or "ffffffff") .. "(" .. ilvl .. ")|r "
+                        local colorHex = "ffffffff"
+                        if isUpgrade then
+                            colorHex = isOffSpec and "ffffff00" or "ff00ff00"
+                        end
+                        ilvlText = "|c" .. colorHex .. "(" .. ilvl .. ")|r "
                         sortRewardValue = sfui.common.SafeArithmetic("+", sortRewardValue, sfui.common.SafeArithmetic("+", 1000000, sfui.common.SafeArithmetic("*", ilvl, 10)))
                     end
                 end

@@ -27,6 +27,7 @@ event_frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 event_frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 event_frame:RegisterEvent("PLAYER_FLAGS_CHANGED")
 event_frame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+event_frame:RegisterEvent("BAG_UPDATE_DELAYED")
 
 local gearEquipQueue = nil
 
@@ -48,7 +49,11 @@ local function TryEquipSet(setName)
         end
 
         C_EquipmentSet.UseEquipmentSet(setID)
-        print("|cff6600ffsfui:|r Automatically equipped set: " .. name)
+        if sfui.common and sfui.common.print then
+            sfui.common.print("Automatically equipped set: " .. name)
+        else
+            print("|cff6600ffsfui:|r Automatically equipped set: " .. name)
+        end
         return true
     end
     return false
@@ -101,10 +106,34 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
             if not UnitCastingInfo("player") and not UnitChannelInfo("player") and not UnitIsDeadOrGhost("player") then
                 local name = C_EquipmentSet.GetEquipmentSetInfo(gearEquipQueue)
                 C_EquipmentSet.UseEquipmentSet(gearEquipQueue)
-                if name then print("|cff6600ffsfui:|r Automatically equipped queued set: " .. name) end
+                if name then
+                    if sfui.common and sfui.common.print then
+                        sfui.common.print("Automatically equipped queued set: " .. name)
+                    else
+                        print("|cff6600ffsfui:|r Automatically equipped queued set: " .. name)
+                    end
+                end
             end
             gearEquipQueue = nil
             event_frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        end
+        return
+    end
+
+    if event == "BAG_UPDATE_DELAYED" then
+        if SfuiDB.gear and SfuiDB.gear.auto_equip_highest ~= false then
+            local UnitLevel = _G["UnitLevel"]
+            local GetMaxPlayerLevel = _G["GetMaxLevelForPlayerExpansion"] or _G["GetMaxPlayerLevel"]
+            if UnitLevel and GetMaxPlayerLevel and UnitLevel("player") < GetMaxPlayerLevel() then
+                if sfui.highest and sfui.highest.EquipHighestILvl and not InCombatLockdown() and not UnitCastingInfo("player") and not UnitChannelInfo("player") and not UnitIsDeadOrGhost("player") then
+                    local isPvP = false
+                    local _, instanceType = GetInstanceInfo()
+                    if instanceType == "pvp" or instanceType == "arena" or C_PvP.IsWarModeDesired() then
+                        isPvP = true
+                    end
+                    sfui.highest.EquipHighestILvl(isPvP, true)
+                end
+            end
         end
         return
     end
@@ -113,7 +142,8 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
     if event == "PLAYER_SPECIALIZATION_CHANGED" and arg1 ~= "player" then return end
     
     -- Slight delay to ensure InstanceInfo and WarMode state is accurate on load
-    C_Timer.After(3, function() sfui.gear.Update() end)
+    local delay = (sfui.config and sfui.config.gear and sfui.config.gear.updateDelay) or 3
+    C_Timer.After(delay, function() sfui.gear.Update() end)
 end)
 event_frame:RegisterEvent("ADDON_LOADED")
 
@@ -227,7 +257,11 @@ gearFrame:SetScript("OnShow", function(self)
         if sfui.highest and sfui.highest.EquipHighestILvl then
             sfui.highest.EquipHighestILvl(false)
         else
-            print("|cff6600ffsfui:|r 'Equip Highest' module failed to load.")
+            if sfui.common and sfui.common.print then
+                sfui.common.print("'Equip Highest' module failed to load.")
+            else
+                print("|cff6600ffsfui:|r 'Equip Highest' module failed to load.")
+            end
         end
     end)
 

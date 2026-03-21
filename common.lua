@@ -2,6 +2,13 @@ local addonName, addon = ...
 sfui = sfui or {}
 sfui.common = {}
 
+function sfui.common.print(msg, ...)
+    if sfui.config and sfui.config.prefix then
+        print(sfui.config.prefix .. " " .. tostring(msg), ...)
+    else
+        print("|cff6600ffsfui:|r " .. tostring(msg), ...)
+    end
+end
 
 -- Static pcall targets (Performance optimization: no closures in hot paths)
 local function pcall_issecret(val)

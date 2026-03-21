@@ -7,6 +7,7 @@ sfui.config = {
     -- addon metadata
     title = "|cff6600FFSTF|rui |cff6600FFGFY|r edition",
     version = "0.0.0", -- Set dynamically from TOC during ADDON_LOADED
+    prefix = "|cff6600ffsfui:|r",
 
     -- general appearance
     font = "GameFontNormal",
@@ -255,6 +256,12 @@ sfui.config = {
     currency_frame = {
         width = 200,
         height = 70,
+    },
+
+    -- gear swapper settings
+    gear = {
+        updateDelay = 3,
+        maxScaledILvl = 1000,
     },
 
     -- item frame settings
