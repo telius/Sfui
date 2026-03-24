@@ -881,7 +881,7 @@ local primaryResourcesCache = {
     EVOKER = Enum.PowerType.Mana,
     HUNTER = Enum.PowerType.Focus,
     MAGE = Enum.PowerType.Mana,
-    MONK = { [268] = Enum.PowerType.Energy, [270] = Enum.PowerType.Energy, [269] = Enum.PowerType.Mana },
+    MONK = { [268] = Enum.PowerType.Energy, [269] = Enum.PowerType.Energy, [270] = Enum.PowerType.Mana },
     PALADIN = Enum.PowerType.Mana,
     PRIEST = { [256] = Enum.PowerType.Mana, [257] = Enum.PowerType.Mana, [258] = Enum.PowerType.Insanity },
     ROGUE = Enum.PowerType.Energy,
@@ -1297,11 +1297,15 @@ function sfui.common.create_flat_button(parent, text, width, height)
 
     local cyan = sfui.config.colors.cyan
     btn:SetScript("OnEnter", function(self)
-        self:GetFontString():SetTextColor(cyan[1], cyan[2], cyan[3], 1)
+        if self:GetFontString() then
+            self:GetFontString():SetTextColor(cyan[1], cyan[2], cyan[3], 1)
+        end
         self:SetBackdropBorderColor(cyan[1], cyan[2], cyan[3], 1)
     end)
     btn:SetScript("OnLeave", function(self)
-        self:GetFontString():SetTextColor(white[1], white[2], white[3], 1)
+        if self:GetFontString() then
+            self:GetFontString():SetTextColor(white[1], white[2], white[3], 1)
+        end
         self:SetBackdropBorderColor(gray[1], gray[2], gray[3], 1)
     end)
 
@@ -1929,7 +1933,7 @@ function sfui.common.scan_player_auras(filterFunc)
 
     -- Scanning all auras is unsafe in instances due to secret values
     local inInstance, instanceType = IsInInstance()
-    if inInstance and (instanceType == "party" or instanceType == "raid" or instanceType == "arena") then
+    if inInstance and (instanceType == "party" or instanceType == "raid" or instanceType == "arena" or instanceType == "scenario" or instanceType == "delve") then
         return false
     end
 
