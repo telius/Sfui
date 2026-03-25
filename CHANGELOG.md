@@ -1,6 +1,7 @@
-## v0.5.2 (2026-03-25)
+## v0.5.3 (2026-03-25)
 
 ### Bug Fixes
+- **Alts Vault Sync Bug**: Fixed a bug where recently completed Mythic+ runs would not immediately reflect in the Alts window. Integrated explicit background server polling (`C_WeeklyRewards.OnUIInteract`) specifically triggering upon `CHALLENGE_MODE_COMPLETED` and the primary UI `Toggle()`, forcing Blizzard servers to asynchronously push updated Great Vault data down to the client dynamically before executing local synchronization arrays.
 - **Mythic+ Cooldown Tracker**: Resolved a critical zero-hour API break in WoW Patch 12.0.1 where Blizzard restricted Secret Value assignments behind `LuaDurationObject` validation. Migrated the tracker to natively execute `SetCooldownFromDurationObject`, strictly bypassing local duration math and executing cleanly via the new C++ API boundary without tainting the UI.
 
 ## v0.5.1 (2026-03-21)

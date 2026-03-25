@@ -1577,6 +1577,8 @@ function sfui.alts.Toggle()
         frame:Hide()
     else
         sfui.alts.CheckWeeklyResets()
+        -- Force a server sync for the latest Vault data before making the UI visible
+        if C_WeeklyRewards and C_WeeklyRewards.OnUIInteract then C_WeeklyRewards.OnUIInteract() end
         frame:Show()
         if needsSync then
             sfui.alts.PerformSync()
@@ -1611,6 +1613,13 @@ function sfui.alts.initialize()
 
         if event == "QUEST_LOG_UPDATE" then
             preyLogDirty = true
+        end
+
+        if event == "CHALLENGE_MODE_COMPLETED" then
+            -- Force the server to sync Vault and M+ run structures immediately
+            if C_MythicPlus and C_MythicPlus.RequestMapInfo then C_MythicPlus.RequestMapInfo() end
+            if C_MythicPlus and C_MythicPlus.RequestRewards then C_MythicPlus.RequestRewards() end
+            if C_WeeklyRewards and C_WeeklyRewards.OnUIInteract then C_WeeklyRewards.OnUIInteract() end
         end
 
         if event == "PLAYER_LEAVING_WORLD" then
