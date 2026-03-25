@@ -141,6 +141,12 @@ function sfui.highest.IsItemValidForSpec(itemLink, specID)
     local rule = sfui.highest.rules[specID]
     if not rule then return false end
 
+    -- Dynamic Frost DK Talent Overrides
+    if specID == 251 then
+        local frostbane = IsPlayerSpell(455993)
+        rule = { armor = rule.armor, stat = rule.stat, weaps = { ["1H_Dual"] = frostbane, ["2H"] = not frostbane } }
+    end
+
     local primaryStatName = STAT_MAP[rule.stat]
     local optimalArmor = rule.armor
 
@@ -229,10 +235,27 @@ function sfui.highest.GetBestItems(isPvP)
     local rule = sfui.highest.rules[specID]
     if not rule then return nil end
 
+    -- Dynamic Frost DK Talent Overrides
+    if specID == 251 then
+        local frostbane = IsPlayerSpell(455993) or (IsSpellKnownOrOverridesKnown and IsSpellKnownOrOverridesKnown(455993)) or (IsSpellKnown and IsSpellKnown(455993))
+        rule = { armor = rule.armor, stat = rule.stat, weaps = { ["1H_Dual"] = frostbane, ["2H"] = not frostbane } }
+    end
+
     local primaryStatName = STAT_MAP[rule.stat]
     local optimalArmor = rule.armor
 
-    local best = {}
+    -- Persistent GC Table Pooling
+    sfui.highest.itemDataPool = sfui.highest.itemDataPool or {}
+    sfui.highest.pooledBest = sfui.highest.pooledBest or {}
+    local itemDataPool = sfui.highest.itemDataPool
+    local poolIndex = 0
+
+    local best = sfui.highest.pooledBest
+    for i = 1, 19 do 
+        best[i] = best[i] or {}
+        wipe(best[i])
+    end
+
     local pooledTargetSlots = {}
     local evaluateIndex = 0
 
@@ -241,14 +264,18 @@ function sfui.highest.GetBestItems(isPvP)
         local isValid, baseIlvl, statVal, itemEquipLoc = sfui.highest.IsItemValidForSpec(itemLink, specID)
         if not isValid then return end
 
-        -- Slot lock: skip any item (trinket, ring, amulet, weapon) the player has locked.
-        -- Locked *slots* are cleared from best[] after scanning (see below).
+        -- Slot lock evaluation
+        local isLockedItem = false
         do
             local itemID = GetItemInfoInstant and GetItemInfoInstant(itemLink)
             local lockTable = itemID and SfuiDB and SfuiDB.gear and SfuiDB.gear[specID] and
                 SfuiDB.gear[specID].locked_items
             if lockTable and lockTable[itemID] then
-                return -- skip: don't auto-equip or move locked items
+                if isEquipped then
+                    return -- skip: prevent equipped locked items from being mathematically duplicated into alternate slots
+                else
+                    isLockedItem = true
+                end
             end
         end
 
@@ -257,6 +284,11 @@ function sfui.highest.GetBestItems(isPvP)
         -- Use true effective item level from the server
         local effectiveILvl = GetDetailedItemLevelInfo(itemLink)
         if effectiveILvl then itemLevel = effectiveILvl end
+
+        -- Forcefully bypass sorting priority for locked items sitting in inventory bags
+        if isLockedItem then
+            itemLevel = 9999
+        end
 
         -- PvP Tooltip parsing for scaled ilvls
         if isPvP then
@@ -345,20 +377,24 @@ function sfui.highest.GetBestItems(isPvP)
             end
         end
 
+        poolIndex = poolIndex + 1
+        itemDataPool[poolIndex] = itemDataPool[poolIndex] or {}
+        local itemData = itemDataPool[poolIndex]
+        
+        itemData.link         = itemLink
+        itemData.ilvl         = itemLevel
+        itemData.statVal      = statVal
+        itemData.is2H         = ((itemEquipLoc == "INVTYPE_2HWEAPON" and not rule.weaps["2H_Dual"]) or itemEquipLoc == "INVTYPE_RANGED" or itemEquipLoc == "INVTYPE_RANGEDRIGHT")
+        itemData.isEquipped   = isEquipped
+        itemData.physId       = isEquipped and (-slotOverride) or evaluateIndex
+        itemData.itemEquipLoc = itemEquipLoc
+        itemData.bag          = bag
+        itemData.slot         = slot
+        itemData.score        = nil
+
         for i = 1, numSlots do
             local s = pooledTargetSlots[i]
-            if not best[s] then best[s] = {} end
-            table.insert(best[s], {
-                link         = itemLink,
-                ilvl         = itemLevel,
-                statVal      = statVal,
-                is2H         = ((itemEquipLoc == "INVTYPE_2HWEAPON" and not rule.weaps["2H_Dual"]) or itemEquipLoc == "INVTYPE_RANGED" or itemEquipLoc == "INVTYPE_RANGEDRIGHT"),
-                isEquipped   = isEquipped,
-                physId       = isEquipped and (-slotOverride) or evaluateIndex,
-                itemEquipLoc = itemEquipLoc,
-                bag          = bag,
-                slot         = slot,
-            })
+            table.insert(best[s], itemData)
         end
     end
 
@@ -543,7 +579,6 @@ function sfui.highest.GetBestItems(isPvP)
         local tierSlots = sfui.highest.tierSlots or { 1, 3, 5, 7, 10 } -- Head, Shoulder, Chest, Legs, Hands
         sfui.highest.tierSlots = tierSlots
         local setStats = {}
-        local setStats = {}
 
         for _, s in ipairs(tierSlots) do
             if best[s] then
@@ -625,7 +660,10 @@ function sfui.highest.GetBestItems(isPvP)
     if stat2H > 0 or statDual > 0 then
         if stat2H > statDual then
             finalPick[16] = best2H
-            -- finalPick[17] intentionally left empty so 2H is equipped
+            local currentOffhand = GetInventoryItemLink("player", 17)
+            if currentOffhand then
+                finalPick[17] = { isUnequip = true, isEquipped = false }
+            end
         else
             if best1H then finalPick[16] = best1H end
             if bestOH then finalPick[17] = bestOH end
@@ -645,7 +683,7 @@ function sfui.highest.GetBestItems(isPvP)
                         if picked.physId == itm.physId then
                             alreadyPicked = true; break
                         end
-                        if itemID and GetItemInfoInstant and GetItemInfoInstant(picked.link) == itemID then
+                        if itemID and GetItemInfoInstant and picked.link and GetItemInfoInstant(picked.link) == itemID then
                             alreadyPicked = true; break
                         end
                     end
@@ -700,7 +738,11 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
         end
         local entry = equipQueue[index]
         local slotID, item = entry.slotID, entry.item
-        if item.bag and item.slot then
+        if item.isUnequip then
+            if _G.ClearCursor then _G.ClearCursor() end
+            if _G.PickupInventoryItem then _G.PickupInventoryItem(slotID) end
+            if _G.PutItemInBackpack then _G.PutItemInBackpack() end
+        elseif item.bag and item.slot then
             if _G.ClearCursor then _G.ClearCursor() end
             C_Container.PickupContainerItem(item.bag, item.slot)
             if _G.EquipCursorItem then _G.EquipCursorItem(slotID) end

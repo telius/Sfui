@@ -76,6 +76,6 @@ setmetatable(sfui.default_stats, {
     __index = function(t, k)
         local nk = tonumber(k)
         if nk and rawget(t, nk) then return rawget(t, nk) end
-        return { "H", "M", "c", "V" }
+        return { "H", "M", "C", "V" }
     end
 })

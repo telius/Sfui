@@ -219,11 +219,9 @@ function sfui.gear.UpdateStatUI()
                     if slotID then
                         local link = GetInventoryItemLink("player", slotID)
                         if link and db.locked_items then
-                            local itemID = GetItemInfoInstant(link)
+                            local itemID, _, _, _, nativeIcon = GetItemInfoInstant(link)
                             if itemID and db.locked_items[itemID] then
-                                local tex = (_G.C_Item and _G.C_Item.GetItemIconByID)
-                                    and _G.C_Item.GetItemIconByID(itemID)
-                                    or  _G.GetItemIcon(itemID)
+                                local tex = nativeIcon or ((_G.C_Item and _G.C_Item.GetItemIconByID) and _G.C_Item.GetItemIconByID(itemID)) or _G.GetItemIcon(itemID)
                                 ico.tex:SetTexture(tex)
                                 ico.itemID = itemID
                                 ico:Show()
@@ -285,7 +283,7 @@ function sfui.gear.UpdateStatUI()
                     if #pawnOrder == 0 then pawnOrder = nil end
                 end
 
-                local order  = pawnOrder or targetDB.stat_order or db.stat_order or (sfui.default_stats and sfui.default_stats[tonumber(id)]) or {"H","M","V","C"}
+                local order  = pawnOrder or targetDB.stat_order or db.stat_order or (sfui.default_stats and sfui.default_stats[tonumber(specID)]) or {"H","M","V","C"}
                 local equals = targetDB.stat_equals or db.stat_equals or {true, false, false}
 
                 for j = 1, 4 do
@@ -428,7 +426,17 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
     end
 
     if event == "PLAYER_FLAGS_CHANGED" and arg1 ~= "player" then return end
-    if event == "PLAYER_SPECIALIZATION_CHANGED" and arg1 ~= "player" then return end
+
+    if event == "PLAYER_SPECIALIZATION_CHANGED" then
+        if arg1 ~= "player" then return end
+        C_Timer.After(1.5, function() sfui.gear.Update() end)
+        return
+    end
+
+    if event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
+        C_Timer.After(0.5, function() sfui.gear.Update() end)
+        return
+    end
 
     local delay = (sfui.config and sfui.config.gear and sfui.config.gear.updateDelay) or 3
     C_Timer.After(delay, function() sfui.gear.Update() end)
