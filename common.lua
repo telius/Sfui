@@ -21,12 +21,19 @@ local function pcall_num_pos(val) return type(val) == "number" and val > 0 end
 local function pcall_gt(v1, v2) return v1 > (v2 or 0) end
 local function pcall_identity(val) return val end
 
+local function pcall_math_probe(val)
+    -- This operation will explicitly crash if 'val' is a Mythic+ Private Aura 'Secret Value' (userdata)
+    return val + 0 
+end
+
 local function issecretvalue(val)
     if val == nil then return false end
+    
     if _G.issecretvalue and _G.issecretvalue(val) then return true end
 
-    -- Deeper check: arithmetic and identity
-    local success = pcall(pcall_issecret, val)
+    -- Deeper check: force an arithmetic mutation safely inside a protected call.
+    -- If 'val' is a secure userdata (Secret Value), this math evaluation throws a C++ exception internally
+    local success = pcall(pcall_math_probe, val)
     if not success then return true end
 
     return false

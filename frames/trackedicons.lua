@@ -92,8 +92,16 @@ end
 local function pcall_item_cd(icon)
     local s, d, e = C_Item.GetItemCooldown(icon.id)
     icon._start, icon._duration, icon._isEnabled = s, d, e
+    -- CooldownFrame_Set natively bypasses secret value locks inside its C++ widget
     CooldownFrame_Set(icon.cooldown, s, d, e)
-    if icon.shadowCooldown then icon.shadowCooldown:SetCooldown(s, d) end
+    
+    if icon.shadowCooldown then
+        if not issecretvalue(s) and not issecretvalue(d) then
+            icon.shadowCooldown:SetCooldown(s, d)
+        else
+            icon.shadowCooldown:Clear()
+        end
+    end
     return C_Item.GetItemCount(icon.id)
 end
 
@@ -189,62 +197,63 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
         local ok_cd, cdInfo = pcall(C_Spell.GetSpellCooldown, activeID)
 
         if ok_cd and cdInfo ~= nil then
-            -- SetCooldown handles secret values natively
-            icon.cooldown:SetCooldown(cdInfo.startTime, cdInfo.duration)
-            if icon.shadowCooldown then
-                icon.shadowCooldown:SetCooldown(cdInfo.startTime, cdInfo.duration)
-            end
-
-            -- isOnGCD is NeverSecret (safe to branch)
-            local isOnGCD = cdInfo.isOnGCD
-            local d = cdInfo.duration
-            local shouldClearSwipe = false
-
-            if d ~= nil then
-                if not issecretvalue(d) then
-                    -- Readable: d > 1.5 catches real CDs, skips GCD
-                    isOnCooldown = (type(d) == "number" and d > 1.5)
-                    icon._secretGCDDropTime = nil
-                    shouldClearSwipe = isOnGCD
-                else
-                    -- Secret value handling (Mythic+)
-                    -- We cannot read the true duration, so we use CooldownFrame:IsShown()
-                    -- which natively processes the secret value correctly.
-                    local isShown = icon.cooldown:IsShown()
-
-                    if isOnGCD then
-                        isOnCooldown = false
-                        icon._secretGCDDropTime = nil
-                        shouldClearSwipe = true
-                    elseif not isShown then
-                        isOnCooldown = false
-                        icon._secretGCDDropTime = nil
-                    else
-                        -- Not on GCD, but showing a cooldown. We use a 0.1s debounce
-                        -- to confirm it's a real CD to bypass the 1-frame API desync when GCDs end.
-                        if not icon._secretGCDDropTime then
-                            icon._secretGCDDropTime = GetTime()
-                        end
-                        if GetTime() - icon._secretGCDDropTime > 0.1 then
-                            isOnCooldown = true
-                        else
-                            isOnCooldown = false
-                            shouldClearSwipe = true
-                        end
+            -- 12.0.1 Hotfix: 'SetCooldown' no longer legally accepts Secret Values.
+            -- Addons MUST acquire a DurationObject and pass it to 'SetCooldownFromDurationObject'.
+            if icon.cooldown.SetCooldownFromDurationObject and C_Spell.GetSpellCooldownDuration then
+                local ok_dur, durationObj = pcall(C_Spell.GetSpellCooldownDuration, activeID)
+                if ok_dur and durationObj then
+                    icon.cooldown:SetCooldownFromDurationObject(durationObj)
+                    if icon.shadowCooldown then
+                        icon.shadowCooldown:SetCooldownFromDurationObject(durationObj)
                     end
+                else
+                    icon.cooldown:Clear()
+                    if icon.shadowCooldown then icon.shadowCooldown:Clear() end
+                end
+            else
+                -- Pre-12.0.1 Legacy Fallback
+                local modRate = cdInfo.modRate or 1
+                local isEnabled = cdInfo.isEnabled
+                if isEnabled == nil then isEnabled = true end
+                
+                local ok_set = pcall(icon.cooldown.SetCooldown, icon.cooldown, cdInfo.startTime, cdInfo.duration)
+                if ok_set then
+                    if icon.shadowCooldown then
+                        icon.shadowCooldown:SetCooldown(cdInfo.startTime, cdInfo.duration)
+                    end
+                else
+                    icon.cooldown:Clear()
+                    if icon.shadowCooldown then icon.shadowCooldown:Clear() end
                 end
             end
 
-            -- Clear swipe if it's just the GCD (and we want to hide it) or a stale desync
-            if not isOnCooldown and shouldClearSwipe then
+            -- cdInfo.isActive and cdInfo.isOnGCD are designated "NeverSecret=true" in 12.0.1.
+            -- We securely branch on these to determine visual wipe conditions without comparing durations.
+            local isActive = cdInfo.isActive
+            local isOnGCD = cdInfo.isOnGCD
+            
+            -- If it's active but it's ONLY a GCD, we treat it as not on cooldown and wipe it.
+            if isActive and not isOnGCD then
+                isOnCooldown = true
+                icon._secretGCDDropTime = nil
+            elseif isOnGCD then
+                -- It's solely the GCD. Hide the visual swipe.
+                isOnCooldown = false
+                icon._secretGCDDropTime = nil
                 icon.cooldown:Clear()
                 if icon.shadowCooldown then icon.shadowCooldown:Clear() end
+            else
+                -- Not active at all
+                isOnCooldown = false
+                icon._secretGCDDropTime = nil
             end
 
-            -- isEnabled can be secret
+            -- isEnabled is NeverSecret
             local en = cdInfo.isEnabled
-            if en ~= nil and not issecretvalue(en) then
-                isEnabled = en
+            if en == false then
+                isEnabled = false
+            else
+                isEnabled = true
             end
         else
             icon.cooldown:Clear()
