@@ -1,3 +1,8 @@
+## v0.5.4 (2026-03-25)
+
+### Documentation
+- **Gear Manager**: Expanded inline code documentation clarifying the mechanical necessity behind the 2-second execution lock ("debounce timer") on the `BAG_UPDATE_DELAYED` core inventory event.
+
 ## v0.5.3 (2026-03-25)
 
 ### Bug Fixes

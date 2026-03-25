@@ -395,7 +395,13 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
     end
 
     if event == "BAG_UPDATE_DELAYED" then
-        -- P1: debounce rapid bag changes; coalesce into a single scan after 2s
+        -- [BAG_UPDATE_DELAYED Throttle Lock]
+        -- Why lock for 2 seconds?
+        -- This event fires violently rapidly when moving items, looting multiple items, or sorting bags.
+        -- We lock (debounce) the auto-equip queue here for precisely 2 seconds so the inventory 
+        -- state can fully settle. This strictly prevents the CPU from re-scanning all 144 bag slots 
+        -- repeatedly every micro-second, and stops the UI from aggressively swapping gear while 
+        -- you are actively trying to organize your inventory.
         if not bagUpdatePending then
             bagUpdatePending = true
             C_Timer.After(2, function()
