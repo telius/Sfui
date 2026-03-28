@@ -1,4 +1,4 @@
-## v0.5.4 (2026-03-28)
+## v0.5.4a (2026-03-28)
 
 ### Features
 - **Portals Framework**: Reorganized legacy portals into distinct continent-based categories (Eastern Kingdoms, Kalimdor, Pandaria, etc.) instead of by expansion. Corrected geographic locations for various dungeons and operations (e.g., Castle Nathria, Liberation of Undermine). Ordered the Wormhole toys to prioritize newer expansions first.
