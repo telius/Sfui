@@ -1,4 +1,13 @@
-## v0.5.4 (2026-03-25)
+## v0.5.4 (2026-03-28)
+
+### Features
+- **Portals Framework**: Reorganized legacy portals into distinct continent-based categories (Eastern Kingdoms, Kalimdor, Pandaria, etc.) instead of by expansion. Corrected geographic locations for various dungeons and operations (e.g., Castle Nathria, Liberation of Undermine). Ordered the Wormhole toys to prioritize newer expansions first.
+- **Portals State**: Portals frame now persistently remembers its exact multi-axis anchor points rather than flat coordinates across sessions and UI scales.
+- **Alts Tracking (Great Vault)**: Implemented Great Vault reward parsing using `C_WeeklyRewards.HasAvailableRewards()`. The Alts Vault panel will now actively feature a golden glowing overlay around unlocked slots and render a tooltip alert when a character has an unclaimed vault reward ready.
+
+### Bug Fixes
+- **Merchant Taint Error**: Resolved a UI-breaking Lua crash (`attempt to perform string conversion on a secret string value`) occurring when inspecting vendor tooltips inside protected instance boundaries. Migrated the tooltip parsing function to evaluate strings securely under `pcall` buffers.
+- **Resource Bars**: Fixed a UI issue where the irrelevant mana bar was visible for Elemental Shamans. Re-pointed the configuration to hide mana via the `secondaryPowerBar` block architecture naturally corresponding to Maelstrom-primary specs.
 
 ### Documentation
 - **Gear Manager**: Expanded inline code documentation clarifying the mechanical necessity behind the 2-second execution lock ("debounce timer") on the `BAG_UPDATE_DELAYED` core inventory event.
