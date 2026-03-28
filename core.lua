@@ -23,6 +23,7 @@ local LibStub = LibStub
 BINDING_HEADER_SFUI = "SFUI"
 _G["BINDING_NAME_CLICK SfuiHammerPopup:LeftButton"] = "Master's Hammer Repair"
 _G["BINDING_NAME_SFUI_MATCHMOUNT"] = "Match Target Mount"
+_G["BINDING_NAME_SFUI_PORTALS"] = "Portals"
 
 
 local SLASH_SFUI1 = "/sfui"
@@ -168,6 +169,9 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
         if sfui.alts and sfui.alts.initialize then
             sfui.alts.initialize()
         end
+        if sfui.portals and sfui.portals.initialize then
+            sfui.portals.initialize()
+        end
 
 
 
@@ -179,7 +183,7 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
         -- Initialize Minimap Menu
         if not SfuiMinimapMenu then
             SfuiMinimapMenu = CreateFrame("Frame", "SfuiMinimapMenu", UIParent, "BackdropTemplate")
-            SfuiMinimapMenu:SetSize(160, 105)
+            SfuiMinimapMenu:SetSize(160, 130)
             SfuiMinimapMenu:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
             SfuiMinimapMenu:SetBackdropColor(0, 0, 0, 0.5)
             SfuiMinimapMenu:SetFrameStrata("TOOLTIP")
@@ -210,6 +214,11 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
                     sfui.research.toggle_selection()
                 end
             end, -80)
+            AddMenuButton("|cffff9900Portals|r", function()
+                if sfui.portals and sfui.portals.Toggle then
+                    sfui.portals.Toggle()
+                end
+            end, -105)
 
             SfuiMinimapMenu.throttle = 0
             SfuiMinimapMenu.hideTimer = 0

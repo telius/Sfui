@@ -246,16 +246,22 @@ function sfui.gear.UpdateStatUI()
                 end
             end
 
-            -- tier force button coloring (cyan #00ffff = enabled)
+            -- tier force button coloring (cyan backdrop = enabled)
             if ui.btn2S then
                 local on = db.force_2set
-                local t = ui.btn2S:GetNormalTexture()
-                if t then t:SetVertexColor(on and 0 or 1, on and 1 or 1, on and 1 or 1) end
+                if on then
+                    ui.btn2S:SetBackdropColor(0, 0.5, 0.5, 1)
+                else
+                    ui.btn2S:SetBackdropColor(0, 0, 0, 1)
+                end
             end
             if ui.btn4S then
                 local on = db.force_4set
-                local t = ui.btn4S:GetNormalTexture()
-                if t then t:SetVertexColor(on and 0 or 1, on and 1 or 1, on and 1 or 1) end
+                if on then
+                    ui.btn4S:SetBackdropColor(0, 0.5, 0.5, 1)
+                else
+                    ui.btn4S:SetBackdropColor(0, 0, 0, 1)
+                end
             end
 
             -- stat priority

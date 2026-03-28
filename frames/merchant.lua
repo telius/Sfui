@@ -1102,13 +1102,20 @@ local function update_header()
     local titleText = ""
     local data = C_TooltipInfo.GetUnit(unit)
     if data and data.lines then
-        if data.lines[2] and data.lines[2].leftText then
-            titleText = data.lines[2].leftText
-            if string.find(titleText, "Level") then
-                titleText = ""
-                if data.lines[3] and data.lines[3].leftText then
-                    titleText = data.lines[3].leftText
+        local line2 = data.lines[2] and data.lines[2].leftText
+        if line2 then
+            local ok, txt = pcall(function() return string.find(line2, "Level") and "" or line2 end)
+            if ok and txt == "" then
+                -- It had "Level", so check line 3
+                local line3 = data.lines[3] and data.lines[3].leftText
+                if line3 then
+                    local ok3, txt3 = pcall(function() return tostring(line3) end)
+                    if ok3 and type(txt3) == "string" then
+                        titleText = txt3
+                    end
                 end
+            elseif ok and type(txt) == "string" then
+                titleText = txt
             end
         end
     end

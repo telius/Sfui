@@ -43,6 +43,8 @@ frames/trackedicons.lua
 frames/compare.lua
 frames/wqs.lua
 frames/transfer.lua
+portals_db.lua
+frames/portals.lua
 stats.lua
 frames/gear.lua
 frames/highest.lua

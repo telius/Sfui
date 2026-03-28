@@ -296,7 +296,6 @@ sfui.config = {
             [64] = true,   -- Frost Mage
             [269] = true,  -- Windwalker Monk
             [70] = true,   -- Retribution Paladin
-
         },
     },
 
@@ -388,6 +387,7 @@ sfui.config = {
         hiddenSpecs = {
             [258] = true, -- Shadow Priest
             [270] = true, -- Mistweaver Monk
+            [262] = true, -- Elemental Shaman
         },
     },
 

@@ -468,6 +468,7 @@ function sfui.alts.PerformSync(isLogout)
     end
 
     data.vault = data.vault or {}
+    data.vault.hasReward = C_WeeklyRewards and C_WeeklyRewards.HasAvailableRewards()
     data.vault.raid = data.vault.raid or {}
     data.vault.dungeon = data.vault.dungeon or {}
     data.vault.world = data.vault.world or {}
@@ -1464,12 +1465,29 @@ function sfui.alts.UpdateUI(force)
                         local sColors = cfg.statusColors
                         rect:SetColorTexture(unpack(sColors and sColors.available or { 0, 0, 0, 0.5 }))
                     end
+
+                    local glow = cell["vaultGlow" .. slotIdx] or cell:CreateTexture(nil, "OVERLAY")
+                    cell["vaultGlow" .. slotIdx] = glow
+                    glow:SetSize(squareSize - 4, cfg.rowHeight - 12)
+                    glow:SetPoint("LEFT", (slotIdx - 1) * squareSize + 5, 0)
+                    if alt.data.vault and alt.data.vault.hasReward then
+                        glow:SetColorTexture(1, 0.82, 0, 0.35)
+                        glow:Show()
+                    else
+                        glow:Hide()
+                    end
                 end
 
                 cell:SetScript("OnEnter", function(self)
                     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                     GameTooltip:SetText("Great Vault: " .. cat.label)
                     local vGroup = alt.data.vault and alt.data.vault[group]
+
+                    if alt.data.vault and alt.data.vault.hasReward then
+                        GameTooltip:AddLine("✨ Reward Ready to Claim!", 1, 0.82, 0)
+                        GameTooltip:AddLine(" ")
+                    end
+
                     for idx = 1, 3 do
                         local v = vGroup and vGroup[idx]
                         if v and v.threshold > 0 then

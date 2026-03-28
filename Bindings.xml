@@ -3,4 +3,7 @@
     <Binding name="SFUI_MATCHMOUNT" category="SFUI">
         sfui.automation.match_mount()
     </Binding>
+    <Binding name="SFUI_PORTALS" category="SFUI">
+        if sfui and sfui.portals and sfui.portals.Toggle then sfui.portals.Toggle() end
+    </Binding>
 </Bindings>
