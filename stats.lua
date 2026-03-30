@@ -1,10 +1,6 @@
 local addonName, addon = ...
 sfui.default_stats = {}
 
--- A comprehensive mapping of ALL WoW specializations to their generally accepted PvE stat priorities
--- Used exclusively as the final fallback if no Pawn string or Manual Priority is configured.
--- Priority format: { 1st, 2nd, 3rd, 4th }
-
 -- DEATH KNIGHT
 sfui.default_stats[250] = { "H", "C", "M", "V" } -- Blood
 sfui.default_stats[251] = { "M", "C", "H", "V" } -- Frost

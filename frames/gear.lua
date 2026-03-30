@@ -442,6 +442,11 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
     if event == "PLAYER_SPECIALIZATION_CHANGED" then
         if arg1 ~= "player" then return end
         C_Timer.After(1.5, function() sfui.gear.Update() end)
+        if SfuiGearManagerFrame and SfuiGearManagerFrame.SelectSpecTab then
+            local specIdx = GetSpecialization()
+            local specId = specIdx and GetSpecializationInfo(specIdx)
+            if specId then SfuiGearManagerFrame:SelectSpecTab(specId) end
+        end
         return
     end
 
@@ -530,7 +535,14 @@ end
 -- -------------------------------------------------------------------------
 gearFrame:SetScript("OnShow", function(self)
     if sfui.gear.UpdateStatUI then sfui.gear.UpdateStatUI() end
-    if self.initialized then return end
+    if self.initialized then
+        if self.SelectSpecTab then
+            local specIdx = GetSpecialization()
+            local specId = specIdx and GetSpecializationInfo(specIdx)
+            if specId then self:SelectSpecTab(specId) end
+        end
+        return
+    end
     self.initialized = true
     self.specUIs = {}
 
@@ -545,14 +557,14 @@ gearFrame:SetScript("OnShow", function(self)
     self.tabBtns = self.tabBtns or {}
     local activeSpecId = GetSpecializationInfo(GetSpecialization() or 1)
     
-    local function selectSpecTab(specID)
-        for id, ui in pairs(self.specUIs) do
+    self.SelectSpecTab = function(f, specID)
+        for id, ui in pairs(f.specUIs) do
             if id == specID then
                 if ui.card then ui.card:Show() end
-                if self.tabBtns[id] then self.tabBtns[id]:SetAlpha(1.0) end
+                if f.tabBtns[id] then f.tabBtns[id]:SetAlpha(1.0) end
             else
                 if ui.card then ui.card:Hide() end
-                if self.tabBtns[id] then self.tabBtns[id]:SetAlpha(0.3) end
+                if f.tabBtns[id] then f.tabBtns[id]:SetAlpha(0.3) end
             end
         end
     end
@@ -596,7 +608,7 @@ gearFrame:SetScript("OnShow", function(self)
             t:SetAllPoints()
             t:SetTexture(icon)
             t:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-            btn:SetScript("OnClick", function() selectSpecTab(id) end)
+            btn:SetScript("OnClick", function() self:SelectSpecTab(id) end)
             self.tabBtns[id] = btn
             startX = startX + 32
         end
@@ -1011,7 +1023,7 @@ gearFrame:SetScript("OnShow", function(self)
 
         -- yOff = yOff - CARD_H -- Disabled due to tab layout
     end
-    selectSpecTab(activeSpecId)
+    self:SelectSpecTab(activeSpecId)
 
     -- Bottom strip
     self.maxLvlChk = sfui.common.create_checkbox(self, "Auto Equip at Max Level",

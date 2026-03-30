@@ -60,7 +60,6 @@ sfui.config = {
         label_color = { 1, 1, 1 },
     },
 
-    -- custom spec colors (for example, to override defaults or add new ones)
     spec_colors = {
         -- Death Knight
         [250] = { 0.77, 0.12, 0.23, 1 },     -- Blood
@@ -78,7 +77,7 @@ sfui.config = {
         -- Evoker
         [1467] = { 0.20, 0.58, 0.50, 1 },    -- Devastation
         [1468] = { 0.20, 0.58, 0.50, 1 },    -- Preservation
-        [1473] = { 0.20, 0.58, 0.50, 1 },    -- Augmentation
+        [1473] = { 0.81, 0.54, 0.27, 1 },    -- Augmentation
         -- Hunter
         [253] = { 0.67, 0.83, 0.45, 1 },     -- Beast Mastery
         [254] = { 0.67, 0.83, 0.45, 1 },     -- Marksmanship
@@ -666,9 +665,9 @@ sfui.config = {
         statusColors = {
             completed = { 0, 1, 1, 0.8 },      -- Cyan
             inProgress = { 0, 0.2, 0.2, 0.8 }, -- Dark Teal (Strict)
-            available = { 0, 0, 0, 0.5 }, -- Black (Available)
+            available = { 0, 0, 0, 0.5 },      -- Black (Available)
             textCompleted = "|cff00ffff",
-            textInProgress = "|cff003333", -- Matching 0, 0.2, 0.2 hex approximately
+            textInProgress = "|cff003333",     -- Matching 0, 0.2, 0.2 hex approximately
             textAvailable = "|cff888888",
         },
     }

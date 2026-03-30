@@ -299,10 +299,11 @@ function sfui.alts.SyncCurrentCharacter()
 
 
     if syncTimer then return end
-    syncTimer = C_Timer.After(10.0, function()
+    syncTimer = C_Timer.NewTimer(10.0, function()
         syncTimer = nil
         needsSync = false
         sfui.alts.PerformSync()
+        sfui.alts.UpdateUI()
     end)
 end
 
@@ -439,11 +440,19 @@ function sfui.alts.PerformSync(isLogout)
 
     local seasonDungeonNames = {}
     if maps and #maps > 0 then
+        local currentRuns = C_MythicPlus.GetRunHistory(false, true) or {}
         for _, mID in ipairs(maps) do
             local intimeInfo, overtimeInfo = C_MythicPlus.GetSeasonBestForMap(mID)
             local bestLevel = 0
             if intimeInfo then bestLevel = intimeInfo.level end
             if overtimeInfo and overtimeInfo.level > bestLevel then bestLevel = overtimeInfo.level end
+
+            -- GetRunHistory updates faster than GetSeasonBestForMap directly after completing a dungeon
+            for _, run in ipairs(currentRuns) do
+                if run.mapChallengeModeID == mID and run.level > bestLevel then
+                    bestLevel = run.level
+                end
+            end
 
             data.dungeons[mID] = data.dungeons[mID] or {}
             data.dungeons[mID].level = bestLevel
@@ -1623,6 +1632,8 @@ function sfui.alts.initialize()
     eventFrame:RegisterEvent("CHAT_MSG_SKILL")
     eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     eventFrame:RegisterEvent("PLAYER_LEAVING_WORLD")
+    eventFrame:RegisterEvent("CHALLENGE_MODE_MAPS_UPDATE")
+    eventFrame:RegisterEvent("MYTHIC_PLUS_NEW_WEEKLY_RECORD")
 
     eventFrame:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_ENTERING_WORLD" then
