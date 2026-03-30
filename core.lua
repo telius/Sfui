@@ -21,9 +21,9 @@ local C_AddOns = C_AddOns
 local LibStub = LibStub
 
 BINDING_HEADER_SFUI = "SFUI"
-_G["BINDING_NAME_CLICK SfuiHammerPopup:LeftButton"] = "Master's Hammer Repair"
-_G["BINDING_NAME_SFUI_MATCHMOUNT"] = "Match Target Mount"
-_G["BINDING_NAME_SFUI_PORTALS"] = "Portals"
+_G["BINDING_NAME_CLICK SfuiHammerPopup:LeftButton"] = "master's hammer repair"
+_G["BINDING_NAME_SFUI_MATCHMOUNT"] = "match target mount"
+_G["BINDING_NAME_SFUI_PORTALS"] = "portals"
 
 
 local SLASH_SFUI1 = "/sfui"
@@ -198,23 +198,23 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
                 end)
             end
 
-            AddMenuButton("|cff00ffffOptions|r", function() sfui.toggle_options_panel() end, -5)
-            AddMenuButton("|cff00ff00Tracking Manager|r", function()
+            AddMenuButton("|cff00ffffoptions|r", function() sfui.toggle_options_panel() end, -5)
+            AddMenuButton("|cff00ff00tracking manager|r", function()
                 if sfui.trackedoptions and sfui.trackedoptions.toggle_viewer then
                     sfui.trackedoptions.toggle_viewer()
                 end
             end, -30)
-            AddMenuButton("|cff9966ffAlts|r", function()
+            AddMenuButton("|cff9966ffalts|r", function()
                 if sfui.alts and sfui.alts.Toggle then
                     sfui.alts.Toggle()
                 end
             end, -55)
-            AddMenuButton("|cff99ccffResearch Viewer|r", function()
+            AddMenuButton("|cff99ccffresearch viewer|r", function()
                 if sfui.research and sfui.research.toggle_selection then
                     sfui.research.toggle_selection()
                 end
             end, -80)
-            AddMenuButton("|cffff9900Portals|r", function()
+            AddMenuButton("|cffff9900portals|r", function()
                 if sfui.portals and sfui.portals.Toggle then
                     sfui.portals.Toggle()
                 end
@@ -267,9 +267,9 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
                 end,
                 OnTooltipShow = function(tooltip)
                     tooltip:AddLine("sfui")
-                    tooltip:AddLine("Left-click for Menu", 0.2, 1, 0.2)
-                    tooltip:AddLine("Right-click for Alts", 0.4, 0.7, 1)
-                    tooltip:AddLine("Shift+Right-click to Reload UI", 1, 0.2, 0.2)
+                    tooltip:AddLine("left-click for menu", 0.2, 1, 0.2)
+                    tooltip:AddLine("right-click for alts", 0.4, 0.7, 1)
+                    tooltip:AddLine("shift+right-click to reload ui", 1, 0.2, 0.2)
                 end,
             })
             icon:Register("sfui", broker, SfuiDB.minimap_icon)

@@ -847,7 +847,8 @@ function sfui.create_options_panel()
             SfuiDB.gear.auto_open = self:GetChecked()
         end)
 
-        local auto_equip_highest_cb = sfui.common.create_checkbox(gear_panel, "Auto-equip highest ilvl (while not max level)")
+        local auto_equip_highest_cb = sfui.common.create_checkbox(gear_panel,
+            "auto-equip best gear (while not max level)")
         auto_equip_highest_cb:SetPoint("TOPLEFT", gear_auto_open_cb, "BOTTOMLEFT", 0, -10)
         local isAutoEquip = SfuiDB.gear.auto_equip_highest
         if isAutoEquip == nil then isAutoEquip = true end
@@ -869,7 +870,7 @@ function sfui.create_options_panel()
         for i = 1, numSpecs do
             local id, name, _, icon = GetSpecializationInfo(i)
             if not id then return end
-            
+
             local iconTex = self:CreateTexture(nil, "ARTWORK")
             iconTex:SetSize(32, 32)
             iconTex:SetPoint("TOPLEFT", gear_info, "BOTTOMLEFT", 0, yOffset)
@@ -896,9 +897,9 @@ function sfui.create_options_panel()
                     pvpDrop:SetText(db.pvp_set ~= "" and db.pvp_set or "None")
                 end
             end)
-            
+
             updateFuncs[#updateFuncs]()
-            
+
             yOffset = yOffset - rowHeight
         end
     end)

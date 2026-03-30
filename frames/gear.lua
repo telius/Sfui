@@ -35,7 +35,7 @@ event_frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 event_frame:RegisterEvent("PLAYER_FLAGS_CHANGED")
 event_frame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 event_frame:RegisterEvent("BAG_UPDATE_DELAYED")
-event_frame:RegisterEvent("EQUIPMENT_SETS_CHANGED")  -- P5: invalidate set options cache
+event_frame:RegisterEvent("EQUIPMENT_SETS_CHANGED") -- P5: invalidate set options cache
 
 local gearEquipQueue = nil
 -- P1: debounce BAG_UPDATE_DELAYED so rapid bag changes don't fire full scans repeatedly
@@ -120,14 +120,18 @@ end
 local pawnScratchList = {}
 local function pawnSortDesc(a, b) return a.weight > b.weight end
 
-local statAbbrv = { Haste="H", Mastery="M", Versatility="V", Crit="C", H="H", M="M", V="V", C="C" }
-local statPool   = { "H", "M", "V", "C" }
+local statAbbrv    = { Haste = "H", Mastery = "M", Versatility = "V", Crit = "C", H = "H", M = "M", V = "V", C = "C" }
+local statPool     = { "H", "M", "V", "C" }
 local statBgColors = {
-    Haste       = {0.05, 0.40, 0.05, 0.9}, H = {0.05, 0.40, 0.05, 0.9},
-    Mastery     = {0.45, 0.38, 0.02, 0.9}, M = {0.45, 0.38, 0.02, 0.9},
-    Versatility = {0.03, 0.40, 0.48, 0.9}, V = {0.03, 0.40, 0.48, 0.9},
-    Crit        = {0.48, 0.04, 0.04, 0.9}, C = {0.48, 0.04, 0.04, 0.9},
-    None        = {0.12, 0.12, 0.12, 0.9},
+    Haste = { 0.05, 0.40, 0.05, 0.9 },
+    H = { 0.05, 0.40, 0.05, 0.9 },
+    Mastery = { 0.45, 0.38, 0.02, 0.9 },
+    M = { 0.45, 0.38, 0.02, 0.9 },
+    Versatility = { 0.03, 0.40, 0.48, 0.9 },
+    V = { 0.03, 0.40, 0.48, 0.9 },
+    Crit = { 0.48, 0.04, 0.04, 0.9 },
+    C = { 0.48, 0.04, 0.04, 0.9 },
+    None = { 0.12, 0.12, 0.12, 0.9 },
 }
 
 -- -------------------------------------------------------------------------
@@ -212,7 +216,7 @@ function sfui.gear.UpdateStatUI()
 
             -- locked item icons (per slot, in lockSlots column order: T1,T2,R1,R2,A,W1,W2)
             if ui.lockIcons then
-                local slotOrder = {13, 14, 11, 12, 2, 16, 17}
+                local slotOrder = { 13, 14, 11, 12, 2, 16, 17 }
                 for k, ico in ipairs(ui.lockIcons) do
                     ico.tex:SetTexture(nil); ico.itemID = nil; ico:Hide()
                     local slotID = slotOrder[k]
@@ -221,7 +225,9 @@ function sfui.gear.UpdateStatUI()
                         if link and db.locked_items then
                             local itemID, _, _, _, nativeIcon = GetItemInfoInstant(link)
                             if itemID and db.locked_items[itemID] then
-                                local tex = nativeIcon or ((_G.C_Item and _G.C_Item.GetItemIconByID) and _G.C_Item.GetItemIconByID(itemID)) or _G.GetItemIcon(itemID)
+                                local tex = nativeIcon or
+                                ((_G.C_Item and _G.C_Item.GetItemIconByID) and _G.C_Item.GetItemIconByID(itemID)) or
+                                _G.GetItemIcon(itemID)
                                 ico.tex:SetTexture(tex)
                                 ico.itemID = itemID
                                 ico:Show()
@@ -266,8 +272,8 @@ function sfui.gear.UpdateStatUI()
 
             -- stat priority
             if ui.manBtns then
-                local hasSet = db.pve_set and db.pve_set ~= ""
-                local alpha  = hasSet and 0.35 or 1.0
+                local hasSet   = db.pve_set and db.pve_set ~= ""
+                local alpha    = hasSet and 0.35 or 1.0
 
                 local targetDB = db
                 if ui.activeHero and db.hero and db.hero[ui.activeHero] then
@@ -279,7 +285,7 @@ function sfui.gear.UpdateStatUI()
                     local n = 0
                     for k, v in pairs(targetDB.pawn_weights) do
                         n = n + 1
-                        pawnScratchList[n] = { stat = k:gsub("Rating",""), weight = v }
+                        pawnScratchList[n] = { stat = k:gsub("Rating", ""), weight = v }
                     end
                     -- Clear any leftover entries from a previous longer list
                     for i = n + 1, #pawnScratchList do pawnScratchList[i] = nil end
@@ -289,12 +295,13 @@ function sfui.gear.UpdateStatUI()
                     if #pawnOrder == 0 then pawnOrder = nil end
                 end
 
-                local order  = pawnOrder or targetDB.stat_order or db.stat_order or (sfui.default_stats and sfui.default_stats[tonumber(specID)]) or {"H","M","V","C"}
-                local equals = targetDB.stat_equals or db.stat_equals or {true, false, false}
+                local order  = pawnOrder or targetDB.stat_order or db.stat_order or
+                (sfui.default_stats and sfui.default_stats[tonumber(specID)]) or { "H", "M", "V", "C" }
+                local equals = targetDB.stat_equals or db.stat_equals or { true, false, false }
 
                 for j = 1, 4 do
                     local st = order[j] or "None"
-                    ui.manBtns[j]:SetText(statAbbrv[st] or st:sub(1,1))
+                    ui.manBtns[j]:SetText(statAbbrv[st] or st:sub(1, 1))
                     local c = statBgColors[st]
                     if c then ui.manBtns[j]:SetBackdropColor(c[1], c[2], c[3], c[4]) end
                     ui.manBtns[j]:SetAlpha(alpha)
@@ -318,7 +325,7 @@ function sfui.gear.Update()
     if not SfuiDB.gear then return end
     local spec = sfui.common.get_current_spec_id()
     if spec == 0 then return end
-    local db = SfuiDB.gear[spec]  -- may be nil if never configured
+    local db = SfuiDB.gear[spec] -- may be nil if never configured
 
     local pveSet = db and db.pve_set or ""
     local pvpSet = db and db.pvp_set or ""
@@ -356,10 +363,10 @@ function sfui.gear.Update()
     if autoEquipPaused() then return end
 
     if sfui.highest and sfui.highest.EquipHighestILvl
-            and not InCombatLockdown()
-            and not UnitCastingInfo("player")
-            and not UnitChannelInfo("player")
-            and not UnitIsDeadOrGhost("player") then
+        and not InCombatLockdown()
+        and not UnitCastingInfo("player")
+        and not UnitChannelInfo("player")
+        and not UnitIsDeadOrGhost("player") then
         local atMax = UnitLevel and GetMaxPlayerLevel
             and UnitLevel("player") >= GetMaxPlayerLevel()
         local shouldEquip = (not atMax) or charDB().max_level_autoequip
@@ -368,7 +375,6 @@ function sfui.gear.Update()
         end
     end
 end
-
 
 -- P5: cache equipment set options; invalidated when sets change
 local equipSetOptionsCache = nil
@@ -404,9 +410,9 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
         -- [BAG_UPDATE_DELAYED Throttle Lock]
         -- Why lock for 2 seconds?
         -- This event fires violently rapidly when moving items, looting multiple items, or sorting bags.
-        -- We lock (debounce) the auto-equip queue here for precisely 2 seconds so the inventory 
-        -- state can fully settle. This strictly prevents the CPU from re-scanning all 144 bag slots 
-        -- repeatedly every micro-second, and stops the UI from aggressively swapping gear while 
+        -- We lock (debounce) the auto-equip queue here for precisely 2 seconds so the inventory
+        -- state can fully settle. This strictly prevents the CPU from re-scanning all 144 bag slots
+        -- repeatedly every micro-second, and stops the UI from aggressively swapping gear while
         -- you are actively trying to organize your inventory.
         if not bagUpdatePending then
             bagUpdatePending = true
@@ -420,10 +426,10 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
                     and UnitLevel("player") >= GetMaxPlayerLevel()
                 local shouldEquip = (not atMax) or charDB().max_level_autoequip
                 if shouldEquip and sfui.highest and sfui.highest.EquipHighestILvl
-                        and not InCombatLockdown()
-                        and not UnitCastingInfo("player")
-                        and not UnitChannelInfo("player")
-                        and not UnitIsDeadOrGhost("player") then
+                    and not InCombatLockdown()
+                    and not UnitCastingInfo("player")
+                    and not UnitChannelInfo("player")
+                    and not UnitIsDeadOrGhost("player") then
                     local isPvP = false
                     local _, instanceType = GetInstanceInfo()
                     if instanceType == "pvp" or instanceType == "arena" or (instanceType == "none" and C_PvP.IsWarModeDesired()) then
@@ -469,8 +475,8 @@ gearFrame:SetMovable(true)
 gearFrame:EnableMouse(true)
 gearFrame:RegisterForDrag("LeftButton")
 gearFrame:SetScript("OnDragStart", gearFrame.StartMoving)
-gearFrame:SetScript("OnDragStop",  gearFrame.StopMovingOrSizing)
-gearFrame:SetBackdrop({ bgFile="Interface/Buttons/WHITE8X8" })
+gearFrame:SetScript("OnDragStop", gearFrame.StopMovingOrSizing)
+gearFrame:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8" })
 gearFrame:SetBackdropColor(0.055, 0.055, 0.055, 0.97)
 gearFrame:Hide()
 gearFrame:SetFrameStrata("DIALOG")
@@ -484,12 +490,12 @@ closeBtn:SetScript("OnClick", function() gearFrame:Hide() end)
 -- P5: cache equipment set options; rebuilt only when equipSetOptionsCache is nil
 local function GetEquipmentSetOptions()
     if equipSetOptionsCache then return equipSetOptionsCache end
-    local options = { { text="None", value="" } }
+    local options = { { text = "None", value = "" } }
     local setIDs = C_EquipmentSet.GetEquipmentSetIDs()
     if setIDs then
         for _, id in ipairs(setIDs) do
             local name = C_EquipmentSet.GetEquipmentSetInfo(id)
-            if name then table.insert(options, { text=name, value=name }) end
+            if name then table.insert(options, { text = name, value = name }) end
         end
     end
     equipSetOptionsCache = options
@@ -507,10 +513,10 @@ local function makeEditBox(parent, w, h)
     eb:SetFontObject("GameFontHighlightSmall")
     eb:SetTextInsets(4, 4, 0, 0)
     local app = sfui.config.appearance
-    eb:SetBackdrop({ bgFile="Interface/Buttons/WHITE8X8" })
+    eb:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8" })
     eb:SetBackdropColor(app.editBoxColor[1], app.editBoxColor[2], app.editBoxColor[3], app.editBoxColor[4])
     eb:SetScript("OnEditFocusGained", function(s)
-        s:SetBackdropColor(app.highlightColor[1]*0.3, app.highlightColor[2]*0.3, app.highlightColor[3]*0.3, 0.9)
+        s:SetBackdropColor(app.highlightColor[1] * 0.3, app.highlightColor[2] * 0.3, app.highlightColor[3] * 0.3, 0.9)
     end)
     eb:SetScript("OnEditFocusLost", function(s)
         s:SetBackdropColor(app.editBoxColor[1], app.editBoxColor[2], app.editBoxColor[3], app.editBoxColor[4])
@@ -556,7 +562,7 @@ gearFrame:SetScript("OnShow", function(self)
 
     self.tabBtns = self.tabBtns or {}
     local activeSpecId = GetSpecializationInfo(GetSpecialization() or 1)
-    
+
     self.SelectSpecTab = function(f, specID)
         for id, ui in pairs(f.specUIs) do
             if id == specID then
@@ -575,7 +581,7 @@ gearFrame:SetScript("OnShow", function(self)
         btn:SetSize(22, 22)
         local tex = btn:CreateTexture(nil, "ARTWORK")
         tex:SetAllPoints(); btn.tex = tex
-        btn:SetBackdrop({ bgFile="Interface/Buttons/WHITE8X8" })
+        btn:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8" })
         btn:SetBackdropColor(0.1, 0.1, 0.1, 0.7)
         btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         btn:SetScript("OnClick", function(b)
@@ -626,22 +632,24 @@ gearFrame:SetScript("OnShow", function(self)
         local card = CreateFrame("Frame", nil, self, "BackdropTemplate")
         card:SetSize(470, CARD_H - 4)
         card:SetPoint("TOPLEFT", self, "TOPLEFT", 10, yOff)
-        card:SetBackdrop({ bgFile="Interface/Buttons/WHITE8X8" })
+        card:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8" })
         card:SetBackdropColor(0.09, 0.09, 0.09, 0.88)
         ui.card = card
 
         ui.heroBtns = {}
-        
+
         -- Helper to style flat radio buttons
         local function styleRadioBtn(btn, tex, isBase)
             btn:SetScript("OnEnter", function(self)
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 GameTooltip:SetText(btn.tInfoName or (isBase and "Base Spec" or "Hero Spec"))
-                GameTooltip:AddLine(isBase and "Click to configure default stat weights." or "Click to configure stat weights specifically for this hero talent tree.", 0.8, 0.8, 0.8, true)
+                GameTooltip:AddLine(
+                isBase and "Click to configure default stat weights." or
+                "Click to configure stat weights specifically for this hero talent tree.", 0.8, 0.8, 0.8, true)
                 GameTooltip:Show()
             end)
             btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-            
+
             btn.UpdateVisuals = function()
                 local isActive = (isBase and not ui.activeHero) or (not isBase and ui.activeHero == btn.hID)
                 if isActive then
@@ -654,7 +662,7 @@ gearFrame:SetScript("OnShow", function(self)
                     tex:SetAlpha(0.35)
                 end
             end
-            
+
             btn:SetScript("OnClick", function()
                 ui.activeHero = isBase and nil or btn.hID
                 if ui.activeHero then
@@ -693,9 +701,11 @@ gearFrame:SetScript("OnShow", function(self)
             tex:SetTexture(134400) -- fallback
 
             local function TrySetTexture()
-                local configs = C_ClassTalents and C_ClassTalents.GetConfigIDsBySpecID and C_ClassTalents.GetConfigIDsBySpecID(id)
-                local configID = (configs and configs[1]) or (C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID())
-                
+                local configs = C_ClassTalents and C_ClassTalents.GetConfigIDsBySpecID and
+                C_ClassTalents.GetConfigIDsBySpecID(id)
+                local configID = (configs and configs[1]) or
+                (C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID())
+
                 if configID and C_Traits and C_Traits.GetSubTreeInfo then
                     local tInfo = C_Traits.GetSubTreeInfo(configID, hID)
                     if tInfo and tInfo.iconElementID then
@@ -714,7 +724,7 @@ gearFrame:SetScript("OnShow", function(self)
         end
 
 
-        local CX = 50  -- left margin for rows
+        local CX = 50 -- left margin for rows
 
         -- ROW 1: PvE / PvP labels inline with dropdowns
         -- Labels sit at y=-9 (text), dropdowns at y=-5 (slightly taller button)
@@ -722,7 +732,7 @@ gearFrame:SetScript("OnShow", function(self)
         pveTag:SetPoint("TOPLEFT", card, "TOPLEFT", CX, -9)
 
         local pveDrop = sfui.common.create_dropdown(card, 120, GetEquipmentSetOptions, function(val)
-            SfuiDB.gear[id] = SfuiDB.gear[id] or { pve_set="", pvp_set="" }
+            SfuiDB.gear[id] = SfuiDB.gear[id] or { pve_set = "", pvp_set = "" }
             SfuiDB.gear[id].pve_set = val
             sfui.gear.Update()
             sfui.gear.UpdateStatUI()
@@ -734,34 +744,34 @@ gearFrame:SetScript("OnShow", function(self)
         pvpTag:SetPoint("TOPLEFT", card, "TOPLEFT", CX + 165, -9)
 
         local pvpDrop = sfui.common.create_dropdown(card, 120, GetEquipmentSetOptions, function(val)
-            SfuiDB.gear[id] = SfuiDB.gear[id] or { pve_set="", pvp_set="" }
+            SfuiDB.gear[id] = SfuiDB.gear[id] or { pve_set = "", pvp_set = "" }
             SfuiDB.gear[id].pvp_set = val
             sfui.gear.Update()
             sfui.gear.UpdateStatUI()
         end, "")
         pvpDrop:SetPoint("TOPLEFT", card, "TOPLEFT", CX + 193, -5)
-        ui.pvpDrop = pvpDrop
+        ui.pvpDrop       = pvpDrop
 
         -- ROW 2: Lock section (2 sub-rows)
         -- Sub-row A (icons, y=-38): slot icons shown when locked; click to unlock
         -- Sub-row B (buttons, y=-63): lock toggle buttons, one per slot
         -- Slots: T1(13), T2(14), R1(11), R2(12), A(2), W1(16), W2(17)
-        local lockSlots = {
-            { label="T1", slot=13 },
-            { label="T2", slot=14 },
-            { label="R1", slot=11 },
-            { label="R2", slot=12 },
-            { label="A",  slot=2  },
-            { label="W1", slot=16 },
-            { label="W2", slot=17 },
+        local lockSlots  = {
+            { label = "T1", slot = 13 },
+            { label = "T2", slot = 14 },
+            { label = "R1", slot = 11 },
+            { label = "R2", slot = 12 },
+            { label = "A", slot = 2 },
+            { label = "W1", slot = 16 },
+            { label = "W2", slot = 17 },
         }
-        local LOCK_COL_W = 26   -- px per column
-        local LOCK_START = CX   -- x of first column
-        local ICON_ROW_Y = -35  -- y for icon sub-row
-        local BTN_ROW_Y  = -60  -- y for button sub-row
+        local LOCK_COL_W = 26  -- px per column
+        local LOCK_START = CX  -- x of first column
+        local ICON_ROW_Y = -35 -- y for icon sub-row
+        local BTN_ROW_Y  = -60 -- y for button sub-row
 
         -- "Lock:" label left of first button column
-        local lockLabel = mkLabel(card, "Lock:", 0.50, 0.50, 0.50)
+        local lockLabel  = mkLabel(card, "Lock:", 0.50, 0.50, 0.50)
         lockLabel:SetPoint("TOPLEFT", card, "TOPLEFT", CX, BTN_ROW_Y - 1)
 
         -- lockSlot: toggle lock for the equipped item in the given slot
@@ -782,9 +792,9 @@ gearFrame:SetScript("OnShow", function(self)
             end
         end
 
-        ui.lockBtns  = {}
-        ui.lockIcons = {}
-        local LOCK_LABEL_W = 38  -- approximate width of "Lock:" label
+        ui.lockBtns        = {}
+        ui.lockIcons       = {}
+        local LOCK_LABEL_W = 38 -- approximate width of "Lock:" label
         for k, def in ipairs(lockSlots) do
             local colX = LOCK_START + LOCK_LABEL_W + (k - 1) * LOCK_COL_W
 
@@ -814,7 +824,7 @@ gearFrame:SetScript("OnShow", function(self)
                 GameTooltip:Show()
             end)
             btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-            table.insert(ui.lockBtns, { btn=btn, slotID=def.slot })
+            table.insert(ui.lockBtns, { btn = btn, slotID = def.slot })
         end
 
         local setActiveLabel = mkLabel(card, "Set active", 0.85, 0.65, 0.1)
@@ -836,7 +846,8 @@ gearFrame:SetScript("OnShow", function(self)
         btn2S:SetScript("OnEnter", function(b)
             GameTooltip:SetOwner(b, "ANCHOR_TOP")
             GameTooltip:SetText("Force 2-Piece Tier Set")
-            GameTooltip:AddLine("Drafts 2 set pieces into your highest ilvl build, prioritizing lowest ilvl sacrifice.", 0.8, 0.8, 0.8, true)
+            GameTooltip:AddLine("Drafts 2 set pieces into your highest ilvl build, prioritizing lowest ilvl sacrifice.",
+                0.8, 0.8, 0.8, true)
             GameTooltip:Show()
         end)
         btn2S:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -854,7 +865,8 @@ gearFrame:SetScript("OnShow", function(self)
         btn4S:SetScript("OnEnter", function(b)
             GameTooltip:SetOwner(b, "ANCHOR_TOP")
             GameTooltip:SetText("Force 4-Piece Tier Set")
-            GameTooltip:AddLine("Drafts 4 set pieces into your highest ilvl build, prioritizing lowest ilvl sacrifice.", 0.8, 0.8, 0.8, true)
+            GameTooltip:AddLine("Drafts 4 set pieces into your highest ilvl build, prioritizing lowest ilvl sacrifice.",
+                0.8, 0.8, 0.8, true)
             GameTooltip:Show()
         end)
         btn4S:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -903,25 +915,25 @@ gearFrame:SetScript("OnShow", function(self)
             end
             if targetDB.pawn_weights then
                 table.wipe(pawnScratchList)
-                for k,v in pairs(targetDB.pawn_weights) do
+                for k, v in pairs(targetDB.pawn_weights) do
                     local st = statAbbrv[k]
-                    if st then table.insert(pawnScratchList, { s=st, weight=v }) end
+                    if st then table.insert(pawnScratchList, { s = st, weight = v }) end
                 end
                 table.sort(pawnScratchList, pawnSortDesc)
                 local cur = {}
-                for i=1,4 do cur[i] = pawnScratchList[i] and pawnScratchList[i].s or statPool[i] end
+                for i = 1, 4 do cur[i] = pawnScratchList[i] and pawnScratchList[i].s or statPool[i] end
                 return cur
             end
             return targetDB.stat_order
                 or db.stat_order
                 or (sfui.default_stats and sfui.default_stats[tonumber(id)])
-                or {"H","M","V","C"}
+                or { "H", "M", "V", "C" }
         end
 
         for j = 1, 4 do
             local btn = sfui.common.create_flat_button(card, "?", 22, 18)
             btn:SetPoint("LEFT", btnAnchor, "RIGHT", j == 1 and 4 or 8, 0)
-            btn:SetPoint("TOP",  card, "TOP", 0, R3Y + 1)
+            btn:SetPoint("TOP", card, "TOP", 0, R3Y + 1)
             btn.idx = j
             btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
             btn:SetScript("OnClick", function(b, mouseBtn)
@@ -970,8 +982,8 @@ gearFrame:SetScript("OnShow", function(self)
                 local sep = sfui.common.create_flat_button(card, ">", 14, 18)
                 if sep.text then sep.text:SetTextColor(0.8, 0.8, 0.8) end
                 sep:SetPoint("LEFT", btnAnchor, "RIGHT", 1, 0)
-                sep:SetPoint("TOP",  card, "TOP", 0, R3Y + 1)
-                
+                sep:SetPoint("TOP", card, "TOP", 0, R3Y + 1)
+
                 sep.idx = j
                 sep:SetScript("OnClick", function(b)
                     SfuiDB.gear[id] = SfuiDB.gear[id] or {}
@@ -981,12 +993,12 @@ gearFrame:SetScript("OnShow", function(self)
                         SfuiDB.gear[id].hero[ui.activeHero] = SfuiDB.gear[id].hero[ui.activeHero] or {}
                         targetDB = SfuiDB.gear[id].hero[ui.activeHero]
                     end
-                    local eq = targetDB.stat_equals or {true, false, false}
+                    local eq = targetDB.stat_equals or { true, false, false }
                     eq[b.idx] = not eq[b.idx]
                     targetDB.stat_equals = eq
                     sfui.gear.UpdateStatUI()
                 end)
-                
+
                 ui.manTgls[j] = sep
                 btnAnchor = sep
             end
@@ -1000,20 +1012,20 @@ gearFrame:SetScript("OnShow", function(self)
 
         local pawnEdit = makeEditBox(card, 120, 18)
         pawnEdit:SetPoint("RIGHT", pawnSaveBtn, "LEFT", -3, 0)
-        pawnEdit:SetPoint("TOP",   card, "TOP", 0, R3Y + 1)
+        pawnEdit:SetPoint("TOP", card, "TOP", 0, R3Y + 1)
         pawnEdit:SetScript("OnEnterPressed", function(b) b:ClearFocus() end)
         ui.pawnEdit = pawnEdit
 
         local pawnTag = mkLabel(card, "Pawn:", 0.50, 0.50, 0.50)
         pawnTag:SetPoint("RIGHT", pawnEdit, "LEFT", -5, 0)
-        pawnTag:SetPoint("TOP",   card, "TOP", 0, R3Y)
+        pawnTag:SetPoint("TOP", card, "TOP", 0, R3Y)
 
         pawnSaveBtn:SetScript("OnClick", function()
             local text = pawnEdit:GetText()
             SfuiDB.gear[id] = SfuiDB.gear[id] or {}
             local weights = {}
             for stat, val in text:gmatch("(%a+)=(%-?[%d%.]+)") do
-                weights[stat:gsub("Rating","")] = tonumber(val)
+                weights[stat:gsub("Rating", "")] = tonumber(val)
             end
             SfuiDB.gear[id].pawn_weights = next(weights) and weights or nil
             SfuiDB.gear[id].pawn_string  = text ~= "" and text or nil
@@ -1075,7 +1087,7 @@ function InitToggleHook()
 
     toggleBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("SFUI Gear Manager")
+        GameTooltip:SetText("sfui gear manager")
         GameTooltip:Show()
     end)
     toggleBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)

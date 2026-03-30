@@ -237,7 +237,9 @@ function sfui.highest.GetBestItems(isPvP)
 
     -- Dynamic Frost DK Talent Overrides
     if specID == 251 then
-        local frostbane = IsPlayerSpell(455993) or (IsSpellKnownOrOverridesKnown and IsSpellKnownOrOverridesKnown(455993)) or (IsSpellKnown and IsSpellKnown(455993))
+        local frostbane = IsPlayerSpell(455993) or
+        (IsSpellKnownOrOverridesKnown and IsSpellKnownOrOverridesKnown(455993)) or
+        (IsSpellKnown and IsSpellKnown(455993))
         rule = { armor = rule.armor, stat = rule.stat, weaps = { ["1H_Dual"] = frostbane, ["2H"] = not frostbane } }
     end
 
@@ -251,7 +253,7 @@ function sfui.highest.GetBestItems(isPvP)
     local poolIndex = 0
 
     local best = sfui.highest.pooledBest
-    for i = 1, 19 do 
+    for i = 1, 19 do
         best[i] = best[i] or {}
         wipe(best[i])
     end
@@ -377,20 +379,20 @@ function sfui.highest.GetBestItems(isPvP)
             end
         end
 
-        poolIndex = poolIndex + 1
+        poolIndex               = poolIndex + 1
         itemDataPool[poolIndex] = itemDataPool[poolIndex] or {}
-        local itemData = itemDataPool[poolIndex]
-        
-        itemData.link         = itemLink
-        itemData.ilvl         = itemLevel
-        itemData.statVal      = statVal
-        itemData.is2H         = ((itemEquipLoc == "INVTYPE_2HWEAPON" and not rule.weaps["2H_Dual"]) or itemEquipLoc == "INVTYPE_RANGED" or itemEquipLoc == "INVTYPE_RANGEDRIGHT")
-        itemData.isEquipped   = isEquipped
-        itemData.physId       = isEquipped and (-slotOverride) or evaluateIndex
-        itemData.itemEquipLoc = itemEquipLoc
-        itemData.bag          = bag
-        itemData.slot         = slot
-        itemData.score        = nil
+        local itemData          = itemDataPool[poolIndex]
+
+        itemData.link           = itemLink
+        itemData.ilvl           = itemLevel
+        itemData.statVal        = statVal
+        itemData.is2H           = ((itemEquipLoc == "INVTYPE_2HWEAPON" and not rule.weaps["2H_Dual"]) or itemEquipLoc == "INVTYPE_RANGED" or itemEquipLoc == "INVTYPE_RANGEDRIGHT")
+        itemData.isEquipped     = isEquipped
+        itemData.physId         = isEquipped and (-slotOverride) or evaluateIndex
+        itemData.itemEquipLoc   = itemEquipLoc
+        itemData.bag            = bag
+        itemData.slot           = slot
+        itemData.score          = nil
 
         for i = 1, numSlots do
             local s = pooledTargetSlots[i]
@@ -454,15 +456,16 @@ function sfui.highest.GetBestItems(isPvP)
             sfui.highest.activePWeights = activePWeights
             for k in pairs(activePWeights) do activePWeights[k] = nil end
             for k, v in pairs(pweights) do activePWeights[k] = v end
-            
+
             activePWeights["Intellect"] = activePWeights["Intellect"] or (maxW * 2.0)
             activePWeights["Agility"]   = activePWeights["Agility"] or (maxW * 2.0)
             activePWeights["Strength"]  = activePWeights["Strength"] or (maxW * 2.0)
-            pweights = activePWeights
+            pweights                    = activePWeights
         end
     else
         -- P1 fallback hierarchy: pawn weights > explicitly saved manual stats > stats.lua default dictionary stats > hardcoded generic "H,M,V,C" fallback failover
-        local order = (hd and hd.stat_order) or (specDB and specDB.stat_order) or (sfui.default_stats and sfui.default_stats[tonumber(specID)]) or
+        local order = (hd and hd.stat_order) or (specDB and specDB.stat_order) or
+            (sfui.default_stats and sfui.default_stats[tonumber(specID)]) or
             { "H", "M", "V", "C" }
         local equals = (hd and hd.stat_equals) or (specDB and specDB.stat_equals) or { true, false, false }
 
@@ -507,7 +510,7 @@ function sfui.highest.GetBestItems(isPvP)
             local score = itm.ilvl * 10
             if isPvP then
                 score = itm.ilvl *
-                100                    -- PvP gear tooltips return massive ilvls, this ensures it overrides base stat arrays
+                    100 -- PvP gear tooltips return massive ilvls, this ensures it overrides base stat arrays
             end
 
             -- Feature 1: Tier Set Protection
@@ -707,7 +710,7 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
     end
 
     if not silent then
-        sfprint(string.format("Scanning bags for highest %s gear...", isPvP and "PvP" or "PvE"))
+        sfprint(string.format("Scanning bags for best %s gear...", isPvP and "PvP" or "PvE"))
     end
 
     local best = sfui.highest.GetBestItems(isPvP)
@@ -732,7 +735,7 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
             if totalToEquip > 0 then
                 if not silent then sfprint("Equipped " .. totalToEquip .. " upgrade(s)!") end
             else
-                if not silent then sfprint("Already wearing your highest gear.") end
+                if not silent then sfprint("Already wearing your best gear.") end
             end
             return
         end
@@ -766,7 +769,3 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
         if not silent then sfprint("Already wearing your highest gear.") end
     end
 end
-
--- ---------------------------------------------------------------------
--- TRINKET LOCKING HOOK (dead PLAYER_LOGIN frame removed - B4)
--- ---------------------------------------------------------------------
