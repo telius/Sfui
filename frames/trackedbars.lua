@@ -20,7 +20,6 @@ local GetTime = GetTime
 
 local unpack = unpack
 
-
 -- Reusable tables (performance optimization)
 local standardBars = {}
 local activeCooldownIDs = {}
@@ -336,6 +335,13 @@ local function SetupBarState(bar, config, cfg)
     end
 
     bar.status:SetStatusBarColor(sfui.common.unpack_color(color))
+
+    -- If the bar is currently in the pandemic window, restore the pandemic color.
+    -- This ensures UpdateLayout (called on any visibility change) doesn't stomp it.
+    if config and config.pandemicEnabled and bar._inPandemic then
+        local pColor = config.pandemicColor or { 1, 0, 1, 1 }
+        bar.status:SetStatusBarColor(sfui.common.unpack_color(pColor))
+    end
 end
 
 -- Helper for Standard Bar Positioning
@@ -716,6 +722,76 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
                 myBar.count:SetText("")
             end
         end
+    end
+
+    -- Pandemic recolor: entirely pcall-wrapped so any error is safely swallowed.
+    if config and config.pandemicEnabled then
+        -- Reset to false BEFORE the pcall: if detection errors, we never leave stale
+        -- "true" state that would permanently color the bar with the pandemic color.
+        myBar._inPandemic = false
+        pcall(function()
+            local inPandemic = false
+
+            -- Primary: blizzFrame.PandemicIcon is set (not nil) by Blizzard while in
+            -- pandemic. Reading nil vs non-nil is safe -- no arithmetic, no secrets.
+            -- NOTE: CooldownViewerBuffBarItemMixin (category-3 bars) does NOT call
+            -- CheckSetPandemicAlertTiggerTime, so PandemicIcon is always nil there.
+            -- We still check it first for any future Blizzard changes or non-buffbar items.
+            if blizzFrame.PandemicIcon ~= nil then
+                inPandemic = true
+            else
+                -- Use the text already synced to myBar.time -- same source as
+                -- _pcall_get_duration_text but avoids a second blizzFrame read.
+                local text = myBar.time and myBar.time:GetText()
+                if text and text ~= "" then
+                    -- Parse common WoW timer formats:
+                    --   "5.3s"  "12s"  "1m"  "1m 30s"  "1:30"  "60"
+                    local secs = nil
+                    local plain = text:match("^(%d+%.?%d*)%s*s?$")
+                    if plain then
+                        secs = tonumber(plain)
+                    else
+                        local m, s = text:match("^(%d+)m%s*(%d*)%s*s?$")
+                        if m then secs = tonumber(m) * 60 + (tonumber(s) or 0) end
+                        if not secs then
+                            local mm, ss = text:match("^(%d+):(%d+)$")
+                            if mm then secs = tonumber(mm) * 60 + (tonumber(ss) or 0) end
+                        end
+                    end
+
+                    if secs and secs >= 0 then
+                        -- Track the max observed remaining duration as a proxy for total
+                        -- duration. Reset (clamp) when secs has jumped up again (fresh
+                        -- application or talent change) to avoid an inflated threshold.
+                        -- Hard-cap at 600s (10 min) to guard against transient bad reads.
+                        local prevMax = myBar._cachedMaxDur or 0
+                        if secs > prevMax then
+                            myBar._cachedMaxDur = math.min(secs, 600)
+                        end
+                        local maxDur = myBar._cachedMaxDur
+                        -- Pandemic window = last 30% of total duration (standard WoW rule)
+                        if maxDur and maxDur > 0 then
+                            inPandemic = (secs / maxDur) <= 0.3
+                        end
+                    end
+                end
+            end
+
+            -- Persist state so SetupBarState re-applies the right color if
+            -- UpdateLayout fires after this point in the same tick.
+            myBar._inPandemic = inPandemic
+
+            if inPandemic then
+                local pColor = config.pandemicColor or { 1, 0, 1, 1 } -- default #ff00ff
+                myBar.status:SetStatusBarColor(sfui.common.unpack_color(pColor))
+            end
+            -- No else needed: SetupBarState handles normal color restoration via
+            -- _inPandemic=false.  If UpdateLayout hasn't fired this tick the bar keeps
+            -- its color from the previous tick (imperceptible for a single frame).
+        end)
+    else
+        -- Pandemic was disabled (or toggled off); clear any stale state.
+        myBar._inPandemic = false
     end
 end
 

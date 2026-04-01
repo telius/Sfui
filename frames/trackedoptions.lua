@@ -651,6 +651,8 @@ function sfui.trackedoptions.RenderBarsTab(parent)
     Header("Timer", 485, 80)
     Header("Spec Color", 565, 80)
     Header("Custom Color", 645, 80)
+    Header("Pandemic", 730, 70)
+    Header("P.Color", 805, 60)
 
     s3y = s3y - 25
 
@@ -764,6 +766,54 @@ function sfui.trackedoptions.RenderBarsTab(parent)
                     b = b,
                     opacity = a,
                     hasOpacity = true,
+                })
+            end)
+
+            -- Pandemic checkbox
+            RC("pandemicEnabled", "Recolor bar when debuff is in pandemic refresh window (≤30% duration left)", 748)
+
+            -- Pandemic Color Swatch (default #ff00ff magenta)
+            local DEFAULT_PANDEMIC = { 1, 0, 1, 1 }
+            local pSwatch = CreateFrame("Button", nil, row, "BackdropTemplate")
+            pSwatch:SetSize(20, 20)
+            pSwatch:SetPoint("LEFT", 815, 0)
+            pSwatch:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
+            pSwatch:SetBackdropBorderColor(0, 0, 0, 1)
+
+            local function UpdatePSwatch()
+                local entry = specBars and specBars[id]
+                local col = (entry and entry.pandemicColor) or DEFAULT_PANDEMIC
+                pSwatch:SetBackdropColor(sfui.common.unpack_color(col))
+            end
+            UpdatePSwatch()
+
+            pSwatch:SetScript("OnClick", function()
+                local entry = sfui.common.ensure_tracked_bar_db(id)
+                local r, g, b, a
+                if entry.pandemicColor then
+                    r, g, b, a = sfui.common.unpack_color(entry.pandemicColor)
+                else
+                    r, g, b, a = sfui.common.unpack_color(DEFAULT_PANDEMIC)
+                end
+                local oldColor = { r, g, b, a }
+                ColorPickerFrame:SetupColorPickerAndShow({
+                    swatchFunc = function()
+                        local nr, ng, nb = ColorPickerFrame:GetColorRGB()
+                        local na = ColorPickerFrame:GetColorAlpha()
+                        entry.pandemicColor = { nr, ng, nb, na }
+                        UpdatePSwatch(); Refresh()
+                    end,
+                    opacityFunc = function()
+                        local nr, ng, nb = ColorPickerFrame:GetColorRGB()
+                        local na = ColorPickerFrame:GetColorAlpha()
+                        entry.pandemicColor = { nr, ng, nb, na }
+                        UpdatePSwatch(); Refresh()
+                    end,
+                    cancelFunc = function()
+                        entry.pandemicColor = oldColor
+                        UpdatePSwatch(); Refresh()
+                    end,
+                    r = r, g = g, b = b, opacity = a, hasOpacity = true,
                 })
             end)
 

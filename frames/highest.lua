@@ -103,16 +103,44 @@ local function HasPrimaryStat(itemLink, primaryStatName)
     local stats = C_Item.GetItemStats(itemLink)
     if not stats then return false end
 
-    -- If there's literally NO primary stats on the item, we allow it (generic trinkets/rings)
-    local hasAnyPrimary = stats["ITEM_MOD_STRENGTH_SHORT"] or stats["ITEM_MOD_AGILITY_SHORT"] or
-        stats["ITEM_MOD_INTELLECT_SHORT"]
-    if not hasAnyPrimary then return true end
-
-    -- But if it DOES have primary stats, it must have OUR primary stat
+    -- Fast-path mathematically sound API match
     if stats[primaryStatName] then return true end
+
+    -- Tooltip Fallback Check for Deceptive Base Items
+    -- (Items like event staves drop dynamically modified to intellect, but the base API forcibly returns agility)
+    local tooltipData = C_TooltipInfo and C_TooltipInfo.GetHyperlink(itemLink)
+    if tooltipData and tooltipData.lines then
+        local primaryString = ""
+        if primaryStatName == "ITEM_MOD_INTELLECT_SHORT" then primaryString = "Intellect"
+        elseif primaryStatName == "ITEM_MOD_AGILITY_SHORT" then primaryString = "Agility"
+        elseif primaryStatName == "ITEM_MOD_STRENGTH_SHORT" then primaryString = "Strength"
+        end
+
+        if primaryString ~= "" then
+            for _, line in ipairs(tooltipData.lines) do
+                local text = line.leftText
+                if text and type(text) == "string" then
+                    -- If the dynamic tooltip clearly broadcasts the primary stat, we know it's there
+                    if text:find(primaryString, 1, true) then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+
+    -- If there's literally NO primary stats on the item, we allow it (generic trinkets/rings)
+    -- We restrict this bypass to non-weapons, so casters don't equip old classic weapons equipped with only stamina/haste
+    local classID = select(6, GetItemInfoInstant(itemLink))
+    if classID ~= 2 then
+        local hasAnyPrimary = stats["ITEM_MOD_STRENGTH_SHORT"] or stats["ITEM_MOD_AGILITY_SHORT"] or
+            stats["ITEM_MOD_INTELLECT_SHORT"]
+        if not hasAnyPrimary then return true end
+    end
 
     return false
 end
+
 
 local function GetPrimaryStatValue(itemLink, primaryStatName)
     local stats = C_Item.GetItemStats(itemLink)
@@ -150,10 +178,11 @@ function sfui.highest.IsItemValidForSpec(itemLink, specID)
     local primaryStatName = STAT_MAP[rule.stat]
     local optimalArmor = rule.armor
 
-    local itemName, _, _, itemLevel, itemMinLevel, itemType, itemSubType, _, itemEquipLoc, _, _, classID, subclassID =
-        GetItemInfo(
-            itemLink)
+    local itemID, itemType, itemSubType, itemEquipLoc, _, classID, subclassID = GetItemInfoInstant(itemLink)
     if not itemEquipLoc or itemEquipLoc == "" then return false end
+
+    local itemName, _, _, baseLevel, itemMinLevel = GetItemInfo(itemLink)
+    local itemLevel = GetDetailedItemLevelInfo(itemLink) or baseLevel or 1
 
     -- Check if the player meets the required level for the item
     if itemMinLevel and itemMinLevel > UnitLevel("player") then return false end
@@ -204,6 +233,23 @@ function sfui.highest.EvaluateItemUpgrade(itemLink, overrideIlvl, currentEquippe
         local itemLevel = overrideIlvl or baseIlvl
         local effectiveILvl = GetDetailedItemLevelInfo(itemLink)
         if effectiveILvl and not overrideIlvl then itemLevel = effectiveILvl end
+
+        -- Tooltip override for heavily scaled Event/Timewalking items
+        if not overrideIlvl and C_TooltipInfo and C_TooltipInfo.GetHyperlink then
+            local tooltipData = C_TooltipInfo.GetHyperlink(itemLink)
+            if tooltipData and tooltipData.lines then
+                for _, line in ipairs(tooltipData.lines) do
+                    local text = line.leftText
+                    if text and type(text) == "string" then
+                        local tVal = tonumber(text:match("Item Level (%d+)"))
+                        if tVal and tVal > itemLevel then
+                            itemLevel = tVal
+                        end
+                        if tVal then break end
+                    end
+                end
+            end
+        end
 
         if itemLevel and itemLevel > currentEquippedIlvl then
             return true
@@ -286,6 +332,23 @@ function sfui.highest.GetBestItems(isPvP)
         -- Use true effective item level from the server
         local effectiveILvl = GetDetailedItemLevelInfo(itemLink)
         if effectiveILvl then itemLevel = effectiveILvl end
+
+        -- Tooltip override for heavily scaled Event/Timewalking items
+        if C_TooltipInfo and C_TooltipInfo.GetHyperlink then
+            local tooltipData = C_TooltipInfo.GetHyperlink(itemLink)
+            if tooltipData and tooltipData.lines then
+                for _, line in ipairs(tooltipData.lines) do
+                    local text = line.leftText
+                    if text and type(text) == "string" then
+                        local tVal = tonumber(text:match("Item Level (%d+)"))
+                        if tVal and tVal > itemLevel then
+                            itemLevel = tVal
+                        end
+                        if tVal then break end
+                    end
+                end
+            end
+        end
 
         -- Forcefully bypass sorting priority for locked items sitting in inventory bags
         if isLockedItem then
@@ -657,11 +720,11 @@ function sfui.highest.GetBestItems(isPvP)
         end
     end
 
-    local stat2H = best2H and best2H.statVal or 0
-    local statDual = (best1H and best1H.statVal or 0) + (bestOH and bestOH.statVal or 0)
+    local score2H = best2H and best2H.score or 0
+    local scoreDual = (best1H and best1H.score or 0) + (bestOH and bestOH.score or 0)
 
-    if stat2H > 0 or statDual > 0 then
-        if stat2H > statDual then
+    if score2H > 0 or scoreDual > 0 then
+        if score2H > scoreDual then
             finalPick[16] = best2H
             local currentOffhand = GetInventoryItemLink("player", 17)
             if currentOffhand then
@@ -672,6 +735,17 @@ function sfui.highest.GetBestItems(isPvP)
             if bestOH then finalPick[17] = bestOH end
         end
     end
+
+    if _G.SFUI_DEBUG_WEAPONS and best[16] then
+        print("|cffffff00[SFUI Debug] Slot 16 evaluated:|r")
+        for i, itm in ipairs(best[16]) do
+            print("  ["..i.."]", itm.link, "Score:", math.floor(itm.score), "is2H:", tostring(itm.is2H))
+        end
+        if best2H then print("  best2H:", best2H.link) end
+        if finalPick[16] then print("  WINNER:", finalPick[16].link) else print("  WINNER: None") end
+        _G.SFUI_DEBUG_WEAPONS = false
+    end
+
 
     -- Process all other slots
     for slotID = 1, 15 do
@@ -769,3 +843,4 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
         if not silent then sfprint("Already wearing your highest gear.") end
     end
 end
+
