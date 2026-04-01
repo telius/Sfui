@@ -1,3 +1,13 @@
+## v0.6.0a (2026-04-01)
+
+### Features
+- **Pandemic Window Recoloring**: Tracked debuff bars now shift color during the pandemic window (final 30% of duration), with configurable recolor settings. Duration is parsed from the bar's display text and max duration is cached per-aura for accurate ratio detection.
+- **Mythic+ Tracking Improvements**: Enhanced mythic plus cooldown tracking with improved reliability, added spec tab auto-selection in the gear manager, and updated Augmentation Evoker color configuration.
+- **Primary Stat Detection**: Improved primary stat detection for dynamic items to correctly evaluate gear upgrades across all specializations.
+
+### Refactoring
+- **Code Standardization**: Standardized string casing and applied consistent code formatting across core and gear modules.
+
 ## v0.5.4a (2026-03-28)
 
 ### Features
