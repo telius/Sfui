@@ -1,6 +1,7 @@
 local addonName, addon = ...
 local c = sfui.config.options_panel
 local g = sfui.config
+local common = sfui.common
 
 local UIDropDownMenu_Initialize = UIDropDownMenu_Initialize
 local UIDropDownMenu_CreateInfo = UIDropDownMenu_CreateInfo
@@ -30,7 +31,7 @@ end
 function sfui.create_options_panel()
     if frame then return end
 
-    local CreateFlatButton = sfui.common.create_flat_button
+    local CreateFlatButton = common.create_flat_button
     local white = sfui.config.colors.white
 
     frame = CreateFrame("Frame", "sfui_options_frame", UIParent, "BackdropTemplate")
@@ -61,13 +62,13 @@ function sfui.create_options_panel()
         frame:Hide()
     end)
 
-    local create_checkbox = sfui.common.create_checkbox
+    local create_checkbox = common.create_checkbox
 
 
-    local create_cvar_checkbox = sfui.common.create_cvar_checkbox
+    local create_cvar_checkbox = common.create_cvar_checkbox
 
 
-    local create_slider_input = sfui.common.create_slider_input
+    local create_slider_input = common.create_slider_input
 
 
     local function on_tab_click(self)
@@ -277,16 +278,16 @@ function sfui.create_options_panel()
 
     local enable_vehicle_cb = create_checkbox(main_panel, "enable vehicle ui", "enableVehicle", function(checked)
         if checked then
-            print("|cff00ff00Sfui: Vehicle UI enabled. Please reload UI for changes to fully apply.|r")
+            common.common.print("|cff00ff00Sfui: Vehicle UI enabled. Please reload UI for changes to fully apply.|r")
         else
-            print("|cffff0000Sfui: Vehicle UI disabled. Default WoW frame will be used on reload.|r")
+            common.common.print("|cffff0000Sfui: Vehicle UI disabled. Default WoW frame will be used on reload.|r")
         end
     end, "Enables the custom vehicle/overlay bar (requires reload).")
     enable_vehicle_cb:SetPoint("TOPLEFT", enable_auto_compare_cb, "BOTTOMLEFT", 0, -20)
 
 
     local use_spec_color_cb = create_checkbox(main_panel, "use spec color", "useSpecColor", function(checked)
-        if sfui.common.invalidate_spec_color_cache then sfui.common.invalidate_spec_color_cache() end
+        if common.invalidate_spec_color_cache then common.invalidate_spec_color_cache() end
         -- This is a global setting that other modules can poll
         if sfui.bars and sfui.bars.update_settings then sfui.bars.update_settings() end
         if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
@@ -297,10 +298,10 @@ function sfui.create_options_panel()
     fallback_label:SetPoint("LEFT", use_spec_color_cb, "RIGHT", 150, 0)
     fallback_label:SetText("fallback:")
 
-    local fallback_swatch = sfui.common.create_color_swatch(main_panel, SfuiDB.specColorFallback or { 1, 1, 1, 1 },
+    local fallback_swatch = common.create_color_swatch(main_panel, SfuiDB.specColorFallback or { 1, 1, 1, 1 },
         function(r, g, b)
             SfuiDB.specColorFallback = { r, g, b, 1 }
-            if sfui.common.invalidate_spec_color_cache then sfui.common.invalidate_spec_color_cache() end
+            if common.invalidate_spec_color_cache then common.invalidate_spec_color_cache() end
             if sfui.bars and sfui.bars.update_settings then sfui.bars.update_settings() end
             if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
         end)
@@ -451,7 +452,7 @@ function sfui.create_options_panel()
     fg_color_label:SetText("foreground:")
 
     local fg_color_swatch
-    fg_color_swatch = sfui.common.create_color_swatch(bars_panel, SfuiDB.healthBarColor or sfui.config.healthBar.color,
+    fg_color_swatch = common.create_color_swatch(bars_panel, SfuiDB.healthBarColor or sfui.config.healthBar.color,
         function(r, g, b)
             SfuiDB.healthBarColor = { r, g, b, 1 }
             if sfui.bars and sfui.bars.on_state_changed then sfui.bars:on_state_changed() end
@@ -464,7 +465,7 @@ function sfui.create_options_panel()
     bg_color_label:SetText("backdrop:")
 
     local bg_color_swatch
-    bg_color_swatch = sfui.common.create_color_swatch(bars_panel,
+    bg_color_swatch = common.create_color_swatch(bars_panel,
         SfuiDB.healthBarBackdropColor or sfui.config.healthBar.backdrop.color, function(r, g, b)
             SfuiDB.healthBarBackdropColor = { r, g, b, 0.5 }
             if sfui.bars and sfui.bars.on_state_changed then sfui.bars:on_state_changed() end
@@ -603,7 +604,7 @@ function sfui.create_options_panel()
     local enable_decor_cb = create_checkbox(merchant_panel, "enable decor filter", "enableDecor", function(checked)
         if not checked and SfuiDecorDB then
             wipe(SfuiDecorDB)
-            print("|cff00ff00Sfui: Decor cache cleared.|r")
+            common.common.print("|cff00ff00Sfui: Decor cache cleared.|r")
         end
         if sfui.merchant and sfui.merchant.reset_scroll_and_rebuild then
             sfui.merchant.reset_scroll_and_rebuild()
@@ -849,9 +850,8 @@ function sfui.create_options_panel()
         local numSpecs = GetNumSpecializations()
         if numSpecs == 0 then numSpecs = 1 end
 
-        SfuiDB.gear = SfuiDB.gear or {}
 
-        local gear_auto_open_cb = sfui.common.create_checkbox(gear_panel, "Auto-show with Character Panel")
+        local gear_auto_open_cb = common.create_checkbox(gear_panel, "Auto-show with Character Panel")
         gear_auto_open_cb:SetPoint("TOPLEFT", gear_info, "BOTTOMLEFT", 0, -10)
         local isAutoOpen = SfuiDB.gear.auto_open
         if isAutoOpen == nil then isAutoOpen = true end
@@ -860,7 +860,7 @@ function sfui.create_options_panel()
             SfuiDB.gear.auto_open = self:GetChecked()
         end)
 
-        local auto_equip_highest_cb = sfui.common.create_checkbox(gear_panel,
+        local auto_equip_highest_cb = common.create_checkbox(gear_panel,
             "auto-equip best gear (while not max level)")
         auto_equip_highest_cb:SetPoint("TOPLEFT", gear_auto_open_cb, "BOTTOMLEFT", 0, -10)
         local isAutoEquip = SfuiDB.gear.auto_equip_highest
@@ -889,14 +889,14 @@ function sfui.create_options_panel()
             iconTex:SetPoint("TOPLEFT", gear_info, "BOTTOMLEFT", 0, yOffset)
             iconTex:SetTexture(icon)
 
-            local pveDrop = sfui.common.create_dropdown(gear_panel, 120, GetEquipmentSetOptions, function(val)
+            local pveDrop = common.create_dropdown(gear_panel, 120, GetEquipmentSetOptions, function(val)
                 SfuiDB.gear[id] = SfuiDB.gear[id] or { pve_set = "", pvp_set = "" }
                 SfuiDB.gear[id].pve_set = val
                 if sfui.gear and sfui.gear.Update then sfui.gear.Update() end
             end, "")
             pveDrop:SetPoint("BOTTOMLEFT", iconTex, "BOTTOMRIGHT", 5, -5)
 
-            local pvpDrop = sfui.common.create_dropdown(gear_panel, 120, GetEquipmentSetOptions, function(val)
+            local pvpDrop = common.create_dropdown(gear_panel, 120, GetEquipmentSetOptions, function(val)
                 SfuiDB.gear[id] = SfuiDB.gear[id] or { pve_set = "", pvp_set = "" }
                 SfuiDB.gear[id].pvp_set = val
                 if sfui.gear and sfui.gear.Update then sfui.gear.Update() end
@@ -1019,17 +1019,17 @@ function sfui.create_options_panel()
     end
 
     local function update_debug_info()
-        local specID = sfui.common.get_current_spec_id()
+        local specID = common.get_current_spec_id()
         spec_id_value:SetText(specID > 0 and tostring(specID) or "N/A")
 
-        local color = sfui.common.get_class_or_spec_color()
+        local color = common.get_class_or_spec_color()
         if color then color_swatch:SetColorTexture(color[1], color[2], color[3]) end
 
-        if sfui.common.get_primary_resource then
-            primary_power_value:SetText(get_power_type_name(sfui.common.get_primary_resource()))
+        if common.get_primary_resource then
+            primary_power_value:SetText(get_power_type_name(common.get_primary_resource()))
         end
-        if sfui.common.get_secondary_resource then
-            secondary_power_value:SetText(get_power_type_name(sfui.common.get_secondary_resource()))
+        if common.get_secondary_resource then
+            secondary_power_value:SetText(get_power_type_name(common.get_secondary_resource()))
         end
     end
 

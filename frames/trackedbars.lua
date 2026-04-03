@@ -1,9 +1,11 @@
 local addonName, addon = ...
 sfui.trackedbars = {}
 
+local cfg = sfui.config
+local common = sfui.common
 local bars = {} -- Active sfui bars
 local container
-local issecretvalue = sfui.common.issecretvalue
+local issecretvalue = common.issecretvalue
 local CreateFrame = CreateFrame
 local UIParent = UIParent
 local GameTooltip = GameTooltip
@@ -34,13 +36,13 @@ local function GetTrackedBarConfig(cooldownID)
     local cfg = { _id = cooldownID }
 
     -- 1. Base Defaults (lowest priority)
-    if sfui.config.trackedBars and sfui.config.trackedBars.defaults then
-        local defaults = sfui.config.trackedBars.defaults
+    if cfg.trackedBars and cfg.trackedBars.defaults then
+        local defaults = cfg.trackedBars.defaults
         local entry = defaults[cooldownID] or defaults[tonumber(cooldownID)]
         if entry then
             local match = true
             if entry.specID then
-                local currentSpec = sfui.common.get_current_spec_id and sfui.common.get_current_spec_id()
+                local currentSpec = common.get_current_spec_id and common.get_current_spec_id()
                 if currentSpec and entry.specID ~= currentSpec then
                     match = false
                 end
@@ -52,7 +54,7 @@ local function GetTrackedBarConfig(cooldownID)
     end
 
     -- 2. User DB Overrides (highest priority)
-    local specBars = sfui.common.get_tracked_bars()
+    local specBars = common.get_tracked_bars()
     if specBars then
         local entry = specBars[cooldownID] or specBars[tonumber(cooldownID)]
         if type(entry) == "table" then
@@ -87,11 +89,11 @@ function sfui.trackedbars.GetKnownSpells()
         if not name then name = C_Spell.GetSpellName(id) end
         if not icon then icon = C_Spell.GetSpellTexture(id) end
 
-        return name or ("Unknown (" .. id .. ")"), icon or sfui.config.textures.white
+        return name or ("Unknown (" .. id .. ")"), icon or cfg.textures.white
     end
 
     -- Only add configured bars from DB to ensure synchronization with assignments
-    local specBars = sfui.common.get_tracked_bars()
+    local specBars = common.get_tracked_bars()
     if specBars then
         for id, cfg in pairs(specBars) do
             if type(id) == "number" and not known[id] then
@@ -149,7 +151,7 @@ sfui.trackedbars.GetMaxStacks = GetMaxStacksForBar
 
 -- Helper for Masque Sync
 local function SyncBarMasque(bar)
-    sfui.common.sync_masque(bar.iconFrame, { Icon = bar.icon })
+    common.sync_masque(bar.iconFrame, { Icon = bar.icon })
 end
 
 
@@ -188,9 +190,9 @@ local function CreateBar(cooldownID)
     bar.icon = bar.iconFrame:CreateTexture(nil, "ARTWORK")
     bar.icon:SetAllPoints()
 
-    sfui.common.apply_square_icon_style(bar.iconFrame, bar.icon)
+    common.apply_square_icon_style(bar.iconFrame, bar.icon)
 
-    local msq = sfui.common.get_masque_group()
+    local msq = common.get_masque_group()
     if msq then
         msq:AddButton(bar.iconFrame, { Icon = bar.icon })
         bar._isMasqued = true
@@ -200,18 +202,18 @@ local function CreateBar(cooldownID)
     bar.name = bar.status:CreateFontString(nil, "OVERLAY")
     bar.name:SetFontObject(sfui.config.font_small)
     bar.name:SetPoint("LEFT", cfg.spacing or 5, 0)
-    sfui.common.style_text(bar.name, nil, nil, "")
+    common.style_text(bar.name, nil, nil, "")
 
     bar.time = bar.status:CreateFontString(nil, "OVERLAY")
     bar.time:SetFontObject(sfui.config.font_small)
     bar.time:SetPoint("CENTER", bar.status, "CENTER", 0, 0)
-    sfui.common.style_text(bar.time, nil, nil, "")
+    common.style_text(bar.time, nil, nil, "")
 
     -- Stack Count
     bar.count = bar.status:CreateFontString(nil, "OVERLAY")
     bar.count:SetFontObject(sfui.config.font_small)
     bar.count:SetPoint("CENTER", bar.icon, "CENTER", 0, 0)
-    sfui.common.style_text(bar.count, nil, nil, "")
+    common.style_text(bar.count, nil, nil, "")
 
     -- Stack Segments (for stack mode display)
     bar.segments = {}
@@ -277,7 +279,7 @@ local function SetupBarState(bar, config, cfg)
         -- Center time in Stack Mode
         bar.time:ClearAllPoints()
         bar.time:SetPoint("CENTER", bar.status, "CENTER", 0, 0)
-        sfui.common.style_text(bar.time, nil, cfg.fonts.stackModeDurationSize, "")
+        common.style_text(bar.time, nil, cfg.fonts.stackModeDurationSize, "")
 
         if config and config.showName == false then bar.name:Hide() end
     else
@@ -286,7 +288,7 @@ local function SetupBarState(bar, config, cfg)
         bar.status:Show(); bar.name:Show(); bar.time:Show(); bar.icon:Show()
         bar.count:ClearAllPoints()
         bar.count:SetPoint("CENTER", bar.icon, "CENTER", 0, 0)
-        sfui.common.style_text(bar.count, nil, nil)
+        common.style_text(bar.count, nil, nil)
 
         if config and config.showName == false then bar.name:Hide() end
         if config and config.showDuration == false then bar.time:Hide() end
@@ -296,7 +298,7 @@ local function SetupBarState(bar, config, cfg)
         bar.time:ClearAllPoints()
         if isAttached or showStacksText then
             bar.time:SetPoint("CENTER", bar.status, "CENTER", 0, 0)
-            sfui.common.style_text(bar.time, nil, cfg.fonts.stackModeDurationSize, "")
+            common.style_text(bar.time, nil, cfg.fonts.stackModeDurationSize, "")
         else
             bar.time:SetPoint("RIGHT", -(cfg.spacing or 5), 0)
             -- Use default small font style implicitly or re-apply if needed (assuming CreateBar set it)
@@ -334,13 +336,13 @@ local function SetupBarState(bar, config, cfg)
         color = SfuiDB.trackedBars.defaultBarColor
     end
 
-    bar.status:SetStatusBarColor(sfui.common.unpack_color(color))
+    bar.status:SetStatusBarColor(common.unpack_color(color))
 
     -- If the bar is currently in the pandemic window, restore the pandemic color.
     -- This ensures UpdateLayout (called on any visibility change) doesn't stomp it.
     if config and config.pandemicEnabled and bar._inPandemic then
         local pColor = config.pandemicColor or { 1, 0, 1, 1 }
-        bar.status:SetStatusBarColor(sfui.common.unpack_color(pColor))
+        bar.status:SetStatusBarColor(common.unpack_color(pColor))
     end
 end
 
@@ -414,7 +416,7 @@ local function UpdateLayout()
     if #attachedBars > 0 then
         table.sort(attachedBars, SimpleSort)
 
-        local spacing = sfui.config.barLayout.spacing or 1
+        local spacing = cfg.barLayout.spacing or 1
         local anchor = _G["sfui_bar0_Backdrop"]
         local isBar1 = false
 
@@ -431,7 +433,7 @@ local function UpdateLayout()
                 bar:SetParent(UIParent)
                 bar:ClearAllPoints()
 
-                local width = sfui.config.healthBar.width * (cfg.attachedWidthMultiplier or 0.8)
+                local width = cfg.healthBar.width * (cfg.attachedWidthMultiplier or 0.8)
                 local height = cfg.attachedHeight or 20
 
                 bar:SetSize(width, height)
@@ -463,16 +465,16 @@ function sfui.trackedbars.UpdatePosition()
     if not container then return end
     local db = SfuiDB and SfuiDB.trackedBars
     local x = (db and db.anchor and db.anchor.x) or (SfuiDB and SfuiDB.trackedBarsX) or
-        (sfui.config.trackedBars.anchor and sfui.config.trackedBars.anchor.x) or -300
+        (cfg.trackedBars.anchor and cfg.trackedBars.anchor.x) or -300
     local y = (db and db.anchor and db.anchor.y) or (SfuiDB and SfuiDB.trackedBarsY) or
-        (sfui.config.trackedBars.anchor and sfui.config.trackedBars.anchor.y) or 300
+        (cfg.trackedBars.anchor and cfg.trackedBars.anchor.y) or 300
 
     container:ClearAllPoints()
     container:SetPoint("BOTTOM", UIParent, "BOTTOM", x, y)
 end
 
 function sfui.trackedbars.SetColor(cooldownID, r, g, b)
-    local barDB = sfui.common.ensure_tracked_bar_db(cooldownID)
+    local barDB = common.ensure_tracked_bar_db(cooldownID)
     barDB.color = { r = r, g = g, b = b }
     UpdateLayout() -- Refresh to apply color
 end
@@ -540,7 +542,7 @@ local function _pcall_sync_bar_values(blizzFrame, status, timeString, config, cu
     local min, max = blizzFrame.Bar:GetMinMaxValues()
     local val = blizzFrame.Bar:GetValue()
     status:SetMinMaxValues(min, max)
-    sfui.common.SafeSetValue(status, val)
+    common.SafeSetValue(status, val)
 
     local barText = _pcall_get_duration_text(blizzFrame)
     if config and config.showStacksText then
@@ -576,7 +578,7 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
     local maxStacks = GetMaxStacksForBar(id, config, myBar.spellID)
 
     -- 1. Try Aura Data (Always preferred over scraping text)
-    if sfui.common.HasAuraInstanceID(blizzFrame.auraInstanceID) then
+    if common.HasAuraInstanceID(blizzFrame.auraInstanceID) then
         local unit = blizzFrame.auraDataUnit or "player"
         local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, blizzFrame.auraInstanceID)
         if auraData then
@@ -655,11 +657,11 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
 
     -- Set Name (Config > Aura Data > Blizzard Text)
     if config and config.name then
-        sfui.common.SafeSetText(myBar.name, config.name)
+        common.SafeSetText(myBar.name, config.name)
     elseif not blizzFrame.auraInstanceID and blizzFrame.Bar and blizzFrame.Bar.Name then -- Only use blizz text if no aura data
         local bName = blizzFrame.Bar.Name:GetText()
         if bName and not issecretvalue(bName) then
-            sfui.common.SafeSetText(myBar.name, bName)
+            common.SafeSetText(myBar.name, bName)
         end
     end
 
@@ -711,7 +713,7 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
             pcall(_pcall_sync_bar_values, blizzFrame, myBar.status, myBar.time, config, currentStacks)
         end
 
-        if sfui.common.IsNumericAndPositive(currentStacks) then
+        if common.IsNumericAndPositive(currentStacks) then
             myBar.count:SetText(tostring(currentStacks))
         else
             if issecretvalue(currentStacks) then
@@ -783,7 +785,7 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
 
             if inPandemic then
                 local pColor = config.pandemicColor or { 1, 0, 1, 1 } -- default #ff00ff
-                myBar.status:SetStatusBarColor(sfui.common.unpack_color(pColor))
+                myBar.status:SetStatusBarColor(common.unpack_color(pColor))
             end
             -- No else needed: SetupBarState handles normal color restoration via
             -- _inPandemic=false.  If UpdateLayout hasn't fired this tick the bar keeps
@@ -809,16 +811,16 @@ local function ProcessBlizzardSync()
     -- We use our own OOC logic to avoid touching Blizzard's protected viewer state if it's crashing.
     local mustHide = false
     local db = SfuiDB and SfuiDB.trackedBars or
-        (sfui.config and sfui.config.trackedBars and sfui.config.trackedBars.defaults) or {}
+        (cfg and cfg.trackedBars and cfg.trackedBars.defaults) or {}
 
     if db.hideOOC and not InCombatLockdown() then
         mustHide = true
     elseif not InCombatLockdown() then
-        if db.hideMounted and sfui.common.is_mounted_or_travel_form() then
+        if db.hideMounted and common.is_mounted_or_travel_form() then
             mustHide = true
         elseif db.hideInVehicle and (UnitHasVehicleUI("player") or UnitInVehicle("player")) then
             mustHide = true
-        elseif SfuiDB and SfuiDB.hideDragonriding and sfui.common.IsDragonriding() then
+        elseif SfuiDB and SfuiDB.hideDragonriding and common.IsDragonriding() then
             mustHide = true
         end
     end
@@ -845,7 +847,7 @@ local function ProcessBlizzardSync()
 
                 -- ONLY sync Native Blizzard Tracked Bars (Category 3)
                 -- We manage this category directly in cdm.lua via CooldownViewerSettings
-                local specBars = sfui.common.get_tracked_bars()
+                local specBars = common.get_tracked_bars()
                 local isManuallyTracked = specBars and specBars[id]
 
                 local isValidTrackedBar = false
@@ -866,10 +868,10 @@ local function ProcessBlizzardSync()
                         isSpecRestricted = true
                     end
 
-                    if not isSpecRestricted and not isManuallyTracked and sfui.config.trackedBars and sfui.config.trackedBars.defaults then
-                        local def = sfui.config.trackedBars.defaults[id]
+                    if not isSpecRestricted and not isManuallyTracked and cfg.trackedBars and cfg.trackedBars.defaults then
+                        local def = cfg.trackedBars.defaults[id]
                         if def and def.specID then
-                            local currentSpec = sfui.common.get_current_spec_id and sfui.common.get_current_spec_id()
+                            local currentSpec = common.get_current_spec_id and common.get_current_spec_id()
                             if currentSpec and def.specID ~= currentSpec then
                                 isSpecRestricted = true
                             end
@@ -1005,7 +1007,7 @@ local function UpdateBarsState()
                 -- Only copy bar animation values if NOT in stack mode
                 if not isStackMode then
                     local val = blizzFrame.Bar:GetValue()
-                    sfui.common.SafeSetValue(myBar.status, val)
+                    common.SafeSetValue(myBar.status, val)
                 end
 
                 -- Update duration/name text
@@ -1024,7 +1026,7 @@ local function UpdateBarsState()
                     if issecretvalue(text) then
                         myBar.time:SetText(text)
                     else
-                        sfui.common.SafeSetText(myBar.time, text)
+                        common.SafeSetText(myBar.time, text)
                     end
                 end
             end
@@ -1042,10 +1044,9 @@ function sfui.trackedbars.initialize()
     local cfg = sfui.config.trackedBars
     container:SetSize(cfg.width, cfg.height)
 
-    sfui.common.ensure_tracked_bar_db() -- Initialize DB structure
+    common.ensure_tracked_bar_db() -- Initialize DB structure
 
     -- Set visibility defaults from config if not already set
-    SfuiDB.trackedBars = SfuiDB.trackedBars or {}
     if SfuiDB.trackedBars.hideOOC == nil then
         SfuiDB.trackedBars.hideOOC = cfg.hideOOC ~= nil and cfg.hideOOC or false
     end
@@ -1122,8 +1123,8 @@ function sfui.trackedbars.initialize()
     end
 
     -- Hide Blizzard Cooldown Frames
-    if sfui.common.hide_blizzard_cooldown_viewers then
-        sfui.common.hide_blizzard_cooldown_viewers()
+    if common.hide_blizzard_cooldown_viewers then
+        common.hide_blizzard_cooldown_viewers()
     end
 
     -- Hook into bars state for attachment updates

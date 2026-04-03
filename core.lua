@@ -46,21 +46,22 @@ scale_event_frame:SetScript("OnEvent", update_pixel_scale)
 
 function sfui.slash_command_handler(msg)
     if msg == "" then
-        if sfui.toggle_options_panel then sfui.toggle_options_panel() else print("sfui: options panel not available.") end
+        if sfui.toggle_options_panel then sfui.toggle_options_panel() else sfui.common.print("sfui: options panel not available.") end
     elseif msg == "research" then
         if sfui.research and sfui.research.toggle_selection then
             sfui.research.toggle_selection()
         else
-            print("sfui: research viewer not available.")
+            sfui.common.print("sfui: research viewer not available.")
         end
     elseif msg == "cv" then
         if sfui.trackedoptions and sfui.trackedoptions.toggle_viewer then
             sfui.trackedoptions.toggle_viewer()
         else
-            print("sfui: cooldown viewer not available.")
+            sfui.common.print("sfui: cooldown viewer not available.")
         end
     end
 end
+
 
 -- function to handle /rl slash command
 function sfui.reload_ui_handler(msg)
@@ -91,8 +92,17 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
             -- Database & Config Sync
             SfuiDB = SfuiDB or {}
             SfuiDB.alts = SfuiDB.alts or {}
+            SfuiDB.altsHiddenSections = SfuiDB.altsHiddenSections or {}
+            SfuiDB.altsCollapsed = SfuiDB.altsCollapsed or {}
             SfuiDB.minimap_icon = SfuiDB.minimap_icon or {}
             SfuiDB.gear = SfuiDB.gear or {}
+            SfuiDB.gear_char = SfuiDB.gear_char or {}
+            SfuiDB.trackedBars = SfuiDB.trackedBars or {}
+            SfuiDB.iconGlobalSettings = SfuiDB.iconGlobalSettings or {}
+            SfuiDB.trackedOptionsWindow = SfuiDB.trackedOptionsWindow or {}
+            SfuiDB.currencyCaps = SfuiDB.currencyCaps or {}
+            SfuiDB.items = SfuiDB.items or {}
+            
             SfuiDecorDB = SfuiDecorDB or {}
             SfuiDecorDB.items = SfuiDecorDB.items or {}
 
@@ -176,7 +186,7 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
 
 
         if not LibStub then
-            print("|cffff0000SFUI Error:|r LibStub global not found!")
+            sfui.common.print("|cffff0000SFUI Error:|r LibStub global not found!")
             return
         end
 

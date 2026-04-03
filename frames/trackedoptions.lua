@@ -1,10 +1,12 @@
 local addonName, addon = ...
 local CreateFrame = CreateFrame
 sfui = sfui or {}
+local cfg = sfui.config
+local common = sfui.common
 sfui.trackedoptions = {}
 
-local CreateFlatButton = sfui.common.create_flat_button
-local g = sfui.config
+local CreateFlatButton = common.create_flat_button
+local g = cfg
 local c = g.options_panel
 
 -- Forward declarations
@@ -75,7 +77,7 @@ frame:SetBackdrop({
     edgeSize = 1,
 })
 frame:SetBackdropColor(c.backdrop_color[1], c.backdrop_color[2], c.backdrop_color[3], c.backdrop_color[4])
-frame:SetBackdropBorderColor(0, 0, 0, 1)
+frame:SetBackdropBorderColor(unpack(cfg.colors.black))
 frame:Hide()
 -- tinsert(UISpecialFrames, "SfuiCooldownsViewer") -- Removed to prevent closing when Spellbook/other panels open
 
@@ -107,12 +109,12 @@ function sfui.trackedoptions.CreateSection(parent, title, subtitle, yOffset, wid
     accent:SetPoint("TOPLEFT", 0, 0)
     accent:SetPoint("BOTTOMLEFT", 0, 0)
     accent:SetWidth(ACCENT_W)
-    accent:SetColorTexture(0.4, 0, 1, 1) -- #6600FF
+    accent:SetColorTexture(unpack(cfg.appearance.highlightColor)) -- #6600FF
 
     -- Title
     local titleFS = section:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     titleFS:SetPoint("TOPLEFT", ACCENT_W + PADDING, -PADDING)
-    titleFS:SetTextColor(0.4, 0, 1, 1) -- Purple accent
+    titleFS:SetTextColor(unpack(cfg.appearance.highlightColor)) -- Purple accent
     titleFS:SetText(title or "")
 
     -- Subtitle (optional dim description)
@@ -157,17 +159,17 @@ function sfui.trackedoptions.CreateAnchorGrid(parent, panel, key, onUpdate)
                 edgeSize = 1,
             })
             btn:SetBackdropColor(0.1, 0.1, 0.1, 1)
-            btn:SetBackdropBorderColor(0, 0, 0, 1)
+            btn:SetBackdropBorderColor(unpack(cfg.colors.black))
 
             btn.point = point
             btn:SetScript("OnClick", function()
                 panel[key] = point
                 for _, b in ipairs(container.btns) do
                     if b.point == panel[key] then
-                        b:SetBackdropBorderColor(0, 1, 1, 1)
-                        b:SetBackdropColor(0.2, 0.2, 0.2, 1)
+                        b:SetBackdropBorderColor(unpack(cfg.colors.cyan))
+                        b:SetBackdropColor(unpack(cfg.colors.gray))
                     else
-                        b:SetBackdropBorderColor(0, 0, 0, 1)
+                        b:SetBackdropBorderColor(unpack(cfg.colors.black))
                         b:SetBackdropColor(0.1, 0.1, 0.1, 1)
                     end
                 end
@@ -175,8 +177,8 @@ function sfui.trackedoptions.CreateAnchorGrid(parent, panel, key, onUpdate)
             end)
 
             if panel[key] == point then
-                btn:SetBackdropBorderColor(0, 1, 1, 1)
-                btn:SetBackdropColor(0.2, 0.2, 0.2, 1)
+                btn:SetBackdropBorderColor(unpack(cfg.colors.cyan))
+                btn:SetBackdropColor(unpack(cfg.colors.gray))
             end
             table.insert(container.btns, btn)
         end
@@ -207,7 +209,7 @@ function sfui.trackedoptions.CreateGrowthCross(parent, panel, onUpdate)
             edgeSize = 1,
         })
         btn:SetBackdropColor(0.1, 0.1, 0.1, 1)
-        btn:SetBackdropBorderColor(0, 0, 0, 1)
+        btn:SetBackdropBorderColor(unpack(cfg.colors.black))
 
         local text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         text:SetPoint("CENTER")
@@ -230,10 +232,10 @@ function sfui.trackedoptions.CreateGrowthCross(parent, panel, onUpdate)
                 end
 
                 if active then
-                    b:SetBackdropBorderColor(0, 1, 1, 1)
-                    b:SetBackdropColor(0.2, 0.2, 0.2, 1)
+                    b:SetBackdropBorderColor(unpack(cfg.colors.cyan))
+                    b:SetBackdropColor(unpack(cfg.colors.gray))
                 else
-                    b:SetBackdropBorderColor(0, 0, 0, 1)
+                    b:SetBackdropBorderColor(unpack(cfg.colors.black))
                     b:SetBackdropColor(0.1, 0.1, 0.1, 1)
                 end
             end
@@ -247,8 +249,8 @@ function sfui.trackedoptions.CreateGrowthCross(parent, panel, onUpdate)
             active = (panel.growthH == info.point)
         end
         if active then
-            btn:SetBackdropBorderColor(0, 1, 1, 1)
-            btn:SetBackdropColor(0.2, 0.2, 0.2, 1)
+            btn:SetBackdropBorderColor(unpack(cfg.colors.cyan))
+            btn:SetBackdropColor(unpack(cfg.colors.gray))
         end
         table.insert(container.btnRefs, btn)
     end
@@ -323,7 +325,7 @@ function sfui.trackedoptions.toggle_viewer()
     if not isShown then
         frame:SetScript("OnShow", function()
             if InCombatLockdown() then
-                print("|cffFF0000SFUI:|r Cannot configure tracked bars in combat.")
+                common.print("|cffFF0000SFUI:|r Cannot configure tracked bars in combat.")
                 frame:Hide()
                 return
             end
@@ -356,7 +358,7 @@ function sfui.trackedoptions.initialize()
     local TAB_HEIGHT = 30
     local TAB_WIDTH = 120
 
-    local g = sfui.config
+    local g = cfg
 
     local lastBtn
     local function CreateTabButton(text, id)
@@ -464,8 +466,7 @@ function sfui.trackedoptions.RenderBarsTab(parent)
 
     -- Checkbox list
     -- Build sorted list of trackable spells across supported categories
-    SfuiDB.trackedBars = SfuiDB.trackedBars or {}
-    local specBars = sfui.common.get_tracked_bars()
+    local specBars = common.get_tracked_bars()
 
     local known = {}
     local cats = { 1, 2, 3 } -- Essential, Utility, TrackedBuff, TrackedBars
@@ -482,7 +483,7 @@ function sfui.trackedoptions.RenderBarsTab(parent)
 
     -- Reuse helpers
     local function BCheck(secContent, label, getter, setter, tooltip, x, y)
-        local cb = sfui.common.create_checkbox(secContent, label, getter, function(val)
+        local cb = common.create_checkbox(secContent, label, getter, function(val)
             setter(val)
             Refresh()
         end, tooltip)
@@ -491,7 +492,7 @@ function sfui.trackedoptions.RenderBarsTab(parent)
     end
 
     local function BSlider(secContent, label, getter, minV, maxV, step, setter, x, y, w)
-        local s = sfui.common.create_slider_input(secContent, label, getter, minV, maxV, step, function(val)
+        local s = common.create_slider_input(secContent, label, getter, minV, maxV, step, function(val)
             setter(val)
             Refresh()
         end)
@@ -503,9 +504,8 @@ function sfui.trackedoptions.RenderBarsTab(parent)
     -- ═══════════════════════════════════
     -- SECTION 1: GLOBAL SETTINGS (2 Columns)
     -- ═══════════════════════════════════
-    SfuiDB.trackedBars = SfuiDB.trackedBars or {}
     local db = SfuiDB.trackedBars
-    local cfg = sfui.config.trackedBars or {}
+    local bar_cfg = sfui.config.trackedBars or {}
 
     local sec1, sec1c, h1 = sfui.trackedoptions.CreateSection(parent, "Global Bar Settings",
         "Configure defaults for all tracked bars.", yPos, WIDTH)
@@ -519,7 +519,7 @@ function sfui.trackedoptions.RenderBarsTab(parent)
 
     local function GetB(k, d)
         if db[k] ~= nil then return db[k] end
-        if cfg[k] ~= nil then return cfg[k] end
+        if bar_cfg[k] ~= nil then return bar_cfg[k] end
         return d
     end
 
@@ -552,27 +552,27 @@ function sfui.trackedoptions.RenderBarsTab(parent)
 
     if not db.anchor then db.anchor = { x = 0, y = 0 } end
 
-    BSlider(sec1c, "X", function() return (db.anchor and db.anchor.x) or (cfg.anchor and cfg.anchor.x) or 0 end, -1000,
+    BSlider(sec1c, "X", function() return (db.anchor and db.anchor.x) or (bar_cfg.anchor and bar_cfg.anchor.x) or 0 end, -1000,
         1000, 1,
         function(v)
             if not db.anchor then db.anchor = {} end
             db.anchor.x = v; if sfui.trackedbars.UpdatePosition then sfui.trackedbars.UpdatePosition() end
         end, col2x, s1y - 20, 120)
-    BSlider(sec1c, "Y", function() return (db.anchor and db.anchor.y) or (cfg.anchor and cfg.anchor.y) or 0 end, -1000,
+    BSlider(sec1c, "Y", function() return (db.anchor and db.anchor.y) or (bar_cfg.anchor and bar_cfg.anchor.y) or 0 end, -1000,
         1000, 1,
         function(v)
             if not db.anchor then db.anchor = {} end
             db.anchor.y = v; if sfui.trackedbars.UpdatePosition then sfui.trackedbars.UpdatePosition() end
         end, col2x + 130, s1y - 20, 120)
 
-    BSlider(sec1c, "Width", function() return db.width or cfg.width or 200 end, 50, 600, 1, function(v) db.width = v end,
+    BSlider(sec1c, "Width", function() return db.width or bar_cfg.width or 200 end, 50, 600, 1, function(v) db.width = v end,
         col2x, s1y - 60, 120)
-    BSlider(sec1c, "Height", function() return db.height or cfg.height or 20 end, 10, 60, 1,
+    BSlider(sec1c, "Height", function() return db.height or bar_cfg.height or 20 end, 10, 60, 1,
         function(v) db.height = v end, col2x + 130, s1y - 60, 120)
 
-    BSlider(sec1c, "Icon Size", function() return db.iconSize or cfg.icon_size or 20 end, 10, 60, 1,
+    BSlider(sec1c, "Icon Size", function() return db.iconSize or bar_cfg.icon_size or 20 end, 10, 60, 1,
         function(v) db.iconSize = v end, col2x, s1y - 100, 120)
-    BSlider(sec1c, "Spacing", function() return db.spacing or cfg.spacing or 5 end, 0, 30, 1,
+    BSlider(sec1c, "Spacing", function() return db.spacing or bar_cfg.spacing or 5 end, 0, 30, 1,
         function(v) db.spacing = v end, col2x + 130, s1y - 100, 120)
 
     sec1:SetHeight(h1 + 150)
@@ -590,11 +590,11 @@ function sfui.trackedoptions.RenderBarsTab(parent)
     -- Texture
     local lTex = sec2c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     lTex:SetPoint("TOPLEFT", 0, s2y); lTex:SetText("Bar Texture:")
-    local barTextures = sfui.config.barTextures or { { text = "Flat", value = "Interface/Buttons/WHITE8X8" } }
-    local texDropDown = sfui.common.create_dropdown(sec2c, 160, barTextures,
+    local barTextures = bar_cfg.barTextures or { { text = "Flat", value = "Interface/Buttons/WHITE8X8" } }
+    local texDropDown = common.create_dropdown(sec2c, 160, barTextures,
         function(val)
             db.barTexture = val; Refresh()
-        end, db.barTexture or cfg.barTexture)
+        end, db.barTexture or bar_cfg.barTexture)
     texDropDown:SetPoint("LEFT", lTex, "RIGHT", 5, 0)
 
     -- Backdrop Alpha
@@ -607,12 +607,12 @@ function sfui.trackedoptions.RenderBarsTab(parent)
     lCol:SetPoint("TOPLEFT", 0, s2y - 40); lCol:SetText("Default Bar Color:")
 
     local function CS(l, idx, x)
-        return BSlider(sec2c, l, function() return ((db.defaultBarColor or sfui.config.colors.purple)[idx]) * 255 end, 0,
+        return BSlider(sec2c, l, function() return ((db.defaultBarColor or cfg.colors.purple)[idx]) * 255 end, 0,
             255, 1,
             function(v)
                 if not db.defaultBarColor then
-                    db.defaultBarColor = { sfui.config.colors.purple[1], sfui.config.colors
-                        .purple[2], sfui.config.colors.purple[3], 1 }
+                    db.defaultBarColor = { cfg.colors.purple[1], cfg.colors
+                        .purple[2], cfg.colors.purple[3], 1 }
                 end
                 db.defaultBarColor[idx] = v / 255; Refresh()
             end, x, s2y - 55, 100)
@@ -678,19 +678,19 @@ function sfui.trackedoptions.RenderBarsTab(parent)
 
             -- Checkboxes (No labels, centered under headers)
             local function RC(k, tip, x)
-                local cb = sfui.common.create_checkbox(row, "",
+                local cb = common.create_checkbox(row, "",
                     function()
                         local dbEntry = specBars and specBars[id]
                         if dbEntry and dbEntry[k] ~= nil then return dbEntry[k] end
-                        local cfgEntry = sfui.config.trackedBars and sfui.config.trackedBars.defaults and
-                            sfui.config.trackedBars.defaults[id]
+                        local cfgEntry = cfg.trackedBars and cfg.trackedBars.defaults and
+                            cfg.trackedBars.defaults[id]
                         if cfgEntry and cfgEntry[k] ~= nil then return cfgEntry[k] end
                         -- Defaults for specific keys
                         if k == "showName" then return true end
                         return false
                     end,
                     function(v)
-                        sfui.common.ensure_tracked_bar_db(id)[k] = v; Refresh()
+                        common.ensure_tracked_bar_db(id)[k] = v; Refresh()
                     end, tip)
                 cb:SetScale(1.0)
                 cb:SetPoint("LEFT", x, 0)
@@ -709,17 +709,17 @@ function sfui.trackedoptions.RenderBarsTab(parent)
             swatch:SetSize(20, 20)
             swatch:SetPoint("LEFT", 665, 0)
             swatch:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
-            swatch:SetBackdropBorderColor(0, 0, 0, 1)
+            swatch:SetBackdropBorderColor(unpack(cfg.colors.black))
 
             local function UpdateSwatch()
                 local entry = specBars and specBars[id]
-                local cfgEntry = sfui.config.trackedBars and sfui.config.trackedBars.defaults and
-                    sfui.config.trackedBars.defaults[id]
+                local cfgEntry = cfg.trackedBars and cfg.trackedBars.defaults and
+                    cfg.trackedBars.defaults[id]
 
                 if entry and entry.customColor then
-                    swatch:SetBackdropColor(sfui.common.unpack_color(entry.customColor))
+                    swatch:SetBackdropColor(common.unpack_color(entry.customColor))
                 elseif cfgEntry and cfgEntry.color then
-                    swatch:SetBackdropColor(sfui.common.unpack_color(cfgEntry.color))
+                    swatch:SetBackdropColor(common.unpack_color(cfgEntry.color))
                 else
                     swatch:SetBackdropColor(0.5, 0.5, 0.5, 0.5) -- Grey if no custom color
                 end
@@ -727,15 +727,15 @@ function sfui.trackedoptions.RenderBarsTab(parent)
             UpdateSwatch()
 
             swatch:SetScript("OnClick", function()
-                local entry = sfui.common.ensure_tracked_bar_db(id)
-                local cfgEntry = sfui.config.trackedBars and sfui.config.trackedBars.defaults and
-                    sfui.config.trackedBars.defaults[id]
+                local entry = common.ensure_tracked_bar_db(id)
+                local cfgEntry = cfg.trackedBars and cfg.trackedBars.defaults and
+                    cfg.trackedBars.defaults[id]
 
                 local r, g, b, a
                 if entry.customColor then
-                    r, g, b, a = sfui.common.unpack_color(entry.customColor)
+                    r, g, b, a = common.unpack_color(entry.customColor)
                 elseif cfgEntry and cfgEntry.color then
-                    r, g, b, a = sfui.common.unpack_color(cfgEntry.color)
+                    r, g, b, a = common.unpack_color(cfgEntry.color)
                 else
                     r, g, b, a = 1, 1, 1, 1
                 end
@@ -778,22 +778,22 @@ function sfui.trackedoptions.RenderBarsTab(parent)
             pSwatch:SetSize(20, 20)
             pSwatch:SetPoint("LEFT", 815, 0)
             pSwatch:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
-            pSwatch:SetBackdropBorderColor(0, 0, 0, 1)
+            pSwatch:SetBackdropBorderColor(unpack(cfg.colors.black))
 
             local function UpdatePSwatch()
                 local entry = specBars and specBars[id]
                 local col = (entry and entry.pandemicColor) or DEFAULT_PANDEMIC
-                pSwatch:SetBackdropColor(sfui.common.unpack_color(col))
+                pSwatch:SetBackdropColor(common.unpack_color(col))
             end
             UpdatePSwatch()
 
             pSwatch:SetScript("OnClick", function()
-                local entry = sfui.common.ensure_tracked_bar_db(id)
+                local entry = common.ensure_tracked_bar_db(id)
                 local r, g, b, a
                 if entry.pandemicColor then
-                    r, g, b, a = sfui.common.unpack_color(entry.pandemicColor)
+                    r, g, b, a = common.unpack_color(entry.pandemicColor)
                 else
-                    r, g, b, a = sfui.common.unpack_color(DEFAULT_PANDEMIC)
+                    r, g, b, a = common.unpack_color(DEFAULT_PANDEMIC)
                 end
                 local oldColor = { r, g, b, a }
                 ColorPickerFrame:SetupColorPickerAndShow({
@@ -846,9 +846,8 @@ function sfui.trackedoptions.GenerateGlobalSettingsControls(parent)
     local regions = { parent:GetRegions() }
     for _, region in ipairs(regions) do region:Hide() end
 
-    SfuiDB.iconGlobalSettings = SfuiDB.iconGlobalSettings or {}
     local igs = SfuiDB.iconGlobalSettings
-    local defaults = sfui.config.icon_panel_global_defaults
+    local defaults = cfg.icon_panel_global_defaults
     local yPos = -10
     local SEC_W = 520
 
@@ -883,7 +882,7 @@ function sfui.trackedoptions.GenerateGlobalSettingsControls(parent)
 
     -- Reusable factories scoped to current section content frame
     local function MakeCheck(secContent, label, key, tooltip, x, y)
-        local cb = sfui.common.create_checkbox(secContent, label, function()
+        local cb = common.create_checkbox(secContent, label, function()
             if igs[key] ~= nil then return igs[key] else return defaults[key] end
         end, function(val)
             igs[key] = val
@@ -894,7 +893,7 @@ function sfui.trackedoptions.GenerateGlobalSettingsControls(parent)
     end
 
     local function MakeSlider(secContent, label, key, minVal, maxVal, step, x, y, w)
-        local s = sfui.common.create_slider_input(secContent, label, function()
+        local s = common.create_slider_input(secContent, label, function()
             if igs[key] ~= nil then return igs[key] else return defaults[key] end
         end, minVal, maxVal, step or 1, function(val)
             igs[key] = val
@@ -920,7 +919,7 @@ function sfui.trackedoptions.GenerateGlobalSettingsControls(parent)
     -- Glow Type & Color inline
     local lGT = s1c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     lGT:SetPoint("TOPLEFT", 0, s1y); lGT:SetText("Type:")
-    local gtDropDown = sfui.common.create_dropdown(s1c, 100, glowTypes, function(val)
+    local gtDropDown = common.create_dropdown(s1c, 100, glowTypes, function(val)
         igs.glowType = val
         UpdateAll()
     end, igs.glowType or defaults.glowType)
@@ -928,7 +927,7 @@ function sfui.trackedoptions.GenerateGlobalSettingsControls(parent)
 
     local lGC = s1c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     lGC:SetPoint("LEFT", gtDropDown, "RIGHT", 15, 0); lGC:SetText("Color:")
-    local gcSwatch = sfui.common.create_color_swatch(s1c, igs.glowColor or defaults.glowColor, function(r, g, b)
+    local gcSwatch = common.create_color_swatch(s1c, igs.glowColor or defaults.glowColor, function(r, g, b)
         igs.glowColor = { r, g, b, 1 }
         UpdateAll()
     end)
@@ -996,7 +995,7 @@ function sfui.trackedoptions.GenerateGlobalSettingsControls(parent)
 
     local lTC = s3c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     lTC:SetPoint("TOPLEFT", 0, s3y); lTC:SetText("Text Color:")
-    local tcSwatch = sfui.common.create_color_swatch(s3c, igs.textColor or defaults.textColor, function(r, g, b)
+    local tcSwatch = common.create_color_swatch(s3c, igs.textColor or defaults.textColor, function(r, g, b)
         igs.textColor = { r, g, b, 1 }
         if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
     end)
@@ -1028,7 +1027,7 @@ function sfui.trackedoptions.GenerateGlobalSettingsControls(parent)
         { text = "Bottom Right", value = "BOTTOMRIGHT" },
         { text = "Center",       value = "CENTER" },
     }
-    local haDropDown = sfui.common.create_dropdown(s4c, 110, anchorOpts, function(val)
+    local haDropDown = common.create_dropdown(s4c, 110, anchorOpts, function(val)
         igs.hotkeyAnchor = val
         if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
     end)
@@ -1041,7 +1040,7 @@ function sfui.trackedoptions.GenerateGlobalSettingsControls(parent)
         { text = "Thick Outline", value = "THICKOUTLINE" },
         { text = "None",          value = "" },
     }
-    local hoDropDown = sfui.common.create_dropdown(s4c, 110, outlineOpts, function(val)
+    local hoDropDown = common.create_dropdown(s4c, 110, outlineOpts, function(val)
         igs.hotkeyOutline = val
         if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
     end)
@@ -1076,18 +1075,18 @@ function sfui.trackedoptions.GenerateGlobalSettingsControls(parent)
         -- Standard border backdrop (Texture on BACKGROUND layer for correct Z-order)
         local bb = iconFrame:CreateTexture(nil, "BACKGROUND")
         bb:SetAllPoints()
-        bb:SetColorTexture(0, 0, 0, 1)
+        bb:SetColorTexture(unpack(cfg.colors.black))
         bb:Hide()
         iconFrame.borderBackdrop = bb
 
         local tex = iconFrame:CreateTexture(nil, "ARTWORK")
         tex:SetAllPoints()
-        tex:SetTexture(sfui.config.appearance.addonIcon or "Interface/Icons/Spell_Holy_FlashHeal")
+        tex:SetTexture(cfg.appearance.addonIcon or "Interface/Icons/Spell_Holy_FlashHeal")
         iconFrame.texture = tex
 
         -- Masque Support for Glow Preview
-        if sfui.common.sync_masque then
-            sfui.common.sync_masque(iconFrame, { Icon = tex })
+        if common.sync_masque then
+            common.sync_masque(iconFrame, { Icon = tex })
         end
 
         pf.icon = iconFrame
@@ -1145,7 +1144,7 @@ local function CreatePreviewGrid(parent, panel)
             -- Standard border backdrop (Texture on BACKGROUND layer for correct Z-order)
             local bb = f:CreateTexture(nil, "BACKGROUND")
             bb:SetAllPoints()
-            bb:SetColorTexture(0, 0, 0, 1)
+            bb:SetColorTexture(unpack(cfg.colors.black))
             bb:Hide()
             f.borderBackdrop = bb
 
@@ -1176,8 +1175,8 @@ local function CreatePreviewGrid(parent, panel)
         icon:SetAlpha(alpha)
 
         -- Masque Support for Preview
-        if sfui.common.sync_masque then
-            sfui.common.sync_masque(icon, { Icon = icon.texture })
+        if common.sync_masque then
+            common.sync_masque(icon, { Icon = icon.texture })
         end
 
         local col = (i - 1) % numColumns
@@ -1207,7 +1206,7 @@ function sfui.trackedoptions.RenderPanelSettings(parent, panel, xOffset, yOffset
 
     -- Reusable factories for panel-specific controls
     local function PCheck(secContent, label, key, tooltip, x, y)
-        local cb = sfui.common.create_checkbox(secContent, label, function() return panel[key] end, function(val)
+        local cb = common.create_checkbox(secContent, label, function() return panel[key] end, function(val)
             panel[key] = val
             if sfui.trackedoptions.UpdatePreview then sfui.trackedoptions.UpdatePreview() end
             if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
@@ -1217,11 +1216,11 @@ function sfui.trackedoptions.RenderPanelSettings(parent, panel, xOffset, yOffset
     end
 
     local function PSlider(secContent, label, key, minVal, maxVal, step, x, y, w)
-        local s = sfui.common.create_slider_input(secContent, label, function()
+        local s = common.create_slider_input(secContent, label, function()
             if panel[key] ~= nil then return panel[key] end
             local igs = SfuiDB.iconGlobalSettings or {}
             if igs[key] ~= nil then return igs[key] end
-            local defaults = sfui.config.icon_panel_global_defaults or {}
+            local defaults = cfg.icon_panel_global_defaults or {}
             return defaults[key] or 0
         end, minVal, maxVal, step or 1, function(val)
             panel[key] = val
@@ -1306,8 +1305,8 @@ function sfui.trackedoptions.RenderPanelSettings(parent, panel, xOffset, yOffset
 
     local lA = s3c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     lA:SetPoint("TOPLEFT", 0, s3y); lA:SetText("Anchor To:")
-    local anchorTargets = sfui.common.get_all_anchor_targets(panel.name)
-    local anchorTo = sfui.common.create_dropdown(s3c, 130, anchorTargets, function(val)
+    local anchorTargets = common.get_all_anchor_targets(panel.name)
+    local anchorTo = common.create_dropdown(s3c, 130, anchorTargets, function(val)
         panel.anchorTo = val
         if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
     end, panel.anchorTo)
@@ -1322,7 +1321,7 @@ function sfui.trackedoptions.RenderPanelSettings(parent, panel, xOffset, yOffset
         { text = "TopRight", value = "TOPRIGHT" }, { text = "BottomLeft", value = "BOTTOMLEFT" },
         { text = "BottomRight", value = "BOTTOMRIGHT" }
     }
-    local rPoint = sfui.common.create_dropdown(s3c, 130, points, function(val)
+    local rPoint = common.create_dropdown(s3c, 130, points, function(val)
         panel.relativePoint = val
         if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
     end, panel.relativePoint)
@@ -1466,11 +1465,11 @@ function sfui.trackedoptions.RenderPanelSettings(parent, panel, xOffset, yOffset
 
                 local function UpdateVisuals()
                     if whitelist[heroInfo] then
-                        btn:SetBackdropBorderColor(0, 1, 1, 1) -- Active = Cyan
+                        btn:SetBackdropBorderColor(unpack(cfg.colors.cyan)) -- Active = Cyan
                         tex:SetDesaturated(false)
                         tex:SetVertexColor(1, 1, 1)
                     else
-                        btn:SetBackdropBorderColor(0, 0, 0, 1) -- Inactive = Black
+                        btn:SetBackdropBorderColor(unpack(cfg.colors.black)) -- Inactive = Black
                         tex:SetDesaturated(true)
                         tex:SetVertexColor(0.5, 0.5, 0.5)
                     end
@@ -1498,8 +1497,8 @@ function sfui.trackedoptions.RenderPanelSettings(parent, panel, xOffset, yOffset
                 btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
                 -- Masque sync just to make it square if the user prefers, but left as default works too
-                if sfui.common.sync_masque then
-                    sfui.common.sync_masque(btn, { Icon = tex, Border = nil })
+                if common.sync_masque then
+                    common.sync_masque(btn, { Icon = tex, Border = nil })
                 end
 
                 return btn

@@ -2115,3 +2115,28 @@ function sfui.common.create_dropdown(parent, width, options, onSelectFunc, initi
 
     return btn
 end
+
+function sfui.common.create_panel(parent, width, height)
+    local panel = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    panel:SetSize(width, height)
+    panel:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    panel:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
+    panel:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
+    return panel
+end
+
+function sfui.common.create_label(parent, text, font, r, g, b)
+    local label = parent:CreateFontString(nil, "OVERLAY", font or "GameFontNormal")
+    label:SetText(text)
+    if r and g and b then
+        label:SetTextColor(r, g, b)
+    else
+        label:SetTextColor(1, 1, 1)
+    end
+    label:SetShadowOffset(0, 0)
+    return label
+end

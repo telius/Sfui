@@ -111,7 +111,6 @@ do
 
     function sfui.add_item(itemID)
         if not itemID then return end
-        SfuiDB.items = SfuiDB.items or {}
         for _, id in ipairs(SfuiDB.items) do
             if id == itemID then return end
         end
@@ -120,7 +119,6 @@ do
     end
 
     function sfui.update_item_display()
-        SfuiDB.items = SfuiDB.items or {}
         sfui.common.update_widget_bar(widget_frame, icons, value_labels, SfuiDB.items, get_item_details)
     end
 

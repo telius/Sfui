@@ -1,3 +1,8 @@
+## v0.6.0b (2026-04-03)
+
+### Bug Fixes
+- **Tracked Bars/Icons Scoping**: Resolved a widespread scoping issue across tracked bars and their options (`trackedbars.lua`, `trackedoptions.lua`) where dynamically spawned frames were incorrectly evaluating shadowed cfg variables for textures and colors, triggering silent UI errors that prevented tracking bars from visually populating.
+
 ## v0.6.0a (2026-04-01)
 
 ### Features

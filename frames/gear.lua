@@ -1,6 +1,8 @@
 local addonName, addon = ...
 sfui.gear = {}
 
+local cfg = sfui.config
+local common = sfui.common
 local _G = _G
 local CreateFrame = _G.CreateFrame
 local InCombatLockdown = _G.InCombatLockdown
@@ -59,7 +61,7 @@ end
 -- meaning EquipHighestILvl must NOT override it.
 local function isGearSetEquipped()
     if not SfuiDB.gear then return false end
-    local spec = sfui.common and sfui.common.get_current_spec_id and sfui.common.get_current_spec_id()
+    local spec = common and common.get_current_spec_id and common.get_current_spec_id()
     if not spec or spec == 0 then return false end
     local db = SfuiDB.gear[spec]
     if not db then return false end
@@ -85,7 +87,6 @@ end
 -- Per-character settings helper.
 -- Returns (and auto-creates) SfuiDB.gear_char["Name-Realm"] for the logged-in character.
 local function charDB()
-    SfuiDB.gear_char = SfuiDB.gear_char or {}
     local key = (_G.UnitName and _G.UnitName("player") or "?") .. "-" .. (_G.GetRealmName and _G.GetRealmName() or "?")
     SfuiDB.gear_char[key] = SfuiDB.gear_char[key] or {}
     return SfuiDB.gear_char[key]
@@ -106,10 +107,10 @@ local function TryEquipSet(setName)
             return false
         end
         C_EquipmentSet.UseEquipmentSet(setID)
-        if sfui.common and sfui.common.print then
-            sfui.common.print("Automatically equipped set: " .. name)
+        if common and common.print then
+            common.print("Automatically equipped set: " .. name)
         else
-            print("|cff6600ffsfui:|r Automatically equipped set: " .. name)
+            common.print("|cff6600ffsfui:|r Automatically equipped set: " .. name)
         end
         return true
     end
@@ -147,7 +148,7 @@ function sfui.gear.UpdateStatUI()
     -- Status label: shows what gear mode is currently active
     if SfuiGearManagerFrame.statusLabel then
         local lbl = SfuiGearManagerFrame.statusLabel
-        local spec = sfui.common and sfui.common.get_current_spec_id and sfui.common.get_current_spec_id()
+        local spec = common and common.get_current_spec_id and common.get_current_spec_id()
         local db = spec and spec ~= 0 and SfuiDB.gear and SfuiDB.gear[spec]
         local _, instanceType = GetInstanceInfo()
         local isWarMode = C_PvP and C_PvP.IsWarModeDesired and C_PvP.IsWarModeDesired()
@@ -258,7 +259,7 @@ function sfui.gear.UpdateStatUI()
                 if on then
                     ui.btn2S:SetBackdropColor(0, 0.5, 0.5, 1)
                 else
-                    ui.btn2S:SetBackdropColor(0, 0, 0, 1)
+                    ui.btn2S:SetBackdropColor(unpack(cfg.colors.black))
                 end
             end
             if ui.btn4S then
@@ -266,7 +267,7 @@ function sfui.gear.UpdateStatUI()
                 if on then
                     ui.btn4S:SetBackdropColor(0, 0.5, 0.5, 1)
                 else
-                    ui.btn4S:SetBackdropColor(0, 0, 0, 1)
+                    ui.btn4S:SetBackdropColor(unpack(cfg.colors.black))
                 end
             end
 
@@ -323,7 +324,7 @@ end
 -- -------------------------------------------------------------------------
 function sfui.gear.Update()
     if not SfuiDB.gear then return end
-    local spec = sfui.common.get_current_spec_id()
+    local spec = common.get_current_spec_id()
     if spec == 0 then return end
     local db = SfuiDB.gear[spec] -- may be nil if never configured
 
@@ -395,8 +396,8 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
                 local name = C_EquipmentSet.GetEquipmentSetInfo(gearEquipQueue)
                 C_EquipmentSet.UseEquipmentSet(gearEquipQueue)
                 if name then
-                    if sfui.common and sfui.common.print then
-                        sfui.common.print("Equipped queued set: " .. name)
+                    if common and common.print then
+                        common.print("Equipped queued set: " .. name)
                     end
                 end
             end
@@ -461,7 +462,7 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
         return
     end
 
-    local delay = (sfui.config and sfui.config.gear and sfui.config.gear.updateDelay) or 3
+    local delay = (cfg and cfg.gear and cfg.gear.updateDelay) or 3
     C_Timer.After(delay, function() sfui.gear.Update() end)
 end)
 -- B2: ADDON_LOADED registration removed (InitToggleHook called at login via PLAYER_LOGIN)
@@ -481,7 +482,7 @@ gearFrame:SetBackdropColor(0.055, 0.055, 0.055, 0.97)
 gearFrame:Hide()
 gearFrame:SetFrameStrata("DIALOG")
 
-local closeBtn = sfui.common.create_flat_button(gearFrame, "X", 20, 20)
+local closeBtn = common.create_flat_button(gearFrame, "X", 20, 20)
 closeBtn:SetPoint("TOPRIGHT", gearFrame, "TOPRIGHT", -5, -5)
 closeBtn:SetScript("OnClick", function() gearFrame:Hide() end)
 
@@ -512,7 +513,7 @@ local function makeEditBox(parent, w, h)
     eb:SetNumeric(false)
     eb:SetFontObject("GameFontHighlightSmall")
     eb:SetTextInsets(4, 4, 0, 0)
-    local app = sfui.config.appearance
+    local app = cfg.appearance
     eb:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8" })
     eb:SetBackdropColor(app.editBoxColor[1], app.editBoxColor[2], app.editBoxColor[3], app.editBoxColor[4])
     eb:SetScript("OnEditFocusGained", function(s)
@@ -731,7 +732,7 @@ gearFrame:SetScript("OnShow", function(self)
         local pveTag = mkLabel(card, "PvE", 0.45, 0.65, 1.0)
         pveTag:SetPoint("TOPLEFT", card, "TOPLEFT", CX, -9)
 
-        local pveDrop = sfui.common.create_dropdown(card, 120, GetEquipmentSetOptions, function(val)
+        local pveDrop = common.create_dropdown(card, 120, GetEquipmentSetOptions, function(val)
             SfuiDB.gear[id] = SfuiDB.gear[id] or { pve_set = "", pvp_set = "" }
             SfuiDB.gear[id].pve_set = val
             sfui.gear.Update()
@@ -743,7 +744,7 @@ gearFrame:SetScript("OnShow", function(self)
         local pvpTag = mkLabel(card, "PvP", 1.0, 0.4, 0.4)
         pvpTag:SetPoint("TOPLEFT", card, "TOPLEFT", CX + 165, -9)
 
-        local pvpDrop = sfui.common.create_dropdown(card, 120, GetEquipmentSetOptions, function(val)
+        local pvpDrop = common.create_dropdown(card, 120, GetEquipmentSetOptions, function(val)
             SfuiDB.gear[id] = SfuiDB.gear[id] or { pve_set = "", pvp_set = "" }
             SfuiDB.gear[id].pvp_set = val
             sfui.gear.Update()
@@ -805,7 +806,7 @@ gearFrame:SetScript("OnShow", function(self)
             table.insert(ui.lockIcons, ico)
 
             -- Button (sub-row B): directly below icon
-            local btn = sfui.common.create_flat_button(card, def.label, 22, 18)
+            local btn = common.create_flat_button(card, def.label, 22, 18)
             btn:SetPoint("TOPLEFT", card, "TOPLEFT", colX, BTN_ROW_Y)
             local capturedSlot = def.slot
             btn:SetScript("OnClick", function() lockSlot(capturedSlot) end)
@@ -834,7 +835,7 @@ gearFrame:SetScript("OnShow", function(self)
         ui.setActiveLabel = setActiveLabel
 
         -- Tier Force Buttons
-        local btn2S = sfui.common.create_flat_button(card, "2S", 22, 18)
+        local btn2S = common.create_flat_button(card, "2S", 22, 18)
         btn2S:SetPoint("TOPLEFT", card, "TOPLEFT", CX + 295, BTN_ROW_Y)
         btn2S:SetScript("OnClick", function()
             SfuiDB.gear[id] = SfuiDB.gear[id] or {}
@@ -853,7 +854,7 @@ gearFrame:SetScript("OnShow", function(self)
         btn2S:SetScript("OnLeave", function() GameTooltip:Hide() end)
         ui.btn2S = btn2S
 
-        local btn4S = sfui.common.create_flat_button(card, "4S", 22, 18)
+        local btn4S = common.create_flat_button(card, "4S", 22, 18)
         btn4S:SetPoint("TOPLEFT", card, "TOPLEFT", CX + 320, BTN_ROW_Y)
         btn4S:SetScript("OnClick", function()
             SfuiDB.gear[id] = SfuiDB.gear[id] or {}
@@ -876,7 +877,7 @@ gearFrame:SetScript("OnShow", function(self)
         local R3Y = -85
 
         -- Small reset button in front of Priority
-        local resetBtn = sfui.common.create_flat_button(card, "R", 18, 18)
+        local resetBtn = common.create_flat_button(card, "R", 18, 18)
         resetBtn:SetPoint("TOPLEFT", card, "TOPLEFT", CX, R3Y + 1)
         resetBtn:SetScript("OnEnter", function(b)
             GameTooltip:SetOwner(b, "ANCHOR_TOP")
@@ -931,7 +932,7 @@ gearFrame:SetScript("OnShow", function(self)
         end
 
         for j = 1, 4 do
-            local btn = sfui.common.create_flat_button(card, "?", 22, 18)
+            local btn = common.create_flat_button(card, "?", 22, 18)
             btn:SetPoint("LEFT", btnAnchor, "RIGHT", j == 1 and 4 or 8, 0)
             btn:SetPoint("TOP", card, "TOP", 0, R3Y + 1)
             btn.idx = j
@@ -979,7 +980,7 @@ gearFrame:SetScript("OnShow", function(self)
             btnAnchor = btn
 
             if j < 4 then
-                local sep = sfui.common.create_flat_button(card, ">", 14, 18)
+                local sep = common.create_flat_button(card, ">", 14, 18)
                 if sep.text then sep.text:SetTextColor(0.8, 0.8, 0.8) end
                 sep:SetPoint("LEFT", btnAnchor, "RIGHT", 1, 0)
                 sep:SetPoint("TOP", card, "TOP", 0, R3Y + 1)
@@ -1007,7 +1008,7 @@ gearFrame:SetScript("OnShow", function(self)
 
 
         -- --- Pawn string input (right side, anchored to card TOPRIGHT) ---
-        local pawnSaveBtn = sfui.common.create_flat_button(card, "Save", 32, 18)
+        local pawnSaveBtn = common.create_flat_button(card, "Save", 32, 18)
         pawnSaveBtn:SetPoint("TOPRIGHT", card, "TOPRIGHT", -8, R3Y + 1)
 
         local pawnEdit = makeEditBox(card, 120, 18)
@@ -1029,7 +1030,7 @@ gearFrame:SetScript("OnShow", function(self)
             end
             SfuiDB.gear[id].pawn_weights = next(weights) and weights or nil
             SfuiDB.gear[id].pawn_string  = text ~= "" and text or nil
-            if sfui.common and sfui.common.print then sfui.common.print("Pawn saved for " .. specName) end
+            if common and common.print then common.print("Pawn saved for " .. specName) end
             sfui.gear.UpdateStatUI()
         end)
 
@@ -1038,19 +1039,19 @@ gearFrame:SetScript("OnShow", function(self)
     self:SelectSpecTab(activeSpecId)
 
     -- Bottom strip
-    self.maxLvlChk = sfui.common.create_checkbox(self, "Auto Equip at Max Level",
+    self.maxLvlChk = common.create_checkbox(self, "Auto Equip at Max Level",
         function() return charDB().max_level_autoequip end,
         function(c) charDB().max_level_autoequip = c end)
     self.maxLvlChk:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", 15, 28)
     self.maxLvlChk.text:SetShadowOffset(0, 0)
 
-    local highPvE = sfui.common.create_flat_button(self, "PvE", 115, 22)
+    local highPvE = common.create_flat_button(self, "PvE", 115, 22)
     highPvE:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", 15, 5)
     highPvE:SetScript("OnClick", function()
         if sfui.highest and sfui.highest.EquipHighestILvl then sfui.highest.EquipHighestILvl(false) end
     end)
 
-    local highPvP = sfui.common.create_flat_button(self, "PvP", 115, 22)
+    local highPvP = common.create_flat_button(self, "PvP", 115, 22)
     highPvP:SetPoint("BOTTOMRIGHT", self, "BOTTOMRIGHT", -5, 5)
     highPvP:SetScript("OnClick", function()
         if sfui.highest and sfui.highest.EquipHighestILvl then sfui.highest.EquipHighestILvl(true) end
@@ -1071,7 +1072,7 @@ sfui.gear.Frame = gearFrame
 -- -------------------------------------------------------------------------
 -- CHARACTER FRAME TOGGLE BUTTON
 -- -------------------------------------------------------------------------
-function InitToggleHook()
+local function InitToggleHook()
     if sfui.gear.toggle_hooked then return end
     if not CharacterFrame or not CharacterFrameCloseButton then return end
     sfui.gear.toggle_hooked = true
@@ -1128,16 +1129,16 @@ local function InitPaperDollTrinketHook()
             local link = GetInventoryItemLink("player", slot)
             if link then
                 local itemID = GetItemInfoInstant(link)
-                local specID = sfui.common.get_current_spec_id()
+                local specID = common.get_current_spec_id()
                 if itemID and specID then
                     SfuiDB.gear[specID] = SfuiDB.gear[specID] or {}
                     SfuiDB.gear[specID].locked_trinkets = SfuiDB.gear[specID].locked_trinkets or {}
                     if SfuiDB.gear[specID].locked_trinkets[itemID] then
                         SfuiDB.gear[specID].locked_trinkets[itemID] = nil
-                        if sfui.common and sfui.common.print then sfui.common.print("Trinket unlocked: " .. link) end
+                        if common and common.print then common.print("Trinket unlocked: " .. link) end
                     else
                         SfuiDB.gear[specID].locked_trinkets[itemID] = true
-                        if sfui.common and sfui.common.print then sfui.common.print("Trinket locked: " .. link) end
+                        if common and common.print then common.print("Trinket locked: " .. link) end
                     end
                     sfui.gear.UpdateStatUI()
                 end

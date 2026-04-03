@@ -1020,7 +1020,7 @@ function sfui.trackedicons.UpdatePanelLayout(panelFrame, panelConfig)
                 if not ok then
                     -- UpdateIconState errored — show icon anyway to prevent disappearing
                     icon:Show()
-                    print("|cff6600ffsfui|r: UpdateIconState error:", isVisibleValue)
+                    sfui.common.print("|cff6600ffsfui|r: UpdateIconState error:", isVisibleValue)
                 end
 
                 table.insert(activeIcons, icon)
@@ -1400,8 +1400,6 @@ function sfui.trackedicons.initialize()
     end
 
     -- Event handling
-    local eventFrame = CreateFrame("Frame")
-    eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     sfui.events.RegisterEvent("PLAYER_REGEN_ENABLED", function()
         sfui.trackedicons.Update()
         MarkDirty(1.0) -- Longer burst for combat transitions

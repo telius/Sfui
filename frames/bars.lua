@@ -1,6 +1,8 @@
 local addonName, addon = ...
 sfui = sfui or {}
 sfui.bars = {}
+local cfg = sfui.config
+local common = sfui.common
 
 do
     local bar_minus_1
@@ -12,7 +14,7 @@ do
     local update_mount_speed_bar_internal
 
     -- Throttling system for high-frequency events
-    local tCfg = sfui.config.throttle
+    local tCfg = cfg.throttle
     local throttle = {
         bar0 = { lastUpdate = 0, interval = tCfg.health },
         bar_minus_1 = { lastUpdate = 0, interval = tCfg.power },
@@ -109,7 +111,7 @@ do
     end
 
     local function update_bar_positions()
-        local spacing = sfui.config.barLayout.spacing
+        local spacing = cfg.barLayout.spacing
 
         if bar0 and bar0.backdrop then
             bar0.backdrop:ClearAllPoints()
@@ -124,7 +126,7 @@ do
                 mount_speed_bar.backdrop:SetPoint("TOP", vigor_bar.backdrop, "BOTTOM", 0, -spacing) -- Stack under and center with vigor bar
 
                 if vigor_bar.whirlingSurgeIcon and vigor_bar.secondWindIcon then
-                    local iconCfg = sfui.config.vigorBar.icons
+                    local iconCfg = cfg.vigorBar.icons
                     local gap = iconCfg.gap
                     vigor_bar.whirlingSurgeIcon:ClearAllPoints()
                     vigor_bar.whirlingSurgeIcon:SetPoint("TOPRIGHT", mount_speed_bar.backdrop, "BOTTOM", -gap / 2,
@@ -191,7 +193,7 @@ do
             if bar1 then bar1.backdrop:Hide() end
             if rune_bar then rune_bar:Hide() end
         else
-            local specID = sfui.common.get_current_spec_id()
+            local specID = common.get_current_spec_id()
 
             -- Core Bars Visibility (Health, Power, Secondary Power)
             if showCoreBars then
@@ -203,7 +205,7 @@ do
                 end
 
                 -- Primary Power Bar (bar_minus_1)
-                local hidePower = sfui.config.powerBar.hiddenSpecs and sfui.config.powerBar.hiddenSpecs[specID]
+                local hidePower = cfg.powerBar.hiddenSpecs and cfg.powerBar.hiddenSpecs[specID]
                 if bar_minus_1 and SfuiDB.enablePowerBar and not hidePower then
                     bar_minus_1.backdrop:Show()
                 elseif bar_minus_1 then
@@ -211,9 +213,9 @@ do
                 end
 
                 -- Secondary Power Bar (bar1)
-                local hideSecondary = sfui.config.secondaryPowerBar.hiddenSpecs and
-                    sfui.config.secondaryPowerBar.hiddenSpecs[specID]
-                local secResource = sfui.common.get_secondary_resource()
+                local hideSecondary = cfg.secondaryPowerBar.hiddenSpecs and
+                    cfg.secondaryPowerBar.hiddenSpecs[specID]
+                local secResource = common.get_secondary_resource()
 
                 if bar1 and SfuiDB.enableSecondaryPowerBar and not hideSecondary and secResource and secResource ~= Enum.PowerType.Runes then
                     bar1.backdrop:Show()
@@ -241,7 +243,7 @@ do
 
     local function get_bar_minus_1()
         if bar_minus_1 then return bar_minus_1 end
-        local bar = sfui.common.create_bar("bar_minus_1", "StatusBar", UIParent, nil, "powerBar")
+        local bar = common.create_bar("bar_minus_1", "StatusBar", UIParent, nil, "powerBar")
         bar:GetStatusBarTexture():SetHorizTile(true)
 
         local marker = bar:CreateTexture(nil, "OVERLAY")
@@ -258,7 +260,7 @@ do
 
     local function update_bar_minus_1()
         local cfg = sfui.config.powerBar
-        local specID = sfui.common.get_current_spec_id()
+        local specID = common.get_current_spec_id()
         local hide = cfg.hiddenSpecs and cfg.hiddenSpecs[specID]
 
         if not cfg.enabled or is_dragonflying() or hide then
@@ -266,13 +268,13 @@ do
             return
         end
         local bar = get_bar_minus_1()
-        local resource = sfui.common.get_primary_resource()
+        local resource = common.get_primary_resource()
         if not resource then return end
         local max, current = UnitPowerMax("player", resource), UnitPower("player", resource)
         if not max or max <= 0 then return end
         bar:SetMinMaxValues(0, max)
         bar:SetValue(current)
-        local color = sfui.common.get_class_or_spec_color()
+        local color = common.get_class_or_spec_color()
         if color then bar:SetStatusBarColor(color[1], color[2], color[3]) end
 
         -- Marker logic
@@ -298,7 +300,7 @@ do
 
     local function get_bar0()
         if bar0 then return bar0 end
-        local bar = sfui.common.create_bar("bar0", "StatusBar", UIParent, nil, "healthBar")
+        local bar = common.create_bar("bar0", "StatusBar", UIParent, nil, "healthBar")
         bar:GetStatusBarTexture():SetHorizTile(true)
         bar0 = bar
 
@@ -309,7 +311,7 @@ do
             texturePath = LSM:Fetch("statusbar", textureName)
         end
         if not texturePath or texturePath == "" then
-            texturePath = sfui.config.barTexture
+            texturePath = cfg.barTexture
         end
 
         local healPredBar = CreateFrame("StatusBar", nil, bar)
@@ -363,8 +365,8 @@ do
         absorbBar:SetPoint("TOPLEFT", healPred:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
         local absorbAmount = UnitGetTotalAbsorbs("player") or 0
         absorbBar:SetValue(absorbAmount)
-        local color = SfuiDB.absorbBarColor or (sfui.config and sfui.config.absorbBarColor)
-        absorbBar:SetStatusBarColor(sfui.common.unpack_color(color))
+        local color = SfuiDB.absorbBarColor or (cfg and cfg.absorbBarColor)
+        absorbBar:SetStatusBarColor(common.unpack_color(color))
     end
 
     local function get_rune_bar()
@@ -382,7 +384,7 @@ do
             texturePath = LSM:Fetch("statusbar", textureName)
         end
         if not texturePath or texturePath == "" then
-            texturePath = sfui.config.barTexture
+            texturePath = cfg.barTexture
         end
 
         for i = 1, 6 do
@@ -410,7 +412,7 @@ do
     end
 
     local function update_rune_bar()
-        local secResource = sfui.common.get_secondary_resource()
+        local secResource = common.get_secondary_resource()
         if secResource ~= Enum.PowerType.Runes then
             if rune_bar then rune_bar:Hide() end
             return
@@ -418,7 +420,7 @@ do
 
         local bar = get_rune_bar()
 
-        local healthWidth = sfui.config.healthBar.width
+        local healthWidth = cfg.healthBar.width
         local maxTotalWidth = healthWidth * 0.8
         local spacing = 2
         local numRunes = 6
@@ -463,7 +465,7 @@ do
             return a.id < b.id
         end)
 
-        local specColor = sfui.common.get_class_or_spec_color()
+        local specColor = common.get_class_or_spec_color()
 
         -- Position frames according to sorted order
         for pos = 1, 6 do
@@ -507,9 +509,9 @@ do
 
     local function get_bar1()
         if bar1 then return bar1 end
-        local bar = sfui.common.create_bar("bar1", "StatusBar", UIParent, nil, "secondaryPowerBar")
+        local bar = common.create_bar("bar1", "StatusBar", UIParent, nil, "secondaryPowerBar")
         bar.TextValue = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        bar.TextValue:SetFont("Fonts\\FRIZQT__.TTF", sfui.config.secondaryPowerBar.fontSize, "NONE")
+        bar.TextValue:SetFont("Fonts\\FRIZQT__.TTF", cfg.secondaryPowerBar.fontSize, "NONE")
         bar.TextValue:SetShadowOffset(1, -1)
         bar.TextValue:SetPoint("CENTER")
         bar1 = bar
@@ -518,7 +520,7 @@ do
 
     local function update_bar1()
         local cfg = sfui.config.secondaryPowerBar
-        local specID = sfui.common.get_current_spec_id()
+        local specID = common.get_current_spec_id()
         local hide = cfg.hiddenSpecs and cfg.hiddenSpecs[specID]
 
         if not cfg.enabled or is_dragonflying() or hide then
@@ -526,7 +528,7 @@ do
             return
         end
 
-        local resource = sfui.common.get_secondary_resource()
+        local resource = common.get_secondary_resource()
 
         if resource == Enum.PowerType.Runes then
             if bar1 and bar1.backdrop then bar1.backdrop:Hide() end
@@ -556,9 +558,9 @@ do
         else
             local color
             if cfg.useClassColor then
-                color = sfui.common.get_class_or_spec_color()
+                color = common.get_class_or_spec_color()
             else
-                color = sfui.common.get_resource_color(resource)
+                color = common.get_resource_color(resource)
             end
             if color then
                 bar:SetStatusBarColor(color[1], color[2], color[3])
@@ -591,9 +593,9 @@ do
 
     local function get_vigor_bar()
         if vigor_bar then return vigor_bar end
-        local bar = sfui.common.create_bar("vigorBar", "StatusBar", UIParent)
+        local bar = common.create_bar("vigorBar", "StatusBar", UIParent)
         bar.TextValue = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        bar.TextValue:SetFont("Fonts\\FRIZQT__.TTF", sfui.config.secondaryPowerBar.fontSize, "NONE")
+        bar.TextValue:SetFont("Fonts\\FRIZQT__.TTF", cfg.secondaryPowerBar.fontSize, "NONE")
         bar.TextValue:SetShadowOffset(1, -1); bar.TextValue:SetPoint("CENTER")
         local iconSize = 40
         bar.whirlingSurgeIcon = create_icon(bar, "sfui_WhirlingSurgeIcon", iconSize, 361584)
@@ -655,7 +657,7 @@ do
 
     local function get_mount_speed_bar()
         if mount_speed_bar then return mount_speed_bar end
-        local bar = sfui.common.create_bar("mountSpeedBar", "StatusBar", UIParent)
+        local bar = common.create_bar("mountSpeedBar", "StatusBar", UIParent)
         bar.TextValue = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         bar.TextValue:SetFont("Fonts\\FRIZQT__.TTF", 12, "NONE")
         bar.TextValue:SetShadowOffset(1, -1)

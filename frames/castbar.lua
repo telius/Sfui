@@ -1,6 +1,8 @@
 local addonName, addon = ...
 sfui = sfui or {}
 sfui.castbar = {}
+local cfg = sfui.config
+local common = sfui.common
 
 local UnitCastingInfo = UnitCastingInfo
 local UnitChannelInfo = UnitChannelInfo
@@ -60,7 +62,7 @@ local function is_instant_spell(spellID)
 end
 
 local function CreateCastBar(configName, unit)
-    local bar = sfui.common.create_bar(configName, "StatusBar", UIParent)
+    local bar = common.create_bar(configName, "StatusBar", UIParent)
     bar.unit, bar.configName = unit, configName
 
     bar.backdrop:SetScript("OnShow", function(self) self:SetAlpha(1) end)
@@ -89,7 +91,7 @@ local function CreateCastBar(configName, unit)
     bar.Icon = bar.IconFrame:CreateTexture(nil, "ARTWORK")
     bar.Icon:SetAllPoints()
 
-    sfui.common.apply_square_icon_style(bar.IconFrame, bar.Icon)
+    common.apply_square_icon_style(bar.IconFrame, bar.Icon)
 
     -- Setup Texture (Inherit from Options Panel)
     local textureName = SfuiDB.barTexture
@@ -99,7 +101,7 @@ local function CreateCastBar(configName, unit)
         texturePath = LSM:Fetch("statusbar", textureName)
     end
     if not texturePath or texturePath == "" then
-        texturePath = sfui.config.barTexture -- Defaults to Flat (WHITE8X8)
+        texturePath = cfg.barTexture -- Defaults to Flat (WHITE8X8)
     end
     bar:SetStatusBarTexture(texturePath)
 
@@ -127,7 +129,7 @@ local function UpdateCastBarColor(bar, state)
 
         local specColor = nil
         if bar.unit == "player" then
-            specColor = sfui.common.get_class_or_spec_color()
+            specColor = common.get_class_or_spec_color()
         end
 
         if specColor then
@@ -245,7 +247,7 @@ local function OnUpdate(self, elapsed)
 
             if currentStage ~= self.empowerStage then
                 self.empowerStage = currentStage
-                local stageColors = sfui.config[self.configName].empoweredStageColors
+                local stageColors = cfg[self.configName].empoweredStageColors
                 local c = stageColors and stageColors[currentStage]
                 if c then self:SetStatusBarColor(c[1], c[2], c[3]) end
             end
@@ -294,7 +296,7 @@ local function OnEvent(self, event, ...)
             local texture = info and info.iconID
 
             -- Precise API GCD Logic
-            local onGCD, gcdDuration = sfui.common.GetGCDInfo()
+            local onGCD, gcdDuration = common.GetGCDInfo()
             local duration = (onGCD and gcdDuration > 0) and gcdDuration or apply_haste_to_gcd(1.5)
 
             self.instant = true
@@ -370,7 +372,7 @@ local function OnEvent(self, event, ...)
             self.instant = nil
             self.numStages, self.empowerStage = numStages, 0
 
-            local stageColors = sfui.config[self.configName].empoweredStageColors
+            local stageColors = cfg[self.configName].empoweredStageColors
             local c = stageColors and stageColors[1]
             if c then self:SetStatusBarColor(c[1], c[2], c[3]) else UpdateCastBarColor(self, "EMPOWER") end
             CreateStageDividers(self, numStages)
@@ -647,13 +649,13 @@ end
 
 function sfui.castbar.update_settings()
     -- Sync config from DB
-    if SfuiDB.castBarEnabled ~= nil then sfui.config.castBar.enabled = SfuiDB.castBarEnabled end
-    if SfuiDB.castBarX ~= nil then sfui.config.castBar.pos.x = SfuiDB.castBarX end
-    if SfuiDB.castBarY ~= nil then sfui.config.castBar.pos.y = SfuiDB.castBarY end
+    if SfuiDB.castBarEnabled ~= nil then cfg.castBar.enabled = SfuiDB.castBarEnabled end
+    if SfuiDB.castBarX ~= nil then cfg.castBar.pos.x = SfuiDB.castBarX end
+    if SfuiDB.castBarY ~= nil then cfg.castBar.pos.y = SfuiDB.castBarY end
 
-    if SfuiDB.targetCastBarEnabled ~= nil then sfui.config.targetCastBar.enabled = SfuiDB.targetCastBarEnabled end
-    if SfuiDB.targetCastBarX ~= nil then sfui.config.targetCastBar.pos.x = SfuiDB.targetCastBarX end
-    if SfuiDB.targetCastBarY ~= nil then sfui.config.targetCastBar.pos.y = SfuiDB.targetCastBarY end
+    if SfuiDB.targetCastBarEnabled ~= nil then cfg.targetCastBar.enabled = SfuiDB.targetCastBarEnabled end
+    if SfuiDB.targetCastBarX ~= nil then cfg.targetCastBar.pos.x = SfuiDB.targetCastBarX end
+    if SfuiDB.targetCastBarY ~= nil then cfg.targetCastBar.pos.y = SfuiDB.targetCastBarY end
 
     -- Apply to active bars
     if sfui.castbar.bars then

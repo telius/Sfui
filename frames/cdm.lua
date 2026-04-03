@@ -1,6 +1,8 @@
 local addonName, addon = ...
 sfui = sfui or {}
 sfui.cdm = {}
+local cfg = sfui.config
+local common = sfui.common
 
 local CreateFrame = CreateFrame
 local GameTooltip = GameTooltip
@@ -35,9 +37,9 @@ local function ShowReloadPrompt()
 end
 
 -- Local references to common utilities
-local CreateFlatButton = sfui.common.create_flat_button
-local issecretvalue = sfui.common.issecretvalue
-local g = sfui.config
+local CreateFlatButton = common.create_flat_button
+local issecretvalue = common.issecretvalue
+local g = cfg
 local c = g.options_panel
 
 local function AddVerticalAccent(frame)
@@ -46,7 +48,7 @@ local function AddVerticalAccent(frame)
     accent:SetPoint("TOPLEFT", 0, 0)
     accent:SetPoint("BOTTOMLEFT", 0, 0)
     accent:SetWidth(3)
-    accent:SetColorTexture(0.4, 0, 1, 1) -- Purple accent
+    accent:SetColorTexture(unpack(cfg.appearance.highlightColor)) -- Purple accent
     frame.accent = accent
 end
 
@@ -101,7 +103,7 @@ local function AcquirePreviewBar(parent)
         bar.iconFrame = iconFrame
         bar.icon = icon
 
-        sfui.common.sync_masque(iconFrame, { Icon = icon })
+        common.sync_masque(iconFrame, { Icon = icon })
 
         local label = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         label:SetPoint("LEFT", iconFrame, "RIGHT", 5, 0)
@@ -148,7 +150,7 @@ local function AcquireZoneIcon(parent)
 
         local bb = icon:CreateTexture(nil, "BACKGROUND")
         bb:SetAllPoints()
-        bb:SetColorTexture(0, 0, 0, 1)
+        bb:SetColorTexture(unpack(cfg.colors.black))
         bb:Hide()
         icon.borderBackdrop = bb
 
@@ -161,7 +163,7 @@ local function AcquireZoneIcon(parent)
         zoneIconFrames[zoneIconCount] = icon
 
         -- Dedicated selection highlight border
-        sfui.common.create_border(icon, 2, { 0, 1, 0, 1 })
+        common.create_border(icon, 2, { 0, 1, 0, 1 })
         if icon.borders then
             for _, b in ipairs(icon.borders) do
                 b:SetDrawLayer("OVERLAY", 7)
@@ -175,7 +177,7 @@ local function AcquireZoneIcon(parent)
     end
     -- Enforce borderless logic removed to respect user settings
 
-    sfui.common.sync_masque(icon, { Icon = icon.texture })
+    common.sync_masque(icon, { Icon = icon.texture })
 
     icon:SetParent(parent)
     icon:ClearAllPoints()
@@ -270,7 +272,7 @@ local function RenderTrackedBarsRightSide(parent, width)
             local ok, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, true)
             if ok and ids then
                 for _, id in ipairs(ids) do
-                    if not sfui.common.issecretvalue(id) and IsValidID(id) then
+                    if not common.issecretvalue(id) and IsValidID(id) then
                         table.insert(list, id)
                     end
                 end
@@ -282,7 +284,7 @@ local function RenderTrackedBarsRightSide(parent, width)
     local spacing = 2
     local cols = math.max(1, math.floor(width / (ICON_SIZE + spacing)))
 
-    local entries = sfui.common.get_tracked_bars()
+    local entries = common.get_tracked_bars()
     local x, y = 0, yPos
 
     for i, cdID in ipairs(list) do
@@ -454,7 +456,7 @@ local function RenderTrackedBarsRightSide(parent, width)
         bar:SetBackdropColor(0.2, 0.2, 0.2, 0.8)
 
         -- Ensure cooldownID resolution for the preview bar
-        local entry = sfui.common.get_tracked_bar_db and sfui.common.get_tracked_bar_db(id) or { id = id }
+        local entry = common.get_tracked_bar_db and common.get_tracked_bar_db(id) or { id = id }
         local typeHint = entry.type or "cooldown"
         bar.icon:SetTexture(GetSharedIconTexture({ id = id, type = typeHint, cooldownID = id }))
 
@@ -465,9 +467,9 @@ local function RenderTrackedBarsRightSide(parent, width)
             bar.upBtn:Show()
             bar.upBtn:SetScript("OnClick", function()
                 local swapTarget = activeList[i - 1]
-                local pStore = sfui.common.ensure_tracked_bar_db(id)
+                local pStore = common.ensure_tracked_bar_db(id)
                 local currentP = pStore.priority or 0
-                local prevPStore = sfui.common.ensure_tracked_bar_db(swapTarget)
+                local prevPStore = common.ensure_tracked_bar_db(swapTarget)
                 local prevP = prevPStore.priority or 0
 
                 if currentP == prevP then
@@ -488,9 +490,9 @@ local function RenderTrackedBarsRightSide(parent, width)
             bar.dnBtn:Show()
             bar.dnBtn:SetScript("OnClick", function()
                 local swapTarget = activeList[i + 1]
-                local pStore = sfui.common.ensure_tracked_bar_db(id)
+                local pStore = common.ensure_tracked_bar_db(id)
                 local currentP = pStore.priority or 0
-                local nextPStore = sfui.common.ensure_tracked_bar_db(swapTarget)
+                local nextPStore = common.ensure_tracked_bar_db(swapTarget)
                 local nextP = nextPStore.priority or 0
 
                 if currentP == nextP then
@@ -623,7 +625,7 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
         zone.label = label
 
         -- Selection Checkbox (Right side)
-        local sel = sfui.common.create_checkbox(zone, "Edit",
+        local sel = common.create_checkbox(zone, "Edit",
             function() return selectedPanelIndex == zone.panelIndex end,
             function(val)
                 if val then
@@ -642,7 +644,7 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
         if sel.text then
             sel.text:ClearAllPoints()
             sel.text:SetPoint("BOTTOM", sel, "TOP", 0, 2)
-            sel.text:SetTextColor(1, 1, 1, 1) -- White
+            sel.text:SetTextColor(unpack(cfg.colors.white)) -- White
         end
         zone.selCheck = sel
 
@@ -654,7 +656,7 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
         del:SetHighlightTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Highlight")
         del:SetPushedTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Down")
         del:SetScript("OnClick", function()
-            if sfui.common.delete_custom_panel(zone.panelIndex) then
+            if common.delete_custom_panel(zone.panelIndex) then
                 sfui.cdm.RefreshLayout()
             end
         end)
@@ -667,19 +669,19 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
             { text = "Import: Buffs",        value = 2 },
             { text = "Import: Tracked Bars", value = 3 },
         }
-        local importBtn = sfui.common.create_dropdown(zone, 80, options, function(gId)
+        local importBtn = common.create_dropdown(zone, 80, options, function(gId)
             if not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCategorySet then return end
             local ok, list = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, gId, true)
             if not ok or not list then return end
 
             local isList = (type(list) == "table")
-            local entries = zone.isTrackedBars and sfui.common.get_tracked_bars() or
+            local entries = zone.isTrackedBars and common.get_tracked_bars() or
                 (zone.panelData and zone.panelData.entries)
             if entries then
                 for _, cooldownID in ipairs(list) do
-                    if not sfui.common.issecretvalue(cooldownID) then
+                    if not common.issecretvalue(cooldownID) then
                         if not IsValidID(cooldownID) then
-                            print("|cffff0000SFUI CDM Error:|r Skipping invalid ID " ..
+                            common.print("|cffff0000SFUI CDM Error:|r Skipping invalid ID " ..
                                 tostring(cooldownID) .. " (outside 32-bit range)")
                         else
                             local entry = { id = cooldownID, type = "cooldown", cooldownID = cooldownID }
@@ -860,7 +862,7 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
     zone.panelData = panelData
     zone.isTrackedBars = isTrackedBars
     zone.panelIndex = panelIndex
-    zone.panelEntries = isTrackedBars and sfui.common.get_tracked_bars() or (panelData and panelData.entries)
+    zone.panelEntries = isTrackedBars and common.get_tracked_bars() or (panelData and panelData.entries)
 
     zone:Show()
     zone:SetParent(parent)
@@ -872,7 +874,7 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
         zone:SetBackdropColor(0.06, 0, 0.12, 0.9) -- Dark Purple tint
         zone:SetBackdropBorderColor(0, 0, 0, 0)
         zone.label:SetText("Tracked Bars")
-        zone.label:SetTextColor(0.4, 0, 1, 1) -- Purple accent
+        zone.label:SetTextColor(unpack(cfg.appearance.highlightColor)) -- Purple accent
         zone.deleteBtn:Hide()
     else
         zone:SetBackdropColor(0.06, 0.06, 0.06, 0.9)
@@ -892,7 +894,7 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
     zone.selCheck:SetChecked(selectedPanelIndex == panelIndex)
 
     -- Populate Existing Icons
-    local entries = isTrackedBars and sfui.common.get_tracked_bars() or (panelData and panelData.entries)
+    local entries = isTrackedBars and common.get_tracked_bars() or (panelData and panelData.entries)
     local x, y = 0, 0
     local icons = {}
 
@@ -908,7 +910,7 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
         -- Handle TrackedBars structure (map[id] = true/table) vs Panel structure (list of ids)
         local list = {}
         if isTrackedBars then
-            local tBars = sfui.common.get_tracked_bars()
+            local tBars = common.get_tracked_bars()
             for id, enabled in pairs(tBars) do
                 if enabled and IsValidID(id) then
                     table.insert(list, tonumber(id))
@@ -935,10 +937,10 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
             icon:RegisterForClicks("RightButtonUp")
             icon:SetScript("OnClick", function()
                 if isTrackedBars then
-                    local tBars = sfui.common.get_tracked_bars()
+                    local tBars = common.get_tracked_bars()
                     tBars[cdID] = nil
                     if not next(tBars) then
-                        local specID = sfui.common.get_current_spec_id() or 0
+                        local specID = common.get_current_spec_id() or 0
                         SfuiDB.trackedBarsBySpec[specID] = {}
                     end
                     -- Force update bars
@@ -1060,7 +1062,7 @@ local function RenderAssignmentsIconPool(parent, width, entries)
             local ok, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, false)
             if ok and ids then
                 for _, id in ipairs(ids) do
-                    if not sfui.common.issecretvalue(id) and IsValidID(id) then
+                    if not common.issecretvalue(id) and IsValidID(id) then
                         local cdInfo = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo(id)
                         -- Only collect if it is explicitly known or has no restrictive known metadata
                         if not cdInfo or cdInfo.isKnown ~= false then
@@ -1245,9 +1247,9 @@ RefreshZones = function()
         local isSelected = (selectedPanelIndex == panelIndex)
         if zone.accent then
             if isSelected then
-                zone.accent:SetColorTexture(0, 1, 1, 1)   -- Cyan #00FFFF
+                zone.accent:SetColorTexture(unpack(cfg.colors.cyan))   -- Cyan #00FFFF
             else
-                zone.accent:SetColorTexture(0.4, 0, 1, 1) -- Purple
+                zone.accent:SetColorTexture(unpack(cfg.appearance.highlightColor)) -- Purple
             end
         end
 
@@ -1261,7 +1263,7 @@ RefreshZones = function()
     MakeZone(nil, true, "TRACKED_BARS")
 
     -- 2. All Panels
-    local panels = sfui.common.get_cooldown_panels()
+    local panels = common.get_cooldown_panels()
     if panels then
         for i, panel in ipairs(panels) do
             MakeZone(panel, false, i)
@@ -1289,20 +1291,20 @@ RefreshZones = function()
     eb:SetScript("OnEnterPressed", function(self)
         local name = self:GetText()
         if name and name ~= "" and name ~= "New Panel Name" then
-            sfui.common.add_custom_panel(name)
+            common.add_custom_panel(name)
             sfui.cdm.RefreshLayout()
         end
         self:ClearFocus()
     end)
     eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
-    local addBtn = sfui.common.create_flat_button(addFrame, "Add", 55, 20)
+    local addBtn = common.create_flat_button(addFrame, "Add", 55, 20)
     addBtn:SetPoint("RIGHT", -5, 0)
-    addBtn:SetBackdropBorderColor(0.4, 0, 1, 1)
+    addBtn:SetBackdropBorderColor(unpack(cfg.appearance.highlightColor))
     addBtn:SetScript("OnClick", function()
         local name = eb:GetText()
         if name and name ~= "" and name ~= "New Panel Name" then
-            sfui.common.add_custom_panel(name)
+            common.add_custom_panel(name)
             sfui.cdm.RefreshLayout()
         end
         eb:ClearFocus()
@@ -1358,7 +1360,7 @@ local function PurgeIconFromEverywhere(targetId)
     end
 
     -- 2. Purge from Custom Panels
-    local panels = sfui.common.get_cooldown_panels()
+    local panels = common.get_cooldown_panels()
     if panels then
         for _, panel in ipairs(panels) do
             if panel.entries then
@@ -1438,13 +1440,13 @@ OnZoneReceiveDrag = function(zoneFrame, panelData, isTrackedBars)
     end
 
     if not incomingId then
-        print("|cffFF0000SFUI Error:|r Invalid Icon ID")
+        common.print("|cffFF0000SFUI Error:|r Invalid Icon ID")
         return
     end
 
     -- Prevent dragging from Cooldown Panels to Tracked Bars
     if isTrackedBars and draggedInfo.originalPanelEntries and not draggedInfo.isFromTrackedBars then
-        print("|cffFF0000SFUI Error:|r Cannot drag icons from Cooldown Panels to Tracked Bars.")
+        common.print("|cffFF0000SFUI Error:|r Cannot drag icons from Cooldown Panels to Tracked Bars.")
         return
     end
 
@@ -1461,7 +1463,7 @@ OnZoneReceiveDrag = function(zoneFrame, panelData, isTrackedBars)
         end
     elseif draggedInfo.isFromTrackedBars and not isTrackedBars then
         -- Moving from Tracked Bars to a custom panel
-        sfui.common.get_tracked_bars()[incomingId] = nil
+        common.get_tracked_bars()[incomingId] = nil
 
         -- Move to a hidden category and save
         local dp = CooldownViewerSettings and CooldownViewerSettings.GetDataProvider and
@@ -1481,7 +1483,7 @@ OnZoneReceiveDrag = function(zoneFrame, panelData, isTrackedBars)
 
     if isTrackedBars then
         -- Add to tracked bars
-        sfui.common.ensure_tracked_bar_db(incomingId)
+        common.ensure_tracked_bar_db(incomingId)
 
         local dp = CooldownViewerSettings and CooldownViewerSettings.GetDataProvider and
             CooldownViewerSettings:GetDataProvider()
@@ -1493,7 +1495,7 @@ OnZoneReceiveDrag = function(zoneFrame, panelData, isTrackedBars)
         if sfui.trackedbars and sfui.trackedbars.UpdateVisibility then sfui.trackedbars.UpdateVisibility() end
         if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
 
-        print("|cff00FF00SFUI:|r Added to Tracked Bars")
+        common.print("|cff00FF00SFUI:|r Added to Tracked Bars")
     else
         -- Add to panel
         if not panelData.entries then panelData.entries = {} end
@@ -1518,7 +1520,7 @@ OnZoneReceiveDrag = function(zoneFrame, panelData, isTrackedBars)
         end
 
         if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
-        print("|cff00FF00SFUI:|r Added to " .. (panelData.name or "panel"))
+        common.print("|cff00FF00SFUI:|r Added to " .. (panelData.name or "panel"))
     end
 
     -- We don't call OnIconDragStop here because OnDragStop will trigger on the icon itself
@@ -1558,7 +1560,7 @@ HandleExternalDrop = function(zoneFrame, panelData, isTrackedBars)
             draggedItemID = (cdInfo.itemID and cdInfo.itemID > 0) and cdInfo.itemID or nil
         end
     elseif cursorType == "petaction" or cursorType == "macro" then
-        print("|cffFF9900SFUI:|r Macros and pet actions are not supported.")
+        common.print("|cffFF9900SFUI:|r Macros and pet actions are not supported.")
         ClearCursor()
         return
     else
@@ -1615,18 +1617,18 @@ HandleExternalDrop = function(zoneFrame, panelData, isTrackedBars)
     -- Debug print to help user verify ID
     if entry.type == "spell" then
         local link = C_Spell.GetSpellLink(incomingId)
-        print("|cff00FF00SFUI:|r Imported Spell: " .. (link or incomingId) .. " (ID: " .. incomingId .. ")")
+        common.print("|cff00FF00SFUI:|r Imported Spell: " .. (link or incomingId) .. " (ID: " .. incomingId .. ")")
     elseif entry.type == "item" then
         local link = (GetItemInfo and select(2, GetItemInfo(incomingId))) or C_Item.GetItemNameByID(incomingId) or
             incomingId
-        print("|cff00FF00SFUI:|r Imported Item: " .. link .. " (ID: " .. incomingId .. ")")
+        common.print("|cff00FF00SFUI:|r Imported Item: " .. link .. " (ID: " .. incomingId .. ")")
     elseif entry.type == "cooldown" then
         local link = GetCooldownName(incomingId, "spell") or incomingId
-        print("|cff00FF00SFUI:|r Imported Cooldown: " .. link .. " (ID: " .. incomingId .. ")")
+        common.print("|cff00FF00SFUI:|r Imported Cooldown: " .. link .. " (ID: " .. incomingId .. ")")
     end
 
     if isTrackedBars then
-        sfui.common.ensure_tracked_bar_db(incomingId)
+        common.ensure_tracked_bar_db(incomingId)
 
         local dp = CooldownViewerSettings and CooldownViewerSettings.GetDataProvider and
             CooldownViewerSettings:GetDataProvider()
@@ -1644,13 +1646,13 @@ HandleExternalDrop = function(zoneFrame, panelData, isTrackedBars)
 
         if sfui.trackedbars and sfui.trackedbars.UpdateVisibility then sfui.trackedbars.UpdateVisibility() end
         if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
-        print("|cff00FF00SFUI:|r Added to Tracked Bars and Saved")
+        common.print("|cff00FF00SFUI:|r Added to Tracked Bars and Saved")
     else
         if not panelData.entries then panelData.entries = {} end
 
         table.insert(panelData.entries, entry)
         if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
-        print("|cff00FF00SFUI:|r Added to " .. (panelData.name or "panel"))
+        common.print("|cff00FF00SFUI:|r Added to " .. (panelData.name or "panel"))
     end
 
     ClearCursor()
@@ -1730,7 +1732,7 @@ OnIconDragStop = function(self)
                 end
 
                 if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
-                print("|cffFF0000SFUI:|r Removed from Zone and Saved")
+                common.print("|cffFF0000SFUI:|r Removed from Zone and Saved")
             end
         end
     end

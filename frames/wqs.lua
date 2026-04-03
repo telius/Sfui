@@ -1,6 +1,8 @@
 local addonName, addon = ...
 sfui = sfui or {}
 
+local cfg = sfui.config
+local common = sfui.common
 --[[
     SFUI World Quest Summary (Midnight Edition)
     STRICTLY MIDNIGHT ONLY
@@ -83,7 +85,6 @@ end
 
 -- State Management Helpers
 local function GetFilters()
-    SfuiDB = SfuiDB or {}
     SfuiDB.wqsFilters = SfuiDB.wqsFilters or {
         reputation = false, items = false, gold = false, zone = false
     }
@@ -91,7 +92,6 @@ local function GetFilters()
 end
 
 local function GetWQSState()
-    SfuiDB = SfuiDB or {}
     SfuiDB.wqsState = SfuiDB.wqsState or {
         detached = false,
         pos = nil
@@ -178,7 +178,7 @@ local function IsUpgrade(itemLink, overrideIlvl)
         return sfui.highest.EvaluateItemUpgrade(itemLink, ilvl, equippedIlvl)
     end
 
-    return sfui.common.SafeGT(ilvl, equippedIlvl), false
+    return common.SafeGT(ilvl, equippedIlvl), false
 end
 
 local function ScanQuestRewards(self, questID)
@@ -205,12 +205,12 @@ local function ScanQuestRewards(self, questID)
                 table.insert(rewardParts,
                     "+" .. currency.totalRewardAmount .. " |T" .. currency.texture .. ":12:12:0:0:64:64:4:60:4:60|t" ..
                     currentMarker)
-                sortRewardValue = sfui.common.SafeArithmetic("+", sortRewardValue, sfui.common.SafeArithmetic("/", currency.totalRewardAmount, 10))
+                sortRewardValue = common.SafeArithmetic("+", sortRewardValue, common.SafeArithmetic("/", currency.totalRewardAmount, 10))
             else
                 table.insert(rewardParts,
                     "|T" .. currency.texture .. ":12:12:0:0:64:64:4:60:4:60|t " ..
                     currency.totalRewardAmount .. currentMarker)
-                sortRewardValue = sfui.common.SafeArithmetic("+", sortRewardValue, sfui.common.SafeArithmetic("+", 100000, currency.totalRewardAmount))
+                sortRewardValue = common.SafeArithmetic("+", sortRewardValue, common.SafeArithmetic("+", 100000, currency.totalRewardAmount))
             end
         end
     end
@@ -257,7 +257,7 @@ local function ScanQuestRewards(self, questID)
                 end
 
                 local ilvlText = ""
-                if sfui.common.SafeGT(ilvl, 1) then
+                if common.SafeGT(ilvl, 1) then
                     local info = { GetItemInfo(itemID) }
                     if info[12] == 2 or info[12] == 4 then -- Weapon or Armor
                         local isUpgrade, isOffSpec = IsUpgrade(itemLink, ilvl)
@@ -270,12 +270,12 @@ local function ScanQuestRewards(self, questID)
                             colorHex = isOffSpec and "ffffff00" or "ff00ff00"
                         end
                         ilvlText = "|c" .. colorHex .. "(" .. ilvl .. ")|r "
-                        sortRewardValue = sfui.common.SafeArithmetic("+", sortRewardValue, sfui.common.SafeArithmetic("+", 1000000, sfui.common.SafeArithmetic("*", ilvl, 10)))
+                        sortRewardValue = common.SafeArithmetic("+", sortRewardValue, common.SafeArithmetic("+", 1000000, common.SafeArithmetic("*", ilvl, 10)))
                     end
                 end
 
                 local color = (ITEM_QUALITY_COLORS[quality or 1] and ITEM_QUALITY_COLORS[quality or 1].hex) or "|cffffffff"
-                local qtyText = (sfui.common.SafeGT(quantity, 1)) and (quantity .. " ") or ""
+                local qtyText = (common.SafeGT(quantity, 1)) and (quantity .. " ") or ""
                 local currentMarker = isWarbound and WARBAND_BONUS_TEXT or ""
                 table.insert(rewardParts,
                     "|T" .. itemTexture .. ":12:12:0:0:64:64:4:60:4:60|t " ..
@@ -287,10 +287,10 @@ local function ScanQuestRewards(self, questID)
 
     -- Money
     local money = GetQuestLogRewardMoney(questID)
-    if sfui.common.SafeGT(money, 0) then
+    if common.SafeGT(money, 0) then
         hasGold = true
-        table.insert(rewardParts, sfui.common.SafeGetCoinTextureString(money))
-        sortRewardValue = sfui.common.SafeArithmetic("+", sortRewardValue, sfui.common.SafeArithmetic("/", money, 10000))
+        table.insert(rewardParts, common.SafeGetCoinTextureString(money))
+        sortRewardValue = common.SafeArithmetic("+", sortRewardValue, common.SafeArithmetic("/", money, 10000))
     end
 
     local rewardText = table.concat(rewardParts, " | ")
@@ -351,9 +351,9 @@ function WQS:Initialize()
     self.sortMode = "reward" -- Default to Rewards
     self.sortOrder = -1      -- Highest value first
 
-    local purple = sfui.config and sfui.config.colors and sfui.config.colors.purple or { 0.7, 0.4, 1 }
-    local cyan = sfui.config and sfui.config.colors and sfui.config.colors.cyan or { 0, 1, 1 }
-    local white = sfui.config and sfui.config.colors and sfui.config.colors.white or { 1, 1, 1 }
+    local purple = cfg and cfg.colors and cfg.colors.purple or { 0.7, 0.4, 1 }
+    local cyan = cfg and cfg.colors and cfg.colors.cyan or { 0, 1, 1 }
+    local white = cfg and cfg.colors and cfg.colors.white or { 1, 1, 1 }
 
     -- SetupMapHooks will be called later to handle late-loading WorldMap
 
@@ -367,7 +367,7 @@ function WQS:Initialize()
     self.Footer = footer
 
     local function CreateFilterBtn(text, key, xOffset, tooltipText)
-        local btn = sfui.common.create_flat_button(footer, text, 20, 20)
+        local btn = common.create_flat_button(footer, text, 20, 20)
         btn:SetPoint("LEFT", xOffset, 0)
 
         function btn:updateBtnStyle()
@@ -408,7 +408,7 @@ function WQS:Initialize()
     self.FilterGold = CreateFilterBtn("G", "gold", 50, "Gold Reward Available")
 
     -- Pin Toggle
-    local pinBtn = sfui.common.create_flat_button(footer, "P", 20, 20)
+    local pinBtn = common.create_flat_button(footer, "P", 20, 20)
     pinBtn:SetPoint("LEFT", 75, 0)
     function pinBtn:updateBtnStyle()
         local state = GetWQSState()
@@ -439,7 +439,7 @@ function WQS:Initialize()
         if self.FilterGold then self.FilterGold:updateBtnStyle() end
     end
 
-    self.FilterZone = sfui.common.create_checkbox(footer, "Local", function() return GetFilters().zone end, function(val)
+    self.FilterZone = common.create_checkbox(footer, "Local", function() return GetFilters().zone end, function(val)
         GetFilters().zone = val
         self:Refresh()
     end, "Only show quests in your current zone.")
@@ -478,7 +478,7 @@ function WQS:Initialize()
         btn:SetSize(width, 20)
 
         btn.Text = btn:CreateFontString(nil, "OVERLAY")
-        SetFontStyle(btn.Text, sfui.config and sfui.config.font, 11)
+        SetFontStyle(btn.Text, cfg and cfg.font, 11)
         btn.Text:SetPoint(align or "LEFT", 0, 0)
         btn.Text:SetText(text)
         btn.Text:SetTextColor(purple[1], purple[2], purple[3])
@@ -735,7 +735,7 @@ function WQS:CreateRow()
         row.Stripe:SetColorTexture(1, 1, 1, 0.03)
         row.Stripe:Hide()
 
-        local font = sfui.config and sfui.config.font
+        local font = cfg and cfg.font
         row.Text = row:CreateFontString(nil, "OVERLAY")
         SetFontStyle(row.Text, font, 12, "OUTLINE")
         row.Text:SetPoint("LEFT", 5, 0)
@@ -786,7 +786,7 @@ function WQS:CreateRow()
             end
 
             local numObjs = GetNumQuestLeaderBoards(s.questID)
-            if sfui.common.SafeGT(numObjs, 0) then
+            if common.SafeGT(numObjs, 0) then
                 GameTooltip:AddLine(" ")
                 for i = 1, numObjs do
                     local text, _, finished = GetQuestLogLeaderBoard(i, s.questID)
@@ -868,8 +868,8 @@ end
 
 local function UpdateHeader(btn, mode, text)
     local indicator = ""
-    local purple = sfui.config.colors.purple
-    local white = sfui.config.colors.white
+    local purple = cfg.colors.purple
+    local white = cfg.colors.white
     local wqs = sfui.wqs
     if wqs.sortMode == mode then
         indicator = wqs.sortOrder == 1 and "  ▼" or "  ▲"

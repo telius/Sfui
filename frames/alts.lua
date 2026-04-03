@@ -81,7 +81,7 @@ local function AcquireCell(parent)
             f.text:Show()
             f.text:ClearAllPoints()
             f.text:SetText("")
-            f.text:SetTextColor(1, 1, 1)
+            f.text:SetTextColor(unpack(sfui.config.colors.white))
             f.text:SetFontObject("GameFontHighlightSmall")
             f.text:SetPoint("CENTER")
         end
@@ -393,7 +393,6 @@ function sfui.alts.PerformSync(isLogout)
     end
 
     sfui.alts.RefreshDynamicCategories()
-    SfuiDB.alts = SfuiDB.alts or {}
 
     local currentNextReset = sfui.alts.CheckWeeklyResets()
 
@@ -566,7 +565,6 @@ function sfui.alts.PerformSync(isLogout)
                 if info.maxQuantity and info.maxQuantity > 0 then
                     local currentGlobalMax = SfuiDB.currencyCaps and SfuiDB.currencyCaps[currencyDef.id] or 0
                     if info.maxQuantity > currentGlobalMax then
-                        SfuiDB.currencyCaps = SfuiDB.currencyCaps or {}
                         SfuiDB.currencyCaps[currencyDef.id] = info.maxQuantity
                     end
                 end
@@ -948,7 +946,6 @@ function sfui.alts.CreateFrame()
     -- Section Manager Dropdown
     local function populateSectionsOptions()
         local options = {}
-        SfuiDB.altsHiddenSections = SfuiDB.altsHiddenSections or {}
         for _, cat in ipairs(CATEGORIES) do
             if cat.type == "header" and cat.name ~= "GENERAL" then
                 table.insert(options, {
@@ -1073,8 +1070,6 @@ function sfui.alts.UpdateUI(force)
         return
     end
 
-    SfuiDB.altsCollapsed = SfuiDB.altsCollapsed or {}
-    SfuiDB.altsHiddenSections = SfuiDB.altsHiddenSections or {}
 
     wipe(visibleCats)
     local currentHeader = nil
@@ -1113,7 +1108,7 @@ function sfui.alts.UpdateUI(force)
 
             if cat.type == "header" then
                 text:SetFontObject("GameFontNormal")
-                text:SetTextColor(0.4, 0, 1) -- Purple
+                text:SetTextColor(unpack(sfui.config.appearance.highlightColor)) -- Purple
                 text:SetText(cat.label)
 
                 row:EnableMouse(true)
@@ -1123,7 +1118,7 @@ function sfui.alts.UpdateUI(force)
                 end)
             else
                 text:SetFontObject("GameFontHighlightSmall")
-                text:SetTextColor(1, 1, 1)
+                text:SetTextColor(unpack(sfui.config.colors.white))
                 text:SetText(cat.label)
                 row:EnableMouse(false)
                 row:SetScript("OnMouseUp", nil)
@@ -1201,7 +1196,7 @@ function sfui.alts.UpdateUI(force)
                 local val = alt.data[cat.key] or 0
                 if cat.key == "iLvl" and (alt.data.level or 0) < 90 then
                     text:SetText(alt.data.level or "-")
-                    text:SetTextColor(1, 1, 1) -- White for level
+                    text:SetTextColor(unpack(sfui.config.colors.white)) -- White for level
                 else
                     text:SetText(cat.format and string.format(cat.format, val) or val)
                     if cat.key == "rating" and val > 0 then
@@ -1220,7 +1215,7 @@ function sfui.alts.UpdateUI(force)
                     elseif color then
                         text:SetTextColor(color.r, color.g, color.b)
                     else
-                        text:SetTextColor(1, 1, 1)
+                        text:SetTextColor(unpack(sfui.config.colors.white))
                     end
                 else
                     text:SetText("-")
@@ -1271,9 +1266,9 @@ function sfui.alts.UpdateUI(force)
                 end
 
                 if isCapped then
-                    text:SetTextColor(1, 0, 0) -- Red when maxed
+                    text:SetTextColor(unpack(sfui.config.appearance.errorColor)) -- Red when maxed
                 else
-                    text:SetTextColor(1, 1, 1) -- White
+                    text:SetTextColor(unpack(sfui.config.colors.white)) -- White
                 end
 
                 -- Add tooltip for currency
@@ -1381,7 +1376,7 @@ function sfui.alts.UpdateUI(force)
                             local done  = (status and status.done) or 0
                             local total = (status and status.total) or 4
                             lbl:SetText(done .. "/" .. total)
-                            lbl:SetTextColor(1, 1, 1)
+                            lbl:SetTextColor(unpack(sfui.config.colors.white))
                         end
                     else
                         local lbl = cell["qCount" .. bIdx]
@@ -1519,7 +1514,7 @@ function sfui.alts.UpdateUI(force)
                     text:ClearAllPoints()
                     text:SetPoint("LEFT", 15, 0)
                     text:SetText(string.format("%s - %d", shortName, pData.skill or 0))
-                    text:SetTextColor(1, 1, 1)
+                    text:SetTextColor(unpack(sfui.config.colors.white))
 
                     local rightText = cell.rightText
                     if not rightText then
@@ -1535,12 +1530,12 @@ function sfui.alts.UpdateUI(force)
 
                         local sColors = cfg.statusColors
                         if pData.done >= pData.total then
-                            rightText:SetTextColor(0, 1, 1) -- Cyan
+                            rightText:SetTextColor(unpack(sfui.config.colors.cyan)) -- Cyan
                         elseif pData.done > 0 then
                             local c = sColors and sColors.inProgress or { 0, 0.2, 0.2 }
                             rightText:SetTextColor(c[1], c[2], c[3])
                         else
-                            rightText:SetTextColor(1, 1, 1)
+                            rightText:SetTextColor(unpack(sfui.config.colors.white))
                         end
                     else
                         rightText:SetText("")
@@ -1834,7 +1829,7 @@ function sfui.alts.initialize()
                 if d.raids then wipe(d.raids) end
             end
             sfui.alts.UpdateUI(true)
-            print("|cff9966ffSFUI:|r Manually reset all weekly data for alts.")
+            sfui.common.print("|cff9966ffSFUI:|r Manually reset all weekly data for alts.")
         else
             sfui.alts.Toggle()
         end

@@ -2,6 +2,7 @@
 -- Portal panel. Data lives in portals_db.lua.
 -- Clicking uses Scotty's InsecureActionButtonTemplate overlay pattern:
 --   one shared action button moves onto each icon/row on hover.
+local cfg = sfui.config
 local addonName, addon  = ...
 sfui                    = sfui or {}
 sfui.portals            = {}
@@ -147,7 +148,7 @@ local function make_divider(parent, yOffset)
     local line = parent:CreateTexture(nil, "ARTWORK")
     line:SetSize(FRAME_WIDTH - 14, 1)
     line:SetPoint("TOPLEFT", 7, yOffset)
-    line:SetColorTexture(0.2, 0.2, 0.2, 1)
+    line:SetColorTexture(unpack(cfg.colors.gray))
     return line
 end
 
@@ -223,7 +224,7 @@ local function make_spell_icon(parent, spellID, label, x, y)
     frame:EnableMouse(true)
 
     frame:SetBackdrop(BACKDROP_ICON)
-    frame:SetBackdropBorderColor(0, 0, 0, 1)
+    frame:SetBackdropBorderColor(unpack(cfg.colors.black))
 
     -- Spell icon
     local tex = frame:CreateTexture(nil, "ARTWORK")
@@ -258,7 +259,7 @@ local function make_spell_icon(parent, spellID, label, x, y)
         else
             cd:Clear()
             grey:Hide()
-            frame:SetBackdropBorderColor(0, 0, 0, 1)
+            frame:SetBackdropBorderColor(unpack(cfg.colors.black))
         end
     end
     frame.refresh = refresh
@@ -267,7 +268,7 @@ local function make_spell_icon(parent, spellID, label, x, y)
     frame.resetHover = refresh -- direct ref, no wrapper closure
 
     frame:SetScript("OnEnter", function(self)
-        self:SetBackdropBorderColor(0, 1, 1, 1)
+        self:SetBackdropBorderColor(unpack(cfg.colors.cyan))
         arm_spell(spellID, nil, self) -- no portal for M+ icons
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetSpellByID(spellID)
@@ -297,8 +298,8 @@ local function make_action_row(parent, spellID, portalID, toyID, name, icon, yPo
     frame:SetPoint("TOPLEFT", 5, yPos)
     frame:EnableMouse(true)
     frame:SetBackdrop(BACKDROP_ROW)
-    frame:SetBackdropColor(0, 0, 0, 1)
-    frame:SetBackdropBorderColor(0, 0, 0, 1)
+    frame:SetBackdropColor(unpack(cfg.colors.black))
+    frame:SetBackdropBorderColor(unpack(cfg.colors.black))
 
     if icon then
         local ic = frame:CreateTexture(nil, "ARTWORK")
@@ -332,12 +333,12 @@ local function make_action_row(parent, spellID, portalID, toyID, name, icon, yPo
             grey:Show()
             cdLabel:SetText("[" .. fmt_cd(rem) .. "]")
             label:SetTextColor(0.6, 0.6, 0.6, 1)
-            frame:SetBackdropBorderColor(0, 0, 0, 1)
+            frame:SetBackdropBorderColor(unpack(cfg.colors.black))
         else
             grey:Hide()
             cdLabel:SetText("")
-            label:SetTextColor(1, 1, 1, 1)
-            frame:SetBackdropBorderColor(0, 0, 0, 1)
+            label:SetTextColor(unpack(cfg.colors.white))
+            frame:SetBackdropBorderColor(unpack(cfg.colors.black))
         end
     end
     frame.refresh = refresh
@@ -346,8 +347,8 @@ local function make_action_row(parent, spellID, portalID, toyID, name, icon, yPo
     frame.resetHover = refresh -- direct ref, no wrapper closure
 
     frame:SetScript("OnEnter", function(self)
-        self:SetBackdropBorderColor(0, 1, 1, 1)
-        label:SetTextColor(0, 1, 1, 1)
+        self:SetBackdropBorderColor(unpack(cfg.colors.cyan))
+        label:SetTextColor(unpack(cfg.colors.cyan))
         if spellID then arm_spell(spellID, portalID, self) end
         if toyID then arm_toy(toyID, self) end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -397,7 +398,7 @@ local function make_legacy_dropdown(parent, group, yPos)
     menu:SetFrameStrata("TOOLTIP")
     menu:SetBackdrop(BACKDROP_MENU)
     menu:SetBackdropColor(0, 0, 0, 0.92)
-    menu:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
+    menu:SetBackdropBorderColor(unpack(cfg.colors.gray))
     menu:Hide()
     menu:EnableMouse(true)
 
@@ -424,7 +425,7 @@ local function make_legacy_dropdown(parent, group, yPos)
                 fs:SetTextColor(0.6, 0.6, 0.6, 1)
                 cdFs:SetText("[" .. fmt_cd(rem) .. "]")
             else
-                fs:SetTextColor(1, 1, 1, 1)
+                fs:SetTextColor(unpack(cfg.colors.white))
                 cdFs:SetText("")
             end
             fs:SetText(opt.name)
@@ -435,7 +436,7 @@ local function make_legacy_dropdown(parent, group, yPos)
         row.resetHover = refresh_row
 
         row:SetScript("OnEnter", function(self)
-            fs:SetTextColor(0, 1, 1, 1)
+            fs:SetTextColor(unpack(cfg.colors.cyan))
             arm_spell(spellID, nil, self) -- no portal for legacy dropdown rows
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetSpellByID(spellID)
@@ -501,8 +502,8 @@ local function build_portals_frame()
         edgeSize = 1,
         insets   = { left = 0, right = 0, top = 0, bottom = 0 },
     })
-    portalFrame:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
-    portalFrame:SetBackdropBorderColor(0.4, 0, 1, 1)
+    portalFrame:SetBackdropColor(unpack(cfg.appearance.backdropColor))
+    portalFrame:SetBackdropBorderColor(unpack(cfg.appearance.highlightColor))
     tinsert(UISpecialFrames, "SfuiPortalsFrame")
 
     portalFrame.refreshable = {}
@@ -664,7 +665,6 @@ local function invalidate_portals_frame()
 end
 
 function sfui.portals.initialize()
-    SfuiDB = SfuiDB or {}
     -- Rebuild the portals frame when the player's spells change
     -- (learns a new portal spell via training, quest reward, etc.)
     local eventFrame = CreateFrame("Frame")

@@ -302,19 +302,22 @@ local function ScheduleScan(delay)
     end)
 end
 
-local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
-eventFrame:RegisterEvent("UPDATE_BINDINGS")
-eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", function()
+    ScheduleScan(2)
+end)
 
-eventFrame:SetScript("OnEvent", function(self, event, ...)
-    if event == "PLAYER_ENTERING_WORLD" then
-        ScheduleScan(2)
-    elseif event == "ACTIONBAR_SLOT_CHANGED" or event == "UPDATE_BINDINGS" then
-        ScheduleScan(0.3) -- Short debounce for rapid slot/binding changes
-    else                  -- PLAYER_SPECIALIZATION_CHANGED, ACTIVE_TALENT_GROUP_CHANGED
-        ScheduleScan(1)
-    end
+sfui.events.RegisterEvent("ACTIONBAR_SLOT_CHANGED", function()
+    ScheduleScan(0.3)
+end)
+
+sfui.events.RegisterEvent("UPDATE_BINDINGS", function()
+    ScheduleScan(0.3)
+end)
+
+sfui.events.RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", function()
+    ScheduleScan(1)
+end)
+
+sfui.events.RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED", function()
+    ScheduleScan(1)
 end)

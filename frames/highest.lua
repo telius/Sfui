@@ -31,7 +31,7 @@ local function sfprint(msg)
     if sfui.common and sfui.common.print then
         sfui.common.print(msg)
     else
-        print("|cff6600ffsfui:|r " .. msg)
+        sfui.common.print("|cff6600ffsfui:|r " .. msg)
     end
 end
 
@@ -742,12 +742,12 @@ function sfui.highest.GetBestItems(isPvP)
     end
 
     if _G.SFUI_DEBUG_WEAPONS and best[16] then
-        print("|cffffff00[SFUI Debug] Slot 16 evaluated:|r")
+        sfui.common.print("|cffffff00[SFUI Debug] Slot 16 evaluated:|r")
         for i, itm in ipairs(best[16]) do
-            print("  ["..i.."]", itm.link, "Score:", math.floor(itm.score), "is2H:", tostring(itm.is2H))
+            sfui.common.print("  ["..i.."]", itm.link, "Score:", math.floor(itm.score), "is2H:", tostring(itm.is2H))
         end
-        if best2H then print("  best2H:", best2H.link) end
-        if finalPick[16] then print("  WINNER:", finalPick[16].link) else print("  WINNER: None") end
+        if best2H then sfui.common.print("  best2H:", best2H.link) end
+        if finalPick[16] then sfui.common.print("  WINNER:", finalPick[16].link) else sfui.common.print("  WINNER: None") end
         _G.SFUI_DEBUG_WEAPONS = false
     end
 

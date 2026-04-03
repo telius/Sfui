@@ -40,14 +40,14 @@ local function check_logging()
         if not LoggingCombat() then
             LoggingCombat(true)
             sfui_started_log = true
-            print("|cff9966ffSfui:|r Combat logging |cff00ff00started|r (" .. (instanceType or "?") .. ")")
+            sfui.common.print("|cff9966ffSfui:|r Combat logging |cff00ff00started|r (" .. (instanceType or "?") .. ")")
         end
     else
         -- Only stop if we started it; don't interrupt a manually-started log.
         if LoggingCombat() and sfui_started_log then
             LoggingCombat(false)
             sfui_started_log = false
-            print("|cff9966ffSfui:|r Combat logging |cffff4444stopped|r")
+            sfui.common.print("|cff9966ffSfui:|r Combat logging |cffff4444stopped|r")
         end
     end
 end
@@ -58,7 +58,6 @@ function sfui.logs.is_enabled()
 end
 
 function sfui.logs.set_enabled(enabled)
-    SfuiDB = SfuiDB or {}
     SfuiDB.autoCombatLog = enabled
     if not enabled then
         -- User disabled: stop any log we started.

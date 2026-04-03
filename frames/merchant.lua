@@ -1,6 +1,7 @@
 local addonName, addon = ...
 ---@diagnostic disable: undefined-global
 -- frames/merchant.lua
+local common = sfui.common
 -- Custom 4x7 grid merchant frame for sfui
 
 sfui = sfui or {}
@@ -16,8 +17,8 @@ local ITEMS_PER_PAGE = NUM_ROWS * NUM_COLS
 sfui.merchant.lootFilterState = 0 -- 0=All, 1=Class, 2=Spec
 
 -- Cache player data for filtering (Performance optimization)
-local playerClass, playerClassID = sfui.common.get_player_class()
-local playerSpecID = sfui.common.get_current_spec_id() -- Cache spec ID
+local playerClass, playerClassID = common.get_player_class()
+local playerSpecID = common.get_current_spec_id() -- Cache spec ID
 local classArmor = {
     ["WARRIOR"] = 4,
     ["PALADIN"] = 4,
@@ -39,7 +40,7 @@ local preferredArmor = classArmor[playerClass]
 local specUpdateFrame = CreateFrame("Frame")
 specUpdateFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 specUpdateFrame:SetScript("OnEvent", function()
-    playerSpecID = sfui.common.get_current_spec_id()
+    playerSpecID = common.get_current_spec_id()
 end)
 
 -- Memory optimization: Table pooling and scratch tables
@@ -104,7 +105,7 @@ frame.merchantTitle = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight"
 frame.merchantTitle:SetPoint("TOPLEFT", frame.merchantName, "BOTTOMLEFT", 0, -2)
 frame.merchantTitle:SetJustifyH("LEFT")
 
-local CreateFlatButton = sfui.common.create_flat_button
+local CreateFlatButton = common.create_flat_button
 
 local closeBtn = CreateFlatButton(frame, "X", 20, 20)
 closeBtn:SetPoint("TOPRIGHT", -5, -5)
@@ -166,7 +167,7 @@ end
 -- (Moved above)
 local buttons = {}
 
-local get_item_id = sfui.common.get_item_id_from_link
+local get_item_id = common.get_item_id_from_link
 
 
 sfui.merchant.housingDecorFilter = sfui.merchant.housingDecorFilter or 0
@@ -206,9 +207,9 @@ function sfui.merchant.create_stack_split_frame(parent)
     eb:SetScript("OnEscapePressed", function() f:Hide() end)
     f.editBox = eb
 
-    f.maxBtn = sfui.common.create_flat_button(f, "Max", 40, 24)
+    f.maxBtn = common.create_flat_button(f, "Max", 40, 24)
     f.maxBtn:SetPoint("LEFT", eb, "RIGHT", 5, 0)
-    sfui.common.set_color(f.maxBtn, "black")
+    common.set_color(f.maxBtn, "black")
     f.maxBtn:SetScript("OnClick", function()
         local maxStack = f.maxStack or 1
         local price = f.price or 0
@@ -224,9 +225,9 @@ function sfui.merchant.create_stack_split_frame(parent)
         eb:SetFocus()
     end)
 
-    f.buyBtn = sfui.common.create_flat_button(f, "Buy", 70, 24)
+    f.buyBtn = common.create_flat_button(f, "Buy", 70, 24)
     f.buyBtn:SetPoint("BOTTOMLEFT", 10, 10)
-    sfui.common.set_color(f.buyBtn, "black")
+    common.set_color(f.buyBtn, "black")
     f.buyBtn:SetScript("OnClick", function()
         local val = tonumber(eb:GetText()) or 1
         if val > 0 then
@@ -235,9 +236,9 @@ function sfui.merchant.create_stack_split_frame(parent)
         f:Hide()
     end)
 
-    f.cancelBtn = sfui.common.create_flat_button(f, "Cancel", 70, 24)
+    f.cancelBtn = common.create_flat_button(f, "Cancel", 70, 24)
     f.cancelBtn:SetPoint("BOTTOMRIGHT", -10, 10)
-    sfui.common.set_color(f.cancelBtn, "black")
+    common.set_color(f.cancelBtn, "black")
     f.cancelBtn:SetScript("OnClick", function() f:Hide() end)
 
     return f
@@ -286,7 +287,7 @@ function sfui.merchant.create_item_button(id, parent)
     btn.icon = iconWrap:CreateTexture(nil, "ARTWORK")
     btn.icon:SetAllPoints(iconWrap)
 
-    sfui.common.apply_square_icon_style(iconWrap, btn.icon)
+    common.apply_square_icon_style(iconWrap, btn.icon)
 
     btn.nameStub = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     btn.nameStub:SetPoint("TOPLEFT", iconWrap, "TOPRIGHT", 5, 2)
@@ -382,7 +383,7 @@ function sfui.merchant.create_item_button(id, parent)
     end)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
-    sfui.common.sync_masque(iconWrap, { Icon = btn.icon })
+    common.sync_masque(iconWrap, { Icon = btn.icon })
 
     return btn
 end
@@ -573,10 +574,10 @@ sfui.merchant.filterBtn:SetPoint("LEFT", sfui.merchant.buybackBtn, "RIGHT", 5, 0
 local function update_filter_button_style(self)
     if sfui.merchant.filterKnown then
         self:SetText("hiding known")
-        sfui.common.set_color(self, sfui.config.merchant.button_colors.filter_active)
+        common.set_color(self, cfg.button_colors.filter_active)
     else
         self:SetText("showing known")
-        sfui.common.set_color(self, sfui.config.merchant.button_colors.filter_inactive)
+        common.set_color(self, cfg.button_colors.filter_inactive)
     end
 end
 update_filter_button_style(sfui.merchant.filterBtn)
@@ -589,7 +590,7 @@ end)
 
 sfui.merchant.filterBtn:SetScript("OnEnter", function(self)
     if not sfui.merchant.filterKnown then
-        sfui.common.set_color(self, sfui.config.merchant.button_colors.filter_hover)
+        common.set_color(self, cfg.button_colors.filter_hover)
     end
 end)
 
@@ -605,10 +606,10 @@ sfui.merchant.housingFilterBtn:SetPoint("LEFT", sfui.merchant.filterBtn, "RIGHT"
 local function update_housing_filter_button_style(self)
     if sfui.merchant.housingDecorFilter == 1 then
         self:SetText("decor: hide known")
-        sfui.common.set_color(self, sfui.config.merchant.button_colors.decor_hide_owned)
+        common.set_color(self, cfg.button_colors.decor_hide_owned)
     else
         self:SetText("decor: show all")
-        sfui.common.set_color(self, sfui.config.merchant.button_colors.decor_show_all)
+        common.set_color(self, cfg.button_colors.decor_show_all)
     end
 end
 update_housing_filter_button_style(sfui.merchant.housingFilterBtn)
@@ -622,7 +623,7 @@ end)
 
 sfui.merchant.housingFilterBtn:SetScript("OnEnter", function(self)
     if sfui.merchant.housingDecorFilter == 0 then
-        sfui.common.set_color(self, sfui.config.merchant.button_colors.filter_hover)
+        common.set_color(self, cfg.button_colors.filter_hover)
     end
 end)
 
@@ -640,18 +641,18 @@ guildRepairBtn:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     local repairAllCost, canRepair = GetRepairAllCost()
 
-    if canRepair and (sfui.common.issecretvalue(repairAllCost) or sfui.common.SafeGT(repairAllCost, 0)) then
-        sfui.common.SafeSetTooltipMoney(GameTooltip, repairAllCost, "Guild Repair")
+    if canRepair and (common.issecretvalue(repairAllCost) or common.SafeGT(repairAllCost, 0)) then
+        common.SafeSetTooltipMoney(GameTooltip, repairAllCost, "Guild Repair")
 
         local amount = GetGuildBankMoney()
         local withdrawLimit = GetGuildBankWithdrawMoney()
-        local isSecretAmount = sfui.common.issecretvalue(amount)
+        local isSecretAmount = common.issecretvalue(amount)
 
         if not isSecretAmount and withdrawLimit >= 0 then
             amount = math.min(amount, withdrawLimit)
         end
 
-        sfui.common.SafeAddMoneyLine(GameTooltip, "Guild Funds: ", amount)
+        common.SafeAddMoneyLine(GameTooltip, "Guild Funds: ", amount)
     else
         GameTooltip:SetText("No Repair Needed")
     end
@@ -674,10 +675,10 @@ rIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 repairBtn:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     local repairAllCost, canRepair = GetRepairAllCost()
-    local isSecret = sfui.common.issecretvalue(repairAllCost)
+    local isSecret = common.issecretvalue(repairAllCost)
 
-    if canRepair and (isSecret or sfui.common.SafeGT(repairAllCost, 0)) then
-        sfui.common.SafeSetTooltipMoney(GameTooltip, repairAllCost, "Repair All")
+    if canRepair and (isSecret or common.SafeGT(repairAllCost, 0)) then
+        common.SafeSetTooltipMoney(GameTooltip, repairAllCost, "Repair All")
     else
         GameTooltip:SetText("No Repair Needed")
     end
@@ -716,9 +717,9 @@ sellJunkBtn:SetScript("OnClick", function()
         end
     end
     if totalPrice > 0 then
-        print("|cff00ff00Sold greys for " .. sfui.common.SafeGetCoinTextureString(totalPrice) .. ".|r")
+        common.print("|cff00ff00Sold greys for " .. common.SafeGetCoinTextureString(totalPrice) .. ".|r")
     else
-        print("|cffff0000No greys to sell.|r")
+        common.print("|cffff0000No greys to sell.|r")
     end
 end)
 
@@ -819,13 +820,13 @@ sfui.merchant.build_item_list = function()
     wipe(sfui.merchant.filteredIndices)
     releaseCache(sfui.merchant.currencyCache)
     local hasHousingItems = false
-    local specID = sfui.common.get_current_spec_id() -- Optimization: Hoist out of loop
+    local specID = common.get_current_spec_id() -- Optimization: Hoist out of loop
 
     for i = 1, numItemsRaw do
         local include, link = true, nil
         if mode == "merchant" then
             link = GetMerchantItemLink(i)
-            if link and not hasHousingItems and sfui.common.is_housing_decor(link) then
+            if link and not hasHousingItems and common.is_housing_decor(link) then
                 hasHousingItems = true
             end
         else
@@ -834,7 +835,7 @@ sfui.merchant.build_item_list = function()
 
         local itemID = get_item_id(link)
         if include and mode == "merchant" and sfui.merchant.filterKnown and link then
-            if sfui.common.is_item_known(link) then
+            if common.is_item_known(link) then
                 include = false
             elseif itemID then
                 local _, _, _, _, _, _, _, _, _, _, _, _, speciesID = C_PetJournal.GetPetInfoByItemID(itemID)
@@ -843,7 +844,7 @@ sfui.merchant.build_item_list = function()
                 end
             end
         end
-        if include and mode == "merchant" and (SfuiDB and SfuiDB.enableDecor) and sfui.merchant.housingDecorFilter > 0 and sfui.common.is_housing_decor(link) then
+        if include and mode == "merchant" and (SfuiDB and SfuiDB.enableDecor) and sfui.merchant.housingDecorFilter > 0 and common.is_housing_decor(link) then
             if SfuiDecorDB and SfuiDecorDB.items and SfuiDecorDB.items[itemID] then
                 local cached = SfuiDecorDB.items[itemID]
                 if sfui.merchant.housingDecorFilter == 1 and ((cached.o or 0) + (cached.p or 0) + (cached.s or 0)) > 0 then
@@ -976,9 +977,9 @@ sfui.merchant.update_merchant = function()
                 btn.icon:SetTexture(data.texture or 134400)
 
                 -- Sync Masque state
-                sfui.common.sync_masque(btn.iconWrap, { Icon = btn.icon })
+                common.sync_masque(btn.iconWrap, { Icon = btn.icon })
 
-                local typeText, isDecor = "", sfui.common.is_housing_decor(data.link)
+                local typeText, isDecor = "", common.is_housing_decor(data.link)
                 if isDecor then
                     local id = get_item_id(data.link)
                     local cached = id and SfuiDecorDB and SfuiDecorDB.items and SfuiDecorDB.items[id]
@@ -999,10 +1000,10 @@ sfui.merchant.update_merchant = function()
                 btn.subName:SetText(typeText == "Other" and "" or typeText)
 
                 local r, g, b = C_Item.GetItemQualityColor(data.quality or 1)
-                btn.nameStub:SetTextColor(r, g, b); btn.nameStub:SetText(sfui.common.shorten_name(data.name, 22))
+                btn.nameStub:SetTextColor(r, g, b); btn.nameStub:SetText(common.shorten_name(data.name, 22))
 
                 local cost = (data.price > 0) and
-                    ((GetMoney() < data.price and "|cffff0000" or "|cffffffff") .. sfui.common.SafeGetCoinTextureString(data.price) .. "|r") or
+                    ((GetMoney() < data.price and "|cffff0000" or "|cffffffff") .. common.SafeGetCoinTextureString(data.price) .. "|r") or
                     ""
                 if data.hasExtendedCost then
                     for j = 1, GetMerchantItemCostInfo(index) do
