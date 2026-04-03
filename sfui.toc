@@ -33,6 +33,7 @@ frames/alts.lua
 
 frames/vehicle.lua
 frames/automation.lua
+frames/logs.lua
 frames/cdm.lua
 frames/trackedoptions.lua
 frames/trackedbars.lua
