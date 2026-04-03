@@ -721,6 +721,11 @@ function sfui.highest.GetBestItems(isPvP)
     end
 
     local score2H = best2H and best2H.score or 0
+    if best2H then
+        -- A 2H weapon occupies two slots, so its base ilvl component must be doubled to compare 
+        -- against the sum of a 1H + OH score (which organically adds two item levels together).
+        score2H = score2H + (best2H.ilvl * (isPvP and 100 or 10))
+    end
     local scoreDual = (best1H and best1H.score or 0) + (bestOH and bestOH.score or 0)
 
     if score2H > 0 or scoreDual > 0 then
