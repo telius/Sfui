@@ -416,7 +416,7 @@ local function UpdateLayout()
     if #attachedBars > 0 then
         table.sort(attachedBars, SimpleSort)
 
-        local spacing = cfg.barLayout.spacing or 1
+        local spacing = sfui.config.barLayout.spacing or 1
         local anchor = _G["sfui_bar0_Backdrop"]
         local isBar1 = false
 

@@ -190,8 +190,23 @@ local function UpdateCooldowns()
                     -- We store a boolean flag to avoid infinite securecall loops.
                     if not _secretCacheStart[btn] then
                         local cd = _G[btn:GetName() .. "Cooldown"] or btn.cooldown
-                        if cd then securecall(cd.SetCooldown, cd, _v_start, _v_duration) end
-                        if btn.shadowCooldown then securecall(btn.shadowCooldown.SetCooldown, btn.shadowCooldown, _v_start, _v_duration) end
+                        -- Use safe pcall to avoid crash when SetCooldown rejects secret values
+                        local ok1 = true
+                        if cd then ok1 = pcall(cd.SetCooldown, cd, _v_start, _v_duration) end
+                        local ok2 = true
+                        if btn.shadowCooldown then ok2 = pcall(btn.shadowCooldown.SetCooldown, btn.shadowCooldown, _v_start, _v_duration) end
+                        
+                        -- If SetCooldown fails, it means 12.0.1 blocked secret values. Redirect through GetActionInfo -> DurationObject
+                        if not ok1 or not ok2 then
+                            local actionType, id = GetActionInfo(_v_actionID)
+                            if actionType == "spell" and C_Spell and C_Spell.GetSpellCooldownDuration then
+                                local ok_dur, durationObj = pcall(C_Spell.GetSpellCooldownDuration, id)
+                                if ok_dur and durationObj then
+                                    if cd and cd.SetCooldownFromDurationObject then cd:SetCooldownFromDurationObject(durationObj) end
+                                    if btn.shadowCooldown and btn.shadowCooldown.SetCooldownFromDurationObject then btn.shadowCooldown:SetCooldownFromDurationObject(durationObj) end
+                                end
+                            end
+                        end
                         _secretCacheStart[btn] = true
                         _secretCacheDuration[btn] = true
                     end

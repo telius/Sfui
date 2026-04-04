@@ -138,6 +138,59 @@ local PROF_KP_SOURCES = {
 
 -- Configuration & Data Tables
 local CATEGORIES = {}
+
+local function get_short_map_name(mapID)
+    local name = C_ChallengeMode.GetMapUIInfo(mapID)
+    if not name then return nil end
+
+    -- Hardcoded common overrides based on community usage
+    local overrides = {
+        ["Ara-Kara, City of Echoes"] = "ARA",
+        ["City of Threads"] = "COT",
+        ["The Stonevault"] = "SV",
+        ["The Dawnbreaker"] = "DB",
+        ["Mists of Tirna Scithe"] = "MISTS",
+        ["The Necrotic Wake"] = "NW",
+        ["Siege of Boralus"] = "SIEGE",
+        ["Grim Batol"] = "GB",
+        ["Darkflame Cleft"] = "DFC",
+        ["Cinderbrew Meadery"] = "CM",
+        ["Priory of the Sacred Flame"] = "PSF",
+        ["The Rookery"] = "ROOK",
+        ["Operation: Floodgate"] = "FLOOD",
+        ["Liberation of Undermine"] = "LOU",
+        ["Darkmoon"] = "DM",
+        ["Theater of Pain"] = "TOP",
+        ["Ruby Life Pools"] = "RLP",
+        ["The Nokhud Offensive"] = "TNO",
+        ["Algeth'ar Academy"] = "AA",
+        ["Halls of Infusion"] = "HOI",
+        ["Neltharus"] = "NELT",
+        ["Brackenhide Hollow"] = "BH",
+        ["Uldaman: Legacy of Tyr"] = "ULD",
+        ["Operation: Mechagon - Junkyard"] = "JUNK",
+        ["Operation: Mechagon - Workshop"] = "WORK",
+        ["Return to Karazhan: Lower"] = "LOW",
+        ["Return to Karazhan: Upper"] = "UPP"
+    }
+
+    if overrides[name] then return overrides[name] end
+
+    -- Generic fallback
+    local abbrev = ""
+    for word in name:gmatch("%a+") do
+        if word:upper() ~= "OF" and word:upper() ~= "THE" then
+            local first = word:sub(1,1)
+            if first == first:upper() then
+                abbrev = abbrev .. first
+            end
+        end
+    end
+    if abbrev:len() > 0 and abbrev:len() <= 4 then return abbrev end
+    
+    return name:sub(1, 4):upper()
+end
+
 local CURRENCIES = {
     { id = 3343, label = "Champ",    icon = 7639519 },                       -- Champion Dawncrest
     { id = 3345, label = "Hero",     icon = 7639521 },                       -- Hero Dawncrest
@@ -1208,7 +1261,23 @@ function sfui.alts.UpdateUI(force)
                 end
             elseif cat.type == "keystone" then
                 if alt.data.keystone then
-                    text:SetText(string.format("%d", alt.data.keystone.level))
+                    local name = get_short_map_name(alt.data.keystone.mapID)
+                    if name then
+                        text:SetText(string.format("%s - %d", name, alt.data.keystone.level))
+
+                        local mapID = alt.data.keystone.mapID
+                        cell:SetScript("OnEnter", function(self)
+                            local fullName = C_ChallengeMode.GetMapUIInfo(mapID)
+                            if fullName then
+                                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                                GameTooltip:SetText(fullName)
+                                GameTooltip:Show()
+                            end
+                        end)
+                        cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                    else
+                        text:SetText(string.format("%d", alt.data.keystone.level))
+                    end
                     local color = C_ChallengeMode.GetKeystoneLevelRarityColor(alt.data.keystone.level)
                     if alt.data.keystone.level >= 12 then
                         text:SetTextColor(1, 0.5, 0) -- Orange for 12+

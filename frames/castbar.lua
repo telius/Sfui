@@ -247,7 +247,7 @@ local function OnUpdate(self, elapsed)
 
             if currentStage ~= self.empowerStage then
                 self.empowerStage = currentStage
-                local stageColors = cfg[self.configName].empoweredStageColors
+                local stageColors = cfg.empoweredStageColors
                 local c = stageColors and stageColors[currentStage]
                 if c then self:SetStatusBarColor(c[1], c[2], c[3]) end
             end
@@ -372,7 +372,7 @@ local function OnEvent(self, event, ...)
             self.instant = nil
             self.numStages, self.empowerStage = numStages, 0
 
-            local stageColors = cfg[self.configName].empoweredStageColors
+            local stageColors = cfg.empoweredStageColors
             local c = stageColors and stageColors[1]
             if c then self:SetStatusBarColor(c[1], c[2], c[3]) else UpdateCastBarColor(self, "EMPOWER") end
             CreateStageDividers(self, numStages)

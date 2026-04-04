@@ -545,3 +545,56 @@ sfui.events.RegisterEvent("GET_ITEM_INFO_RECEIVED", function(itemID, success)
         refreshHammer()
     end
 end)
+
+local function auto_slot_keystone()
+    local ReagentClass, KeystoneClass = Enum.ItemClass.Reagent, Enum.ItemReagentSubclass.Keystone
+    local GetContainerItemID, GetContainerNumSlots, GetItemInfo = C_Container.GetContainerItemID, C_Container.GetContainerNumSlots, C_Item.GetItemInfo
+    local NUM_BAG_FRAMES = NUM_BAG_FRAMES or 4
+
+    for bag = 0, NUM_BAG_FRAMES do
+        for slot = 1, GetContainerNumSlots(bag) do
+            local ID = GetContainerItemID(bag, slot)
+            if ID then
+                local Class, SubClass = select(12, GetItemInfo(ID))
+                if Class == ReagentClass and SubClass == KeystoneClass then
+                    C_Container.PickupContainerItem(bag, slot)
+                    if C_Cursor.GetCursorItem() then
+                        C_ChallengeMode.SlotKeystone()
+                        return true
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+local function init_keystone_automation()
+    local Frame = ChallengesKeystoneFrame
+    if not Frame or Frame.sfui_keystone_init then return end
+    Frame.sfui_keystone_init = true
+
+    Frame:HookScript("OnShow", function()
+        if SfuiDB.autoKeystone ~= false then
+            auto_slot_keystone()
+        end
+    end)
+
+    if not Frame:IsMovable() then
+        Frame:SetMovable(true)
+        Frame:SetClampedToScreen(true)
+        Frame:RegisterForDrag("LeftButton")
+        Frame:SetScript("OnDragStart", Frame.StartMoving)
+        Frame:SetScript("OnDragStop", Frame.StopMovingOrSizing)
+    end
+end
+
+sfui.events.RegisterEvent("PLAYER_LOGIN", function()
+    init_keystone_automation()
+end)
+
+sfui.events.RegisterEvent("ADDON_LOADED", function(event, addon)
+    if addon == "Blizzard_ChallengesUI" then
+        init_keystone_automation()
+    end
+end)
