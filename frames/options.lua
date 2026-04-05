@@ -278,9 +278,9 @@ function sfui.create_options_panel()
 
     local enable_vehicle_cb = create_checkbox(main_panel, "enable vehicle ui", "enableVehicle", function(checked)
         if checked then
-            common.common.print("|cff00ff00Sfui: Vehicle UI enabled. Please reload UI for changes to fully apply.|r")
+            common.common.print("Vehicle UI enabled. Please reload UI for changes to fully apply.")
         else
-            common.common.print("|cffff0000Sfui: Vehicle UI disabled. Default WoW frame will be used on reload.|r")
+            common.common.print("Vehicle UI disabled. Default WoW frame will be used on reload.")
         end
     end, "Enables the custom vehicle/overlay bar (requires reload).")
     enable_vehicle_cb:SetPoint("TOPLEFT", enable_auto_compare_cb, "BOTTOMLEFT", 0, -20)
@@ -604,7 +604,7 @@ function sfui.create_options_panel()
     local enable_decor_cb = create_checkbox(merchant_panel, "enable decor filter", "enableDecor", function(checked)
         if not checked and SfuiDecorDB then
             wipe(SfuiDecorDB)
-            common.common.print("|cff00ff00Sfui: Decor cache cleared.|r")
+            common.common.print("Decor cache cleared.")
         end
         if sfui.merchant and sfui.merchant.reset_scroll_and_rebuild then
             sfui.merchant.reset_scroll_and_rebuild()

@@ -110,7 +110,7 @@ local function TryEquipSet(setName)
         if common and common.print then
             common.print("Automatically equipped set: " .. name)
         else
-            common.print("|cff6600ffsfui:|r Automatically equipped set: " .. name)
+            print("|cff6600ffsfui:|r Automatically equipped set: " .. name)
         end
         return true
     end
@@ -1041,7 +1041,10 @@ gearFrame:SetScript("OnShow", function(self)
     -- Bottom strip
     self.maxLvlChk = common.create_checkbox(self, "Auto Equip at Max Level",
         function() return charDB().max_level_autoequip end,
-        function(c) charDB().max_level_autoequip = c end)
+        function(c)
+            charDB().max_level_autoequip = c
+            if c then sfui.gear.Update() end
+        end)
     self.maxLvlChk:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", 15, 28)
     self.maxLvlChk.text:SetShadowOffset(0, 0)
 

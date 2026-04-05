@@ -1882,7 +1882,7 @@ function sfui.alts.initialize()
                 if d.raids then wipe(d.raids) end
             end
             sfui.alts.UpdateUI(true)
-            sfui.common.print("|cff9966ffSFUI:|r Manually reset all weekly data for alts.")
+            sfui.common.print("Manually reset all weekly data for alts.")
         else
             sfui.alts.Toggle()
         end

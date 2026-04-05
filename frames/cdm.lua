@@ -18,7 +18,7 @@ local C_Timer = C_Timer
 local ReloadUI = _G.ReloadUI or (C_UI and C_UI.Reload)
 
 StaticPopupDialogs["SFUI_RELOAD_UI"] = {
-    text = "|cff00FF00SFUI:|r Tracked Bars modified. Reload UI to apply changes?",
+    text = "Tracked Bars modified. Reload UI to apply changes?",
     button1 = "Reload",
     button2 = "Later",
     OnAccept = function()
@@ -1495,7 +1495,7 @@ OnZoneReceiveDrag = function(zoneFrame, panelData, isTrackedBars)
         if sfui.trackedbars and sfui.trackedbars.UpdateVisibility then sfui.trackedbars.UpdateVisibility() end
         if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
 
-        common.print("|cff00FF00SFUI:|r Added to Tracked Bars")
+        common.print("Added to Tracked Bars")
     else
         -- Add to panel
         if not panelData.entries then panelData.entries = {} end
@@ -1520,7 +1520,7 @@ OnZoneReceiveDrag = function(zoneFrame, panelData, isTrackedBars)
         end
 
         if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
-        common.print("|cff00FF00SFUI:|r Added to " .. (panelData.name or "panel"))
+        common.print("Added to " .. (panelData.name or "panel"))
     end
 
     -- We don't call OnIconDragStop here because OnDragStop will trigger on the icon itself
@@ -1560,7 +1560,7 @@ HandleExternalDrop = function(zoneFrame, panelData, isTrackedBars)
             draggedItemID = (cdInfo.itemID and cdInfo.itemID > 0) and cdInfo.itemID or nil
         end
     elseif cursorType == "petaction" or cursorType == "macro" then
-        common.print("|cffFF9900SFUI:|r Macros and pet actions are not supported.")
+        common.print("Macros and pet actions are not supported.")
         ClearCursor()
         return
     else
@@ -1617,14 +1617,14 @@ HandleExternalDrop = function(zoneFrame, panelData, isTrackedBars)
     -- Debug print to help user verify ID
     if entry.type == "spell" then
         local link = C_Spell.GetSpellLink(incomingId)
-        common.print("|cff00FF00SFUI:|r Imported Spell: " .. (link or incomingId) .. " (ID: " .. incomingId .. ")")
+        common.print("Imported Spell: " .. (link or incomingId) .. " (ID: " .. incomingId .. ")")
     elseif entry.type == "item" then
         local link = (GetItemInfo and select(2, GetItemInfo(incomingId))) or C_Item.GetItemNameByID(incomingId) or
             incomingId
-        common.print("|cff00FF00SFUI:|r Imported Item: " .. link .. " (ID: " .. incomingId .. ")")
+        common.print("Imported Item: " .. link .. " (ID: " .. incomingId .. ")")
     elseif entry.type == "cooldown" then
         local link = GetCooldownName(incomingId, "spell") or incomingId
-        common.print("|cff00FF00SFUI:|r Imported Cooldown: " .. link .. " (ID: " .. incomingId .. ")")
+        common.print("Imported Cooldown: " .. link .. " (ID: " .. incomingId .. ")")
     end
 
     if isTrackedBars then
@@ -1646,13 +1646,13 @@ HandleExternalDrop = function(zoneFrame, panelData, isTrackedBars)
 
         if sfui.trackedbars and sfui.trackedbars.UpdateVisibility then sfui.trackedbars.UpdateVisibility() end
         if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
-        common.print("|cff00FF00SFUI:|r Added to Tracked Bars and Saved")
+        common.print("Added to Tracked Bars and Saved")
     else
         if not panelData.entries then panelData.entries = {} end
 
         table.insert(panelData.entries, entry)
         if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
-        common.print("|cff00FF00SFUI:|r Added to " .. (panelData.name or "panel"))
+        common.print("Added to " .. (panelData.name or "panel"))
     end
 
     ClearCursor()
@@ -1732,7 +1732,7 @@ OnIconDragStop = function(self)
                 end
 
                 if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
-                common.print("|cffFF0000SFUI:|r Removed from Zone and Saved")
+                common.print("Removed from Zone and Saved")
             end
         end
     end

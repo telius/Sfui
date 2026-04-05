@@ -1,5 +1,10 @@
-## v0.6.0b (2026-04-03)
+## v0.6.0d (2026-04-05)
 
+### Bug Fixes
+- **Print Formatting**: Removed redundant `SFUI:` and `sfui:` string prefixes from print statements across all core frames to prevent double prefixes.
+- **Gear Manager**: The "Auto Equip at Max Level" toggle now instantly triggers an item re-evaluation when enabled instead of waiting for the next inventory event.
+
+## v0.6.0b (2026-04-03)
 ### Bug Fixes
 - **Tracked Bars/Icons Scoping**: Resolved a widespread scoping issue across tracked bars and their options (`trackedbars.lua`, `trackedoptions.lua`) where dynamically spawned frames were incorrectly evaluating shadowed cfg variables for textures and colors, triggering silent UI errors that prevented tracking bars from visually populating.
 

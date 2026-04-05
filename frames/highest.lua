@@ -31,7 +31,7 @@ local function sfprint(msg)
     if sfui.common and sfui.common.print then
         sfui.common.print(msg)
     else
-        sfui.common.print("|cff6600ffsfui:|r " .. msg)
+        print("|cff6600ffsfui:|r " .. msg)
     end
 end
 

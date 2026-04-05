@@ -325,7 +325,7 @@ function sfui.trackedoptions.toggle_viewer()
     if not isShown then
         frame:SetScript("OnShow", function()
             if InCombatLockdown() then
-                common.print("|cffFF0000SFUI:|r Cannot configure tracked bars in combat.")
+                common.print("Cannot configure tracked bars in combat.")
                 frame:Hide()
                 return
             end
