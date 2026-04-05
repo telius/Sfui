@@ -60,9 +60,10 @@ local tinsert           = _G.tinsert
 -- Layout
 -- ========================
 local ICON_SIZE         = 48
-local ICON_SPACING      = 4
+local ICON_SPACING_X    = 4
+local ICON_SPACING_Y    = 18 -- More padding for the text label
 local ICONS_PER_ROW     = 4
-local FRAME_WIDTH       = ICONS_PER_ROW * (ICON_SIZE + ICON_SPACING) + ICON_SPACING + 10 -- ~222
+local FRAME_WIDTH       = ICONS_PER_ROW * (ICON_SIZE + ICON_SPACING_X) + ICON_SPACING_X + 10 -- ~222
 
 -- ========================
 -- Shared overlay action button (Scotty's InsecureActionButtonTemplate pattern).
@@ -248,6 +249,16 @@ local function make_spell_icon(parent, spellID, label, x, y)
     grey:SetAllPoints()
     grey:SetColorTexture(0, 0, 0, 0.5)
     grey:Hide()
+
+    local shortStr = sfui.common.get_short_string(label)
+    if shortStr and shortStr ~= "" then
+        local text = frame:CreateFontString(nil, "OVERLAY")
+        local fontFile = _G.GameFontNormal:GetFont()
+        text:SetFont(fontFile, 9, "OUTLINE")
+        text:SetPoint("TOP", frame, "BOTTOM", 0, -2)
+        text:SetText(shortStr)
+        text:SetTextColor(0.9, 0.9, 0.9)
+    end
 
     local function refresh()
         local rem = spell_cd_remaining(spellID)
@@ -531,8 +542,8 @@ local function build_portals_frame()
     if #seasonKnown > 0 then
         local col, row = 0, 0
         for _, e in ipairs(seasonKnown) do
-            local x = ICON_SPACING + col * (ICON_SIZE + ICON_SPACING)
-            local y = curY - row * (ICON_SIZE + ICON_SPACING)
+            local x = ICON_SPACING_X + col * (ICON_SIZE + ICON_SPACING_X)
+            local y = curY - row * (ICON_SIZE + ICON_SPACING_Y)
             local btn = make_spell_icon(portalFrame, e.spell, e.name, x, y)
             tinsert(portalFrame.refreshable, btn)
             col = col + 1
@@ -541,7 +552,7 @@ local function build_portals_frame()
             end
         end
         local usedRows = math_floor((#seasonKnown - 1) / ICONS_PER_ROW) + 1
-        curY = curY - usedRows * (ICON_SIZE + ICON_SPACING) - 4
+        curY = curY - usedRows * (ICON_SIZE + ICON_SPACING_Y) - 8
         make_divider(portalFrame, curY)
         curY = curY - 6
     end

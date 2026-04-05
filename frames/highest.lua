@@ -616,11 +616,21 @@ function sfui.highest.GetBestItems(isPvP)
                             if simName ~= "None" and pweights[simName] then
                                 score = score + (statAmount * pweights[simName])
                             end
+
+                            -- Tertiary stat modifiers
+                            if statName == "ITEM_MOD_CR_LIFESTEAL_SHORT" or statName == "ITEM_MOD_CR_SPEED_SHORT" then
+                                score = score + statAmount
+                            end
                         end
                     elseif statWeights then
                         for statName, statAmount in pairs(itemStats) do
                             if statWeights[statName] then
                                 score = score + (statAmount * statWeights[statName])
+                            end
+
+                            -- Tertiary stat modifiers
+                            if statName == "ITEM_MOD_CR_LIFESTEAL_SHORT" or statName == "ITEM_MOD_CR_SPEED_SHORT" then
+                                score = score + statAmount
                             end
                         end
                     end
@@ -801,6 +811,9 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
             table.insert(equipQueue, { slotID = slotID, item = item })
         end
     end
+    
+    -- Ensure deterministic equip order (Main Hand 16 before Off Hand 17) to satisfy Titan's Grip constraints
+    table.sort(equipQueue, function(a, b) return a.slotID < b.slotID end)
 
     local totalToEquip = #equipQueue
 
@@ -823,7 +836,9 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
         if item.isUnequip then
             if _G.ClearCursor then _G.ClearCursor() end
             if _G.PickupInventoryItem then _G.PickupInventoryItem(slotID) end
-            if _G.PutItemInBackpack then _G.PutItemInBackpack() end
+            _G.C_Timer.After(0.1, function()
+                if _G.PutItemInBackpack then _G.PutItemInBackpack() end
+            end)
         elseif item.bag and item.slot then
             if _G.ClearCursor then _G.ClearCursor() end
             C_Container.PickupContainerItem(item.bag, item.slot)

@@ -433,7 +433,7 @@ local function UpdateLayout()
                 bar:SetParent(UIParent)
                 bar:ClearAllPoints()
 
-                local width = cfg.healthBar.width * (cfg.attachedWidthMultiplier or 0.8)
+                local width = sfui.config.healthBar.width * (cfg.attachedWidthMultiplier or 0.8)
                 local height = cfg.attachedHeight or 20
 
                 bar:SetSize(width, height)

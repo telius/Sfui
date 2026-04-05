@@ -139,58 +139,6 @@ local PROF_KP_SOURCES = {
 -- Configuration & Data Tables
 local CATEGORIES = {}
 
-local function get_short_map_name(mapID)
-    local name = C_ChallengeMode.GetMapUIInfo(mapID)
-    if not name then return nil end
-
-    -- Hardcoded common overrides based on community usage
-    local overrides = {
-        ["Ara-Kara, City of Echoes"] = "ARA",
-        ["City of Threads"] = "COT",
-        ["The Stonevault"] = "SV",
-        ["The Dawnbreaker"] = "DB",
-        ["Mists of Tirna Scithe"] = "MISTS",
-        ["The Necrotic Wake"] = "NW",
-        ["Siege of Boralus"] = "SIEGE",
-        ["Grim Batol"] = "GB",
-        ["Darkflame Cleft"] = "DFC",
-        ["Cinderbrew Meadery"] = "CM",
-        ["Priory of the Sacred Flame"] = "PSF",
-        ["The Rookery"] = "ROOK",
-        ["Operation: Floodgate"] = "FLOOD",
-        ["Liberation of Undermine"] = "LOU",
-        ["Darkmoon"] = "DM",
-        ["Theater of Pain"] = "TOP",
-        ["Ruby Life Pools"] = "RLP",
-        ["The Nokhud Offensive"] = "TNO",
-        ["Algeth'ar Academy"] = "AA",
-        ["Halls of Infusion"] = "HOI",
-        ["Neltharus"] = "NELT",
-        ["Brackenhide Hollow"] = "BH",
-        ["Uldaman: Legacy of Tyr"] = "ULD",
-        ["Operation: Mechagon - Junkyard"] = "JUNK",
-        ["Operation: Mechagon - Workshop"] = "WORK",
-        ["Return to Karazhan: Lower"] = "LOW",
-        ["Return to Karazhan: Upper"] = "UPP"
-    }
-
-    if overrides[name] then return overrides[name] end
-
-    -- Generic fallback
-    local abbrev = ""
-    for word in name:gmatch("%a+") do
-        if word:upper() ~= "OF" and word:upper() ~= "THE" then
-            local first = word:sub(1,1)
-            if first == first:upper() then
-                abbrev = abbrev .. first
-            end
-        end
-    end
-    if abbrev:len() > 0 and abbrev:len() <= 4 then return abbrev end
-    
-    return name:sub(1, 4):upper()
-end
-
 local CURRENCIES = {
     { id = 3343, label = "Champ",    icon = 7639519 },                       -- Champion Dawncrest
     { id = 3345, label = "Hero",     icon = 7639521 },                       -- Hero Dawncrest
@@ -1105,6 +1053,12 @@ local function SortAlts(a, b)
     elseif sortMethod == "rating" then
         local aRating, bRating = a.data.rating or 0, b.data.rating or 0
         if aRating ~= bRating then return aRating > bRating end
+        
+        -- Tie-breaker: Level > iLvl
+        local aLevel, bLevel = a.data.level or 0, b.data.level or 0
+        local aILvl, bILvl = a.data.iLvl or 0, b.data.iLvl or 0
+        if aLevel ~= bLevel then return aLevel > bLevel end
+        if aILvl ~= bILvl then return aILvl > bILvl end
     end
     return (a.data.name or "") < (b.data.name or "")
 end
@@ -1261,7 +1215,7 @@ function sfui.alts.UpdateUI(force)
                 end
             elseif cat.type == "keystone" then
                 if alt.data.keystone then
-                    local name = get_short_map_name(alt.data.keystone.mapID)
+                    local name = sfui.common.get_short_map_name(alt.data.keystone.mapID)
                     if name then
                         text:SetText(string.format("%s - %d", name, alt.data.keystone.level))
 
@@ -1367,9 +1321,25 @@ function sfui.alts.UpdateUI(force)
                 end)
                 cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
             elseif cat.type == "quests_grid" then
-                -- Layout: [Abund][Legend][Runes][Storm] · [Bounty][TW Raid][Stash N/4]
-                text:Hide()
-                local q           = alt.data.quests
+                local isMaxLevel = true
+                if alt.data.level and _G.GetMaxPlayerLevel and alt.data.level < _G.GetMaxPlayerLevel() then
+                    isMaxLevel = false
+                end
+
+                if not isMaxLevel then
+                    text:Show()
+                    text:SetText("-")
+                    text:SetTextColor(0.4, 0.4, 0.4)
+                    for bIdx = 1, 7 do
+                        if cell["qRect" .. bIdx] then cell["qRect" .. bIdx]:Hide() end
+                        if cell["qCount" .. bIdx] then cell["qCount" .. bIdx]:Hide() end
+                    end
+                    cell:SetScript("OnEnter", nil)
+                    cell:SetScript("OnLeave", nil)
+                else
+                    -- Layout: [Abund][Legend][Runes][Storm] · [Bounty][TW Raid][Stash N/4]
+                    text:Hide()
+                    local q           = alt.data.quests
 
                 -- Block definitions: core group (purple) then bonus group (amber)
                 local BLOCKS      = {
@@ -1516,9 +1486,22 @@ function sfui.alts.UpdateUI(force)
                     GameTooltip:Show()
                 end)
                 cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                end
             elseif cat.type == "prey" then
-                if alt.data.prey then
-                    local p = alt.data.prey
+                local isMaxLevel = true
+                if alt.data.level and _G.GetMaxPlayerLevel and alt.data.level < _G.GetMaxPlayerLevel() then
+                    isMaxLevel = false
+                end
+
+                if not isMaxLevel then
+                    text:Show()
+                    text:SetText("-")
+                    text:SetTextColor(0.4, 0.4, 0.4)
+                    cell:SetScript("OnEnter", nil)
+                    cell:SetScript("OnLeave", nil)
+                else
+                    if alt.data.prey then
+                        local p = alt.data.prey
                     local sColors = cfg.statusColors
                     local normal = p.normal or 0
                     local hard = p.hard or 0
@@ -1564,6 +1547,7 @@ function sfui.alts.UpdateUI(force)
                     GameTooltip:Show()
                 end)
                 cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                end
             elseif cat.type == "prof_slot" then
                 local pData
                 local profs = {}
