@@ -285,8 +285,11 @@ function sfui.gear.UpdateStatUI()
                     -- P4: reuse scratch list instead of allocating a new table every call
                     local n = 0
                     for k, v in pairs(targetDB.pawn_weights) do
-                        n = n + 1
-                        pawnScratchList[n] = { stat = k:gsub("Rating", ""), weight = v }
+                        local sName = k:gsub("Rating", "")
+                        if sName == "Haste" or sName == "Mastery" or sName == "Versatility" or sName == "Crit" then
+                            n = n + 1
+                            pawnScratchList[n] = { stat = sName, weight = v }
+                        end
                     end
                     -- Clear any leftover entries from a previous longer list
                     for i = n + 1, #pawnScratchList do pawnScratchList[i] = nil end

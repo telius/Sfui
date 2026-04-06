@@ -75,5 +75,17 @@ Clean interfaces for vehicles and current flight systems.
 ![Skyriding](.previews/dragonflying.png)
 *Skyriding HUD*
 
+### Alts Manager
+Track your alternate characters' item levels, lockouts, and weekly activities. Provides an overview of Great Vault progress across your account.
+![Alts Tracker](.previews/alts.png)
+
+### Cooldown Manager (CDM)
+A dynamic scrolling tracker to effortlessly monitor important active auras, procs, and cooldowns.
+![Cooldown Manager](.previews/cdm.png)
+
+### Portals & Teleports
+An organized, persistent UI for quick access to all your character's teleport toys, spells, and hearthstones, neatly categorized by expansion and location.
+![Portals Frame](.previews/portals.png)
+
 ![Vehicle UI](.previews/vehicleui.png)
 *Vehicle Interface*

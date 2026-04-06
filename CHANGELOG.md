@@ -1,6 +1,12 @@
-## v0.6.0d (2026-04-05)
+## v0.6.0e (2026-04-06)
+
+### Features
+- **Documentation**: Added documentation and visual previews for the Alts Manager, Cooldown Manager (CDM), and Portals framework to the README overview.
 
 ### Bug Fixes
+- **Gear Manager Pawn Strings**: Fixed an issue where importing a Pawn string containing non-secondary stats (like Dps or Stamina) would cause the UI stat priority buttons to incorrectly display random characters ("D S O M").
+
+## v0.6.0d (2026-04-05)### Bug Fixes
 - **Print Formatting**: Removed redundant `SFUI:` and `sfui:` string prefixes from print statements across all core frames to prevent double prefixes.
 - **Gear Manager**: The "Auto Equip at Max Level" toggle now instantly triggers an item re-evaluation when enabled instead of waiting for the next inventory event.
 
