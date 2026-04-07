@@ -229,7 +229,6 @@ sfui.config = {
         visibility = "always", -- "always", "combat", "noCombat"
     },
 
-    -- options panel specific settings
     options_panel = {
         width = 500,
         height = 500,
@@ -251,30 +250,25 @@ sfui.config = {
         HEADER_Y = 20,
     },
 
-    -- currency frame settings
     currency_frame = {
         width = 200,
         height = 70,
     },
 
-    -- gear swapper settings
     gear = {
         updateDelay = 3,
         maxScaledILvl = 1000,
     },
 
-    -- item frame settings
     item_frame = {
         width = 200,
         height = 70,
     },
 
-    -- CVars to set on addon load
     cvars_on_load = {
         { name = "autoLootDefault", value = 1 },
     },
 
-    -- Power Bar settings
     powerBar = {
         enabled = true,
         width = 300,
@@ -298,7 +292,6 @@ sfui.config = {
         },
     },
 
-    -- Cast Bar settings
     castBar = {
         enabled = true,
         width = 300,
@@ -330,8 +323,6 @@ sfui.config = {
         }
     },
 
-
-
     targetCastBar = {
         enabled = true,
         width = 300,
@@ -346,7 +337,6 @@ sfui.config = {
         },
     },
 
-    -- Instant Cast Bar (GCD Bar) settings
     instantCastBar = {
         enabled = true,
         width = 300,
@@ -359,7 +349,6 @@ sfui.config = {
         },
     },
 
-    -- Health Bar settings
     healthBar = {
         enabled = true,
         width = 300,
@@ -372,7 +361,6 @@ sfui.config = {
         },
     },
 
-    -- Secondary Power Bar settings
     secondaryPowerBar = {
         enabled = true,
         width = 240,
@@ -390,7 +378,6 @@ sfui.config = {
         },
     },
 
-    -- Vigor Bar settings
     vigorBar = {
         enabled = true,
         width = 240,
@@ -407,7 +394,6 @@ sfui.config = {
         },
     },
 
-    -- Mount Speed Bar settings
     mountSpeedBar = {
         enabled = true,
         width = 240,
@@ -423,8 +409,6 @@ sfui.config = {
         right = { x = 200, y = 0 },
     },
 
-
-
     barTexture = "Interface/Buttons/WHITE8X8",
 
     barTextures = {
@@ -438,7 +422,7 @@ sfui.config = {
 
     minimap = {
         default_size = 220,
-        defaultZoom = 0, -- Default zoom level
+        defaultZoom = 0,
         button_bar = {
             spacing = 5,
             button_size = 20,
@@ -447,12 +431,10 @@ sfui.config = {
         },
     },
 
-    -- Bar Layout Settings
     barLayout = {
         spacing = 1,
     },
 
-    -- Vehicle UI settings
     vehicle = {
         enabled = true,
         width = 300,
@@ -463,7 +445,6 @@ sfui.config = {
         leave_button_size = 30,
     },
 
-    -- Merchant Frame settings
     merchant = {
         -- Grid layout
         grid = {
@@ -513,14 +494,12 @@ sfui.config = {
         lootFilterState = 0,
     },
 
-    -- automation settings
     automation = {
         auto_role_check = true,
         auto_sign_lfg = true,
     },
 
 
-    -- Tracked Bars (Custom Cooldown Tracker)
     trackedBars = {
         -- Position anchor
         anchor = {
@@ -587,7 +566,6 @@ sfui.config = {
         },
     },
 
-    -- Tracked Options Window
     trackedOptionsWindow = {
         width = 800,
         height = 500,
@@ -599,30 +577,6 @@ sfui.config = {
         requiredRank = 26, -- Required trait rank for repair perks
         defaultPosition = { x = 0, y = 0 },
         defaultColor = "00FFFF",
-        [225660] = { -- Earthen Master's Hammer (TWW)
-            nodes = {
-                ["HEAD"] = 99233,
-                ["SHOULDER"] = 99232,
-                ["CHEST"] = 99237,
-                ["WRIST"] = 99228,
-                ["HANDS"] = 99227,
-                ["WAIST"] = 99229,
-                ["LEGS"] = 99236,
-                ["FEET"] = 99231,
-                ["SHIELD"] = 99235,
-                -- Weapon SubClassIDs (Class 2)
-                [0] = 99447,
-                [1] = 99447,
-                [6] = 99447, -- Axes/Polearms
-                [4] = 99448,
-                [5] = 99448, -- Maces
-                [7] = 99450,
-                [8] = 99450,
-                [9] = 99450, -- Long Blades
-                [15] = 99451,
-                [13] = 99451 -- Short Blades
-            }
-        },
         [238020] = { -- Thalassian Master Repair Hammer (Midnight)
             nodes = {
                 ["HEAD"] = 104570,
@@ -647,7 +601,6 @@ sfui.config = {
             }
         },
     },
-    -- Alts Frame settings
     alts = {
         width = 1000,
         height = 650,

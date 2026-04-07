@@ -57,6 +57,13 @@ local function autoEquipPaused()
     return GetTime() < manualEditUntil
 end
 
+local function isCurrentlyPvP()
+    local _, instanceType = GetInstanceInfo()
+    local isWarMode = C_PvP.IsWarModeDesired()
+    return (instanceType == "pvp" or instanceType == "arena")
+        or (instanceType == "none" and isWarMode)
+end
+
 -- Returns true if the correct gear set for the current zone/spec is already equipped,
 -- meaning EquipHighestILvl must NOT override it.
 local function isGearSetEquipped()
@@ -135,6 +142,11 @@ local statBgColors = {
     None = { 0.12, 0.12, 0.12, 0.9 },
 }
 
+-- Unified PvE / PvP lock colors (used for labels, buttons, tooltips)
+local PVE_COLOR  = { 0.45, 0.65, 1.0 }  -- blue
+local PVP_COLOR  = { 1.0,  0.4,  0.4 }  -- red
+local BOTH_COLOR = { 0.72, 0.52, 1.0 }  -- purple
+
 -- -------------------------------------------------------------------------
 -- UPDATE STAT UI
 -- -------------------------------------------------------------------------
@@ -199,8 +211,10 @@ function sfui.gear.UpdateStatUI()
                     and select(4, C_EquipmentSet.GetEquipmentSetInfo(C_EquipmentSet.GetEquipmentSetID(db.pve_set)))
                 local pt = ui.pveDrop:GetNormalTexture()
                 if pt then
-                    if pveActive then pt:SetVertexColor(0, 1, 1) else pt:SetVertexColor(1, 1, 1) end
+                    if pveActive then pt:SetVertexColor(0, 1, 1) else pt:SetVertexColor(PVE_COLOR[1], PVE_COLOR[2], PVE_COLOR[3]) end
                 end
+                local pfs = ui.pveDrop:GetFontString()
+                if pfs then pfs:SetTextColor(PVE_COLOR[1], PVE_COLOR[2], PVE_COLOR[3]) end
             end
             if ui.pvpDrop then
                 ui.pvpDrop:SetText(db.pvp_set ~= "" and db.pvp_set or "None")
@@ -209,23 +223,28 @@ function sfui.gear.UpdateStatUI()
                     and select(4, C_EquipmentSet.GetEquipmentSetInfo(C_EquipmentSet.GetEquipmentSetID(db.pvp_set)))
                 local vt = ui.pvpDrop:GetNormalTexture()
                 if vt then
-                    if pvpActive then vt:SetVertexColor(0, 1, 1) else vt:SetVertexColor(1, 1, 1) end
+                    if pvpActive then vt:SetVertexColor(0, 1, 1) else vt:SetVertexColor(PVP_COLOR[1], PVP_COLOR[2], PVP_COLOR[3]) end
                 end
+                local vfs = ui.pvpDrop:GetFontString()
+                if vfs then vfs:SetTextColor(PVP_COLOR[1], PVP_COLOR[2], PVP_COLOR[3]) end
             end
             if ui.pawnEdit then ui.pawnEdit:SetText(db.pawn_string or "") end
 
 
             -- locked item icons (per slot, in lockSlots column order: T1,T2,R1,R2,A,W1,W2)
             if ui.lockIcons then
+                local ctxPvP = isCurrentlyPvP()
+                local lockTbl = ctxPvP and db.locked_items_pvp or db.locked_items_pve
+                if not lockTbl then lockTbl = db.locked_items end -- legacy fallback
                 local slotOrder = { 13, 14, 11, 12, 2, 16, 17 }
                 for k, ico in ipairs(ui.lockIcons) do
                     ico.tex:SetTexture(nil); ico.itemID = nil; ico:Hide()
                     local slotID = slotOrder[k]
                     if slotID then
                         local link = GetInventoryItemLink("player", slotID)
-                        if link and db.locked_items then
+                        if link and lockTbl then
                             local itemID, _, _, _, nativeIcon = GetItemInfoInstant(link)
-                            if itemID and db.locked_items[itemID] then
+                            if itemID and lockTbl[itemID] then
                                 local tex = nativeIcon or
                                 ((_G.C_Item and _G.C_Item.GetItemIconByID) and _G.C_Item.GetItemIconByID(itemID)) or
                                 _G.GetItemIcon(itemID)
@@ -238,18 +257,47 @@ function sfui.gear.UpdateStatUI()
                 end
             end
 
-            -- update lock button tint (red = locked)
+            -- update lock button tint + text color based on PvE/PvP lock state
             if ui.lockBtns then
                 for _, entry in ipairs(ui.lockBtns) do
                     local btn, slotID = entry.btn, entry.slotID
                     local link = GetInventoryItemLink("player", slotID)
-                    local locked = false
-                    if link and db.locked_items then
+                    local pveLocked, pvpLocked = false, false
+                    if link then
                         local iid = GetItemInfoInstant(link)
-                        if iid and db.locked_items[iid] then locked = true end
+                        if iid then
+                            pveLocked = db.locked_items_pve and db.locked_items_pve[iid] or false
+                            pvpLocked = db.locked_items_pvp and db.locked_items_pvp[iid] or false
+                            -- Legacy fallback
+                            if not db.locked_items_pve and not db.locked_items_pvp and db.locked_items and db.locked_items[iid] then
+                                pveLocked, pvpLocked = true, true
+                            end
+                        end
+                    end
+                    local c
+                    if pveLocked and pvpLocked then
+                        c = BOTH_COLOR
+                    elseif pveLocked then
+                        c = PVE_COLOR
+                    elseif pvpLocked then
+                        c = PVP_COLOR
                     end
                     local t = btn:GetNormalTexture()
-                    if t then t:SetVertexColor(locked and 1 or 1, locked and 0.3 or 1, locked and 0.3 or 1) end
+                    if t then
+                        if c then
+                            t:SetVertexColor(c[1], c[2], c[3])
+                        else
+                            t:SetVertexColor(1, 1, 1)
+                        end
+                    end
+                    local fs = btn:GetFontString()
+                    if fs then
+                        if c then
+                            fs:SetTextColor(c[1], c[2], c[3])
+                        else
+                            fs:SetTextColor(1, 1, 1)
+                        end
+                    end
                 end
             end
 
@@ -263,7 +311,7 @@ function sfui.gear.UpdateStatUI()
                 end
             end
             if ui.btn4S then
-                local on = db.force_4set
+                local on = (db.force_4set ~= false) and not db.force_2set
                 if on then
                     ui.btn4S:SetBackdropColor(0, 0.5, 0.5, 1)
                 else
@@ -590,8 +638,14 @@ gearFrame:SetScript("OnShow", function(self)
         btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         btn:SetScript("OnClick", function(b)
             if b.itemID and SfuiDB.gear[specId] then
-                SfuiDB.gear[specId].locked_items = SfuiDB.gear[specId].locked_items or {}
-                SfuiDB.gear[specId].locked_items[b.itemID] = nil
+                local sdb = SfuiDB.gear[specId]
+                local ctxPvP = isCurrentlyPvP()
+                local key = ctxPvP and "locked_items_pvp" or "locked_items_pve"
+                if sdb[key] then
+                    sdb[key][b.itemID] = nil
+                end
+                -- Legacy cleanup
+                if sdb.locked_items then sdb.locked_items[b.itemID] = nil end
                 sfui.gear.UpdateStatUI()
             end
         end)
@@ -599,7 +653,8 @@ gearFrame:SetScript("OnShow", function(self)
             if b.itemID then
                 GameTooltip:SetOwner(b, "ANCHOR_RIGHT")
                 GameTooltip:SetItemByID(b.itemID)
-                GameTooltip:AddLine("Click to unlock", 0.6, 0.6, 0.6)
+                local ctx = isCurrentlyPvP() and "PvP" or "PvE"
+                GameTooltip:AddLine("Click to unlock (" .. ctx .. ")", 0.6, 0.6, 0.6)
                 GameTooltip:Show()
             end
         end)
@@ -779,17 +834,29 @@ gearFrame:SetScript("OnShow", function(self)
         lockLabel:SetPoint("TOPLEFT", card, "TOPLEFT", CX, BTN_ROW_Y - 1)
 
         -- lockSlot: toggle lock for the equipped item in the given slot
-        local function lockSlot(slot)
+        local function lockSlot(slot, forPvP)
             local link = GetInventoryItemLink("player", slot)
             if link then
                 local itemID = GetItemInfoInstant(link)
                 if itemID then
                     SfuiDB.gear[id] = SfuiDB.gear[id] or {}
-                    SfuiDB.gear[id].locked_items = SfuiDB.gear[id].locked_items or {}
-                    if SfuiDB.gear[id].locked_items[itemID] then
-                        SfuiDB.gear[id].locked_items[itemID] = nil
+                    local ldb = SfuiDB.gear[id]
+                    -- Migrate legacy format on first interaction
+                    if ldb.locked_items then
+                        ldb.locked_items_pve = ldb.locked_items_pve or {}
+                        ldb.locked_items_pvp = ldb.locked_items_pvp or {}
+                        for k in pairs(ldb.locked_items) do
+                            ldb.locked_items_pve[k] = true
+                            ldb.locked_items_pvp[k] = true
+                        end
+                        ldb.locked_items = nil
+                    end
+                    local key = forPvP and "locked_items_pvp" or "locked_items_pve"
+                    ldb[key] = ldb[key] or {}
+                    if ldb[key][itemID] then
+                        ldb[key][itemID] = nil
                     else
-                        SfuiDB.gear[id].locked_items[itemID] = true
+                        ldb[key][itemID] = true
                     end
                     sfui.gear.UpdateStatUI()
                 end
@@ -812,16 +879,30 @@ gearFrame:SetScript("OnShow", function(self)
             local btn = common.create_flat_button(card, def.label, 22, 18)
             btn:SetPoint("TOPLEFT", card, "TOPLEFT", colX, BTN_ROW_Y)
             local capturedSlot = def.slot
-            btn:SetScript("OnClick", function() lockSlot(capturedSlot) end)
+            btn:SetScript("OnClick", function() lockSlot(capturedSlot, IsShiftKeyDown()) end)
             btn:SetScript("OnEnter", function(b)
                 local link = GetInventoryItemLink("player", capturedSlot)
                 GameTooltip:SetOwner(b, "ANCHOR_TOP")
                 if link then
                     local _, itemName = GetItemInfo(link)
                     local iid = GetItemInfoInstant(link)
-                    local locked = iid and SfuiDB.gear[id] and SfuiDB.gear[id].locked_items
-                        and SfuiDB.gear[id].locked_items[iid]
-                    GameTooltip:SetText((locked and "|cffff4444[Locked]|r " or "") .. (itemName or link))
+                    local pveL = iid and SfuiDB.gear[id] and SfuiDB.gear[id].locked_items_pve
+                        and SfuiDB.gear[id].locked_items_pve[iid]
+                    local pvpL = iid and SfuiDB.gear[id] and SfuiDB.gear[id].locked_items_pvp
+                        and SfuiDB.gear[id].locked_items_pvp[iid]
+                    -- Legacy fallback
+                    if not pveL and not pvpL and iid and SfuiDB.gear[id] and SfuiDB.gear[id].locked_items
+                        and SfuiDB.gear[id].locked_items[iid] then
+                        pveL, pvpL = true, true
+                    end
+                    local tag = ""
+                    if pveL and pvpL then tag = string.format("|cff%02x%02x%02x[PvE+PvP]|r ", BOTH_COLOR[1]*255, BOTH_COLOR[2]*255, BOTH_COLOR[3]*255)
+                    elseif pveL then tag = string.format("|cff%02x%02x%02x[PvE]|r ", PVE_COLOR[1]*255, PVE_COLOR[2]*255, PVE_COLOR[3]*255)
+                    elseif pvpL then tag = string.format("|cff%02x%02x%02x[PvP]|r ", PVP_COLOR[1]*255, PVP_COLOR[2]*255, PVP_COLOR[3]*255)
+                    end
+                    GameTooltip:SetText(tag .. (itemName or link))
+                    GameTooltip:AddLine("Click = toggle PvE lock", PVE_COLOR[1], PVE_COLOR[2], PVE_COLOR[3])
+                    GameTooltip:AddLine("Shift+Click = toggle PvP lock", PVP_COLOR[1], PVP_COLOR[2], PVP_COLOR[3])
                 else
                     GameTooltip:SetText("Nothing equipped")
                 end
@@ -861,7 +942,8 @@ gearFrame:SetScript("OnShow", function(self)
         btn4S:SetPoint("TOPLEFT", card, "TOPLEFT", CX + 320, BTN_ROW_Y)
         btn4S:SetScript("OnClick", function()
             SfuiDB.gear[id] = SfuiDB.gear[id] or {}
-            SfuiDB.gear[id].force_4set = not SfuiDB.gear[id].force_4set
+            local current = (SfuiDB.gear[id].force_4set ~= false) and not SfuiDB.gear[id].force_2set
+            SfuiDB.gear[id].force_4set = not current
             if SfuiDB.gear[id].force_4set then SfuiDB.gear[id].force_2set = false end -- Mutually exclusive
             sfui.gear.UpdateStatUI()
             sfui.gear.Update()

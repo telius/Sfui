@@ -79,28 +79,22 @@ local function auto_sell_greys()
     end
 end
 
-local function find_bs_config()
-    if bsConfigID then return bsConfigID end
+local profConfigIDs = nil
+local function get_all_prof_configs()
+    if profConfigIDs then return profConfigIDs end
 
-    -- Prioritize Khaz Algar (2872)
-    local cfgID = C_ProfSpecs.GetConfigIDForSkillLine(2872)
-    if cfgID and cfgID > 0 then
-        bsConfigID = cfgID
-        return cfgID
-    end
-
-    -- Fallback: Scan everything
+    local configs = {}
     local skillLines = C_TradeSkillUI.GetAllProfessionTradeSkillLines()
     if skillLines then
         for _, skillLineID in ipairs(skillLines) do
             local cfgID = C_ProfSpecs.GetConfigIDForSkillLine(skillLineID)
             if cfgID and cfgID > 0 then
-                bsConfigID = cfgID
-                return cfgID
+                table.insert(configs, cfgID)
             end
         end
     end
-    return nil
+    profConfigIDs = configs
+    return configs
 end
 
 local hammerCache = {
@@ -108,19 +102,19 @@ local hammerCache = {
     name = nil,
     icon = nil,
     itemID = nil,
-    expacID = nil,
     checked = false
 }
 
 function sfui.automation.has_repair_hammer()
     -- If we've already checked this session (or since last BAG_UPDATE), return cached result
     if hammerCache.checked then
-        return hammerCache.found, hammerCache.name, hammerCache.icon, hammerCache.itemID, hammerCache.expacID
+        return hammerCache.found, hammerCache.name, hammerCache.icon, hammerCache.itemID
     end
 
     -- Restriction: Only scan if we have a valid BS config
     -- This prevents scanning on characters that can't possibly use it
-    if not find_bs_config() then
+    local cfgs = get_all_prof_configs()
+    if not cfgs or #cfgs == 0 then
         hammerCache.checked = true
         hammerCache.found = false
         return false
@@ -134,28 +128,26 @@ function sfui.automation.has_repair_hammer()
 
                 -- Fast check against known IDs first to avoid expensive GetItemInfo calls
                 if itemID and sfui.config.masterHammer[itemID] then
-                    local name, _, _, _, _, _, _, _, _, icon, _, _, _, _, expacID = C_Item.GetItemInfo(info.hyperlink)
+                    local name, _, _, _, _, _, _, _, _, icon = C_Item.GetItemInfo(info.hyperlink)
                     hammerCache.found = true
                     hammerCache.name = name
                     hammerCache.icon = icon
                     hammerCache.itemID = itemID
-                    hammerCache.expacID = expacID
                     hammerCache.checked = true
-                    return true, name, icon, itemID, expacID
+                    return true, name, icon, itemID
                 end
 
                 -- Fallback for older/unknown hammers (matches "Master's Hammer")
                 -- We only do this if it's NOT a known ID but might be a hammer string match
                 local name = C_Item.GetItemNameByID(info.hyperlink)
                 if name and name:find("Master.s Hammer") then
-                    local _, _, _, _, _, _, _, _, _, icon, _, _, _, _, expacID = C_Item.GetItemInfo(info.hyperlink)
+                    local _, _, _, _, _, _, _, _, _, icon = C_Item.GetItemInfo(info.hyperlink)
                     hammerCache.found = true
                     hammerCache.name = name
                     hammerCache.icon = icon
                     hammerCache.itemID = itemID
-                    hammerCache.expacID = expacID
                     hammerCache.checked = true
-                    return true, name, icon, itemID, expacID
+                    return true, name, icon, itemID
                 end
             end
         end
@@ -183,17 +175,18 @@ local ARMOR_LOC_MAP = {
 
 local function has_repair_perk(nodeID)
     if not nodeID then return false end
-    local cfgID = find_bs_config()
-    if not cfgID then return true end
+    local cfgs = get_all_prof_configs()
+    if not cfgs or #cfgs == 0 then return true end
 
-    local nodeInfo = C_Traits.GetNodeInfo(cfgID, nodeID)
-    if not nodeInfo or not nodeInfo.currentRank then
-        return false
-    end
-
-    local requiredRank = sfui.config.masterHammer.requiredRank or 26
-    if nodeInfo.currentRank >= requiredRank then
-        return true
+    for _, cfgID in ipairs(cfgs) do
+        local nodeInfo = C_Traits.GetNodeInfo(cfgID, nodeID)
+        if nodeInfo and nodeInfo.ID == nodeID then
+            local requiredRank = sfui.config.masterHammer.requiredRank or 26
+            if (nodeInfo.currentRank or 0) >= requiredRank then
+                return true
+            end
+            return false -- Found the node in this tree, but rank is too low
+        end
     end
     return false
 end
@@ -205,13 +198,8 @@ local function check_repair_eligibility(slot)
     local _, _, _, _, _, _, _, _, equipLoc, _, _, classID, subClassID, _, expacID = C_Item.GetItemInfo(itemLink)
     if not classID then return false end
 
-    local hasHammer, _, _, hammerItemID, hammerExpacID = sfui.automation.has_repair_hammer()
+    local hasHammer, _, _, hammerItemID = sfui.automation.has_repair_hammer()
     if not hasHammer or not hammerItemID then return false end
-
-    -- LOW-CPU Expansion Check: Hammer cannot repair items from newer expansions
-    if expacID and hammerExpacID and expacID > hammerExpacID then
-        return false
-    end
 
     -- Get nodes from config
     local nodes = sfui.config.masterHammer[hammerItemID] and sfui.config.masterHammer[hammerItemID].nodes
@@ -349,7 +337,7 @@ function sfui.automation.update_popup_style()
     end
 end
 
-local function update_hammer_popup()
+update_hammer_popup = function()
     if InCombatLockdown() then return end
 
     local hasHammer, hammerName, hammerIcon, hammerItemID = sfui.automation.has_repair_hammer()
@@ -431,9 +419,24 @@ local function auto_repair()
 
     local hasHammer, hammerName = sfui.automation.has_repair_hammer()
     if hasHammer then
-        sfui.common.print(string.format("|cffff9900Auto-repair skipped: %s detected.|r", hammerName))
-        update_hammer_popup() -- Ensure popup shows
-        return
+        -- Only skip auto-repair if the hammer can actually repair at least one damaged item
+        local threshold = SfuiDB.repairThreshold or 90
+        local hammerCanFix = false
+        for _, slot in ipairs(SLOT_ORDER) do
+            local cur, max = GetInventoryItemDurability(slot)
+            if cur and max and cur < max then
+                local pct = (cur / max) * 100
+                if pct <= threshold and check_repair_eligibility(slot) then
+                    hammerCanFix = true
+                    break
+                end
+            end
+        end
+        if hammerCanFix then
+            sfui.common.print(string.format("|cffff9900Auto-repair skipped: %s detected.|r", hammerName))
+            update_hammer_popup()
+            return
+        end
     end
 
     local repairAllCost, canRepair = GetRepairAllCost()
@@ -491,6 +494,7 @@ end)
 sfui.events.RegisterEvent("BAG_UPDATE", function()
     hammerCache.checked = false
     hammerCache.found = false
+    profConfigIDs = nil
     update_hammer_popup()
 end)
 sfui.events.RegisterEvent("MERCHANT_SHOW", function()

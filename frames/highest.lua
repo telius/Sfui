@@ -312,12 +312,14 @@ function sfui.highest.GetBestItems(isPvP)
         local isValid, baseIlvl, statVal, itemEquipLoc = sfui.highest.IsItemValidForSpec(itemLink, specID)
         if not isValid then return end
 
-        -- Slot lock evaluation
+        -- Slot lock evaluation (context-aware: PvE / PvP dual tables)
         local isLockedItem = false
         do
             local itemID = GetItemInfoInstant and GetItemInfoInstant(itemLink)
-            local lockTable = itemID and SfuiDB and SfuiDB.gear and SfuiDB.gear[specID] and
-                SfuiDB.gear[specID].locked_items
+            local specGear = itemID and SfuiDB and SfuiDB.gear and SfuiDB.gear[specID]
+            local lockTable = specGear and (isPvP and specGear.locked_items_pvp or specGear.locked_items_pve)
+            -- Legacy fallback: old unified locked_items table
+            if not lockTable and specGear then lockTable = specGear.locked_items end
             if lockTable and lockTable[itemID] then
                 if isEquipped then
                     return -- skip: prevent equipped locked items from being mathematically duplicated into alternate slots
@@ -487,8 +489,10 @@ function sfui.highest.GetBestItems(isPvP)
         local link = GetInventoryItemLink("player", slotID)
         if link then
             local itemID = GetItemInfoInstant and GetItemInfoInstant(link)
-            local lockTable = itemID and SfuiDB and SfuiDB.gear and SfuiDB.gear[specID] and
-                SfuiDB.gear[specID].locked_items
+            local specGear = itemID and SfuiDB and SfuiDB.gear and SfuiDB.gear[specID]
+            local lockTable = specGear and (isPvP and specGear.locked_items_pvp or specGear.locked_items_pve)
+            -- Legacy fallback
+            if not lockTable and specGear then lockTable = specGear.locked_items end
             if lockTable and lockTable[itemID] then
                 best[slotID] = nil
             end
@@ -649,7 +653,7 @@ function sfui.highest.GetBestItems(isPvP)
 
     -- Feature: Dynamic Tier Set Drafting
     local force_2set = specDB and specDB.force_2set
-    local force_4set = specDB and specDB.force_4set
+    local force_4set = specDB and (specDB.force_4set ~= false) and not specDB.force_2set
     if force_2set or force_4set then
         local targetCount = force_4set and 4 or 2
         local tierSlots = sfui.highest.tierSlots or { 1, 3, 5, 7, 10 } -- Head, Shoulder, Chest, Legs, Hands

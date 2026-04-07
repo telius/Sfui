@@ -1,3 +1,13 @@
+## v0.6.1 (2026-04-07)
+
+### Features
+- **UI Colors**: Unified PvE and PvP lock feature colors across UI elements, text, and tooltips to ensure consistent conceptual styling.
+- **Gear Manager**: Changed `Force 4-Set` behavior in the automatic equip engine to be implicitly enabled by default for all spaces unless explicitly overwritten by the user.
+
+### Bug Fixes
+- **Auto Repair**: Updated the master hammer perk detection to dynamically validate all active expansion profile nodes simultaneously, fixing an issue where players crossing into the Midnight expansion would have outdated skill caches suppressing their repair popup. 
+- **Configuration**: Stripped several unused block headers and condensed spacing arrays during config serialization.
+
 ## v0.6.0e (2026-04-06)
 
 ### Features
