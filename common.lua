@@ -31,6 +31,13 @@ local function issecretvalue(val)
 
     if _G.issecretvalue and _G.issecretvalue(val) then return true end
 
+    -- Fast early exit: if the engine reports no secret restrictions are active at all
+    -- (12.0.5+ C_Secrets API), there's no need to run the expensive arithmetic probe.
+    local C_Secrets = _G.C_Secrets
+    if C_Secrets and C_Secrets.HasSecretRestrictions and not C_Secrets.HasSecretRestrictions() then
+        return false
+    end
+
     -- Deeper check: force an arithmetic mutation safely inside a protected call.
     -- If 'val' is a secure userdata (Secret Value), this math evaluation throws a C++ exception internally
     local success = pcall(pcall_math_probe, val)
@@ -956,6 +963,11 @@ function sfui.events.RegisterUpdate(arg1, arg2, arg3)
 end
 
 local function update_cached_spec_id()
+    -- Guard: spec data may not be loaded yet on early login frames.
+    -- Without this check, GetSpecialization() returns nil and we cache 0,
+    -- causing every module that calls get_current_spec_id() at startup to
+    -- receive an invalid spec until the next update event.
+    if C_SpecializationInfo.IsInitialized and not C_SpecializationInfo.IsInitialized() then return end
     local spec = C_SpecializationInfo.GetSpecialization()
     cachedSpecID = spec and select(1, C_SpecializationInfo.GetSpecializationInfo(spec)) or 0
     sfui.common.invalidate_spec_color_cache()
@@ -970,6 +982,14 @@ sfui.events.RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", function()
     update_cached_spec_id()
     sfui.common.invalidate_panels_cache()
     if SfuiDB then SfuiDB._populationRetryDone = nil end
+end)
+
+-- 12.0.5+: fires when the system forces a spec change (arena PvP loadout lock,
+-- talent reset, etc.) — distinct from PLAYER_SPECIALIZATION_CHANGED which only
+-- fires for player-initiated changes.
+sfui.events.RegisterEvent("SPEC_INVOLUNTARILY_CHANGED", function()
+    update_cached_spec_id()
+    sfui.common.invalidate_panels_cache()
 end)
 
 sfui.events.RegisterEvent("PLAYER_TALENT_UPDATE", function()

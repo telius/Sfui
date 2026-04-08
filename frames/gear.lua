@@ -36,8 +36,10 @@ event_frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 event_frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 event_frame:RegisterEvent("PLAYER_FLAGS_CHANGED")
 event_frame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+event_frame:RegisterEvent("SPEC_INVOLUNTARILY_CHANGED") -- 12.0.5+: system-forced spec changes
 event_frame:RegisterEvent("BAG_UPDATE_DELAYED")
 event_frame:RegisterEvent("EQUIPMENT_SETS_CHANGED") -- P5: invalidate set options cache
+event_frame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED") -- 12.0.5+: immediate gear slot cache bust
 
 local gearEquipQueue = nil
 -- P1: debounce BAG_UPDATE_DELAYED so rapid bag changes don't fire full scans repeatedly
@@ -449,6 +451,15 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
         return
     end
 
+    -- 12.0.5+: a gear slot changed — immediately invalidate the isGearSetEquipped cache
+    -- so the next auto-equip check sees the real state rather than stale data.
+    -- This closes the spec-swap gear lag (e.g. switching from Frost DK to Unholy while
+    -- 2H weapons are equipped: the cache now resets the moment slot 16/17 change).
+    if event == "PLAYER_EQUIPMENT_CHANGED" then
+        equipSetOptionsCache = nil
+        return
+    end
+
     if event == "PLAYER_REGEN_ENABLED" then
         if gearEquipQueue then
             if not UnitCastingInfo("player") and not UnitChannelInfo("player") and not UnitIsDeadOrGhost("player") then
@@ -505,8 +516,8 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
 
     if event == "PLAYER_FLAGS_CHANGED" and arg1 ~= "player" then return end
 
-    if event == "PLAYER_SPECIALIZATION_CHANGED" then
-        if arg1 ~= "player" then return end
+    if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "SPEC_INVOLUNTARILY_CHANGED" then
+        if arg1 ~= "player" and event == "PLAYER_SPECIALIZATION_CHANGED" then return end
         C_Timer.After(1.5, function() sfui.gear.Update() end)
         if SfuiGearManagerFrame and SfuiGearManagerFrame.SelectSpecTab then
             local specIdx = GetSpecialization()

@@ -27,6 +27,8 @@ local tinsert           = _G.tinsert
 local select            = _G.select
 local GetInstanceInfo   = _G.GetInstanceInfo
 local C_ChallengeMode   = _G.C_ChallengeMode
+local C_Secrets         = _G.C_Secrets
+local C_MythicPlus      = _G.C_MythicPlus
 -- ========================
 -- Shared Backdrop Tables
 -- Reuse the same table to avoid per-call allocation.
@@ -102,8 +104,15 @@ local function toy_is_accessible(toyID)
 end
 
 local function is_restricted_content()
+    -- 12.0.5+: use the engine's own secrecy predicate, which covers BG, Arena,
+    -- M+ active runs, AND raid encounter phases in one authoritative call.
+    if C_Secrets and C_Secrets.ShouldCooldownsBeSecret then
+        return C_Secrets.ShouldCooldownsBeSecret()
+    end
+    -- Fallback for pre-12.0.5 builds: check instance type + M+ directly.
     local _, instanceType = GetInstanceInfo()
     if instanceType == "pvp" or instanceType == "arena" then return true end
+    if C_MythicPlus and C_MythicPlus.IsMythicPlusActive and C_MythicPlus.IsMythicPlusActive() then return true end
     if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive() then return true end
     return false
 end
@@ -111,7 +120,18 @@ end
 local function spell_cd_remaining(spellID)
     if not spellID then return 0 end
     if is_restricted_content() then return 0 end
-    
+
+    -- 12.0.5+: LuaDurationObject API returns a plain number from GetRemainingDuration()
+    -- that is never a secret value — sidesteps field-level taint completely.
+    if C_Spell.GetSpellCooldownDuration then
+        local durObj = C_Spell.GetSpellCooldownDuration(spellID, true) -- ignoreGCD = true
+        if durObj and not durObj:IsZero() and not durObj:HasSecretValues() then
+            return durObj:GetRemainingDuration()
+        end
+        return 0
+    end
+
+    -- Fallback: raw table API (pre-12.0.5)
     local cd = C_Spell.GetSpellCooldown(spellID)
     if cd and cd.startTime and cd.startTime > 0 and cd.duration and cd.duration > 1.5 then
         return cd.startTime + cd.duration - GetTime()
@@ -121,13 +141,14 @@ end
 
 local function toy_cd_remaining(toyID)
     if is_restricted_content() then return 0 end
-    
+
     local start, dur = C_Container.GetItemCooldown(toyID)
     if start and start > 0 and dur and dur > 0 then
         return start + dur - GetTime()
     end
     return 0
 end
+
 
 -- Scotty's BuildCooldownString logic
 local function fmt_cd(secs)

@@ -1,3 +1,14 @@
+## v0.6.2 (2026-04-08)
+
+### Features
+- **API (12.0.5+)**: Upgraded `is_restricted_content()` in `portals.lua` to use `C_Secrets.ShouldCooldownsBeSecret()` as the primary secrecy gate, covering battlegrounds, arenas, active M+ runs, and raid encounter phases in one authoritative engine call.
+- **API (12.0.5+)**: Upgraded spell cooldown display in `portals.lua` to use `C_Spell.GetSpellCooldownDuration` (LuaDurationObject), whose `GetRemainingDuration()` returns a plain taint-free number, eliminating field-level secret value crashes.
+- **API (12.0.5+)**: Upgraded pandemic bar detection in `trackedbars.lua` to use `C_UnitAuras.GetAuraBaseDuration` + `C_UnitAuras.GetAuraDuration` for a clean arithmetic-free 30% threshold calculation. Text-parse retained as fallback for older builds.
+- **API (12.0.5+)**: Added `C_Secrets.HasSecretRestrictions()` fast early-exit to `issecretvalue()` in `common.lua`, short-circuiting the pcall arithmetic probe when no restrictions are active.
+- **Gear Manager**: Registered `PLAYER_EQUIPMENT_CHANGED` event to immediately bust the equipment-set cache when any slot changes, closing the spec-swap gear lag window (e.g. Frost→Unholy DK).
+- **Gear Manager**: `SPEC_INVOLUNTARILY_CHANGED` (arena PvP loadout lock, system talent reset) now triggers the same gear+UI refresh as `PLAYER_SPECIALIZATION_CHANGED`.
+- **Spec Cache**: Added `C_SpecializationInfo.IsInitialized()` guard to `update_cached_spec_id()` to prevent caching an invalid 0 spec ID on early login frames.
+
 ## v0.6.1 (2026-04-07)
 
 ### Features
