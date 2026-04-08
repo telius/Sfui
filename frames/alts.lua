@@ -150,6 +150,10 @@ local CURRENCIES = {
     { id = 3310, label = "Shard",    icon = 133016 },                        -- Coffer Key Shard
 }
 
+-- Warband pool quests: IsQuestFlaggedCompleted is account-wide for these,
+-- so we track per-character completion via QUEST_TURNED_IN events.
+local LEGENDS_POOL = { 88993, 88994, 88996, 88997, 88995 }
+
 local BASE_CATEGORIES = {
     { name = "GENERAL",       label = "Character",     type = "header" },
     { name = "ILVL",          label = "Level / iLvl",  type = "stat",       key = "iLvl",     format = "%.1f" },
@@ -352,26 +356,25 @@ function sfui.alts.CheckWeeklyResets()
                 end
             end
             if d.vault then
-                local earnedReward = false
+                -- Check if any slot was completed before wiping, so we can
+                -- flag the character as having a claimable reward.
                 local groups = { "raid", "dungeon", "world" }
                 for _, group in ipairs(groups) do
                     if d.vault[group] then
                         for _, slot in pairs(d.vault[group]) do
                             if slot.progress and slot.threshold and slot.threshold > 0 and slot.progress >= slot.threshold then
-                                earnedReward = true
+                                d.vault.hasReward = true
                                 break
                             end
                         end
                     end
+                    if d.vault.hasReward then break end
                 end
-
-                if earnedReward then
-                    d.vault.hasReward = true
-                else
-                    if d.vault.raid then wipe(d.vault.raid) end
-                    if d.vault.dungeon then wipe(d.vault.dungeon) end
-                    if d.vault.world then wipe(d.vault.world) end
-                end
+                -- Always clear stale progress from last week so offline
+                -- characters don't display old filled vault boxes.
+                if d.vault.raid then wipe(d.vault.raid) end
+                if d.vault.dungeon then wipe(d.vault.dungeon) end
+                if d.vault.world then wipe(d.vault.world) end
             end
             if d.m0 then wipe(d.m0) end
             if d.raids then wipe(d.raids) end
@@ -461,18 +464,30 @@ function sfui.alts.PerformSync(isLogout)
         for _, mID in ipairs(maps) do
             local intimeInfo, overtimeInfo = C_MythicPlus.GetSeasonBestForMap(mID)
             local bestLevel = 0
-            if intimeInfo then bestLevel = intimeInfo.level end
-            if overtimeInfo and overtimeInfo.level > bestLevel then bestLevel = overtimeInfo.level end
+            local bestTimed = 0
+            if intimeInfo then
+                bestLevel = intimeInfo.level
+                bestTimed = intimeInfo.level
+            end
+            if overtimeInfo and overtimeInfo.level > bestLevel then
+                bestLevel = overtimeInfo.level
+            end
 
             -- GetRunHistory updates faster than GetSeasonBestForMap directly after completing a dungeon
             for _, run in ipairs(currentRuns) do
-                if run.mapChallengeModeID == mID and run.level > bestLevel then
-                    bestLevel = run.level
+                if run.mapChallengeModeID == mID then
+                    if run.level > bestLevel then
+                        bestLevel = run.level
+                    end
+                    if run.completed and run.level > bestTimed then
+                        bestTimed = run.level
+                    end
                 end
             end
 
             data.dungeons[mID] = data.dungeons[mID] or {}
             data.dungeons[mID].level = bestLevel
+            data.dungeons[mID].timed = bestTimed
         end
     end
 
@@ -585,7 +600,10 @@ function sfui.alts.PerformSync(isLogout)
     --   - The main wrapper quest ID (e.g. 89268) is NEVER checked with IsQuestFlaggedCompleted
     --     because wrapper quests often persist across resets permanently.
     -- For simple weekly quests (no pool): IsQuestFlaggedCompleted on the quest itself is reliable.
-    local function GetQuestStatus(questID, pool)
+    -- skipFlagCheck: When true, do NOT use IsQuestFlaggedCompleted for pool quests.
+    --   Use this for warband quests where the flag is account-wide but rewards
+    --   are per-character. Completion is tracked locally via QUEST_TURNED_IN.
+    local function GetQuestStatus(questID, pool, skipFlagCheck)
         if not questID then return { completed = false, progress = 0, active = false } end
         local progress = 0
         local progressText = nil
@@ -595,7 +613,7 @@ function sfui.alts.PerformSync(isLogout)
         if pool then
             -- Pool-choice weekly: check pool sub-quest IDs only (not the main wrapper quest).
             for _, pID in ipairs(pool) do
-                if C_QuestLog.IsQuestFlaggedCompleted(pID) then
+                if not skipFlagCheck and C_QuestLog.IsQuestFlaggedCompleted(pID) then
                     -- Pool sub-quest flagged completed this week → entire quest is done.
                     isCompleted = true
                     break
@@ -648,9 +666,13 @@ function sfui.alts.PerformSync(isLogout)
     -- Abundance
     q.abundance = GetQuestStatus(89507)
 
-    -- Legends
-    local legendsPool = { 88993, 88994, 88996, 88997, 88995 }
-    q.legends = GetQuestStatus(89268, legendsPool)
+    -- Legends (warband quest: IsQuestFlaggedCompleted is account-wide,
+    -- but rewards are per-character — track completion via QUEST_TURNED_IN)
+    local prevLegendsCompleted = q.legends and q.legends.completed
+    q.legends = GetQuestStatus(89268, LEGENDS_POOL, true)
+    if prevLegendsCompleted and not q.legends.completed then
+        q.legends.completed = true
+    end
 
     -- Runestones
     local runestonesPool = { 90573, 90574, 90575, 90576 }
@@ -1188,6 +1210,20 @@ function sfui.alts.UpdateUI(force)
                     if cell.del then cell.del:Hide() end
                     cell:SetScript("OnEnter", nil)
                     cell:SetScript("OnLeave", nil)
+                elseif cat.name == "VAULT_HEADER" and alt.data.vault and alt.data.vault.hasReward then
+                    -- Show green "Loot!" inline text instead of golden glow on vault boxes
+                    text:Show()
+                    text:SetFontObject("GameFontNormal")
+                    text:SetText("Loot!")
+                    text:SetTextColor(0.2, 1.0, 0.2)
+                    -- Still draw divider
+                    local line = cell.line or cell:CreateTexture(nil, "BACKGROUND")
+                    cell.line = line
+                    line:Show()
+                    line:SetHeight(1)
+                    line:SetPoint("LEFT", 5, -5)
+                    line:SetPoint("RIGHT", -5, -5)
+                    line:SetColorTexture(0.2, 0.2, 0.2, 0.5)
                 else
                     text:Hide()
                     -- Divider underline
@@ -1247,16 +1283,54 @@ function sfui.alts.UpdateUI(force)
             elseif cat.type == "dungeon" then
                 local best = alt.data.dungeons and alt.data.dungeons[cat.mapID]
                 if best and best.level > 0 then
-                    text:SetText(tostring(best.level))
-                    local color = C_ChallengeMode.GetKeystoneLevelRarityColor(best.level)
-                    if best.level >= 12 then
-                        text:SetTextColor(1, 0.5, 0) -- Orange for 12+
-                    elseif color then
-                        text:SetTextColor(color.r, color.g, color.b)
+                    local timed = best.timed or 0
+                    local overall = best.level
+                    local isDepleted = overall > timed
+
+                    if isDepleted then
+                        -- Best run was depleted: show level in grey with † marker
+                        text:SetText(overall .. "†")
+                        text:SetTextColor(0.5, 0.5, 0.5)
+                    else
+                        -- Best run was timed: show with rarity color
+                        text:SetText(tostring(timed))
+                        local color = C_ChallengeMode.GetKeystoneLevelRarityColor(timed)
+                        if timed >= 12 then
+                            text:SetTextColor(1, 0.5, 0) -- Orange for 12+
+                        elseif color then
+                            text:SetTextColor(color.r, color.g, color.b)
+                        else
+                            text:SetTextColor(unpack(sfui.config.colors.white))
+                        end
                     end
+
+                    -- Tooltip with timed vs overall breakdown
+                    local mapID = cat.mapID
+                    cell:SetScript("OnEnter", function(self)
+                        local fullName = C_ChallengeMode.GetMapUIInfo(mapID)
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        GameTooltip:SetText(fullName or "Dungeon")
+                        if timed > 0 then
+                            local timedColor = C_ChallengeMode.GetKeystoneLevelRarityColor(timed)
+                            local tr, tg, tb = 1, 1, 1
+                            if timed >= 12 then
+                                tr, tg, tb = 1, 0.5, 0
+                            elseif timedColor then
+                                tr, tg, tb = timedColor.r, timedColor.g, timedColor.b
+                            end
+                            GameTooltip:AddDoubleLine("Timed:", "+" .. timed, 1, 1, 1, tr, tg, tb)
+                        end
+                        if isDepleted then
+                            GameTooltip:AddDoubleLine("Best (depleted):", "+" .. overall, 1, 1, 1, 0.5, 0.5, 0.5)
+                        end
+                        GameTooltip:Show()
+                    end)
+                    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
                 else
                     text:SetText("-")
                     text:SetTextColor(0.5, 0.5, 0.5)
+                    cell:SetScript("OnEnter", nil)
+                    cell:SetScript("OnLeave", nil)
                 end
             elseif cat.type == "currency" then
                 local cData = alt.data.currencies[cat.id]
@@ -1670,15 +1744,9 @@ function sfui.alts.UpdateUI(force)
                         rect:SetColorTexture(unpack(sColors and sColors.available or { 0, 0, 0, 0.5 }))
                     end
 
-                    local glow = cell["vaultGlow" .. slotIdx] or cell:CreateTexture(nil, "OVERLAY")
-                    cell["vaultGlow" .. slotIdx] = glow
-                    glow:SetSize(squareSize - 4, cfg.rowHeight - 12)
-                    glow:SetPoint("LEFT", (slotIdx - 1) * squareSize + 5, 0)
-                    if alt.data.vault and alt.data.vault.hasReward then
-                        glow:SetColorTexture(1, 0.82, 0, 0.35)
-                        glow:Show()
-                    else
-                        glow:Hide()
+                    -- Hide any stale glow texture from previous renders
+                    if cell["vaultGlow" .. slotIdx] then
+                        cell["vaultGlow" .. slotIdx]:Hide()
                     end
                 end
 
@@ -1831,7 +1899,7 @@ function sfui.alts.initialize()
     eventFrame:RegisterEvent("CHALLENGE_MODE_MAPS_UPDATE")
     eventFrame:RegisterEvent("MYTHIC_PLUS_NEW_WEEKLY_RECORD")
 
-    eventFrame:SetScript("OnEvent", function(_, event)
+    eventFrame:SetScript("OnEvent", function(_, event, ...)
         if event == "PLAYER_ENTERING_WORLD" then
             leavingWorld = false
         end
@@ -1845,6 +1913,26 @@ function sfui.alts.initialize()
             if C_MythicPlus and C_MythicPlus.RequestMapInfo then C_MythicPlus.RequestMapInfo() end
             if C_MythicPlus and C_MythicPlus.RequestRewards then C_MythicPlus.RequestRewards() end
             if C_WeeklyRewards and C_WeeklyRewards.OnUIInteract then C_WeeklyRewards.OnUIInteract() end
+        end
+
+        -- Track per-character completion of warband pool quests.
+        -- IsQuestFlaggedCompleted is account-wide for these, so we must
+        -- record turn-ins locally. The flag is wiped on weekly reset.
+        if event == "QUEST_TURNED_IN" then
+            local questID = ...
+            if questID then
+                for _, pID in ipairs(LEGENDS_POOL) do
+                    if questID == pID then
+                        local guid = GetCurrentCharacterGUID()
+                        if guid and SfuiDB.alts[guid] then
+                            SfuiDB.alts[guid].quests = SfuiDB.alts[guid].quests or {}
+                            SfuiDB.alts[guid].quests.legends = SfuiDB.alts[guid].quests.legends or {}
+                            SfuiDB.alts[guid].quests.legends.completed = true
+                        end
+                        break
+                    end
+                end
+            end
         end
 
         if event == "PLAYER_LEAVING_WORLD" then
@@ -1874,6 +1962,7 @@ function sfui.alts.initialize()
                     end
                 end
                 if d.vault then
+                    d.vault.hasReward = nil
                     if d.vault.raid then wipe(d.vault.raid) end
                     if d.vault.dungeon then wipe(d.vault.dungeon) end
                     if d.vault.world then wipe(d.vault.world) end
