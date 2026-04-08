@@ -110,7 +110,12 @@ local function TryEquipSet(setName)
             event_frame:RegisterEvent("PLAYER_REGEN_ENABLED")
             return false
         end
-        if UnitCastingInfo("player") or UnitChannelInfo("player") or UnitIsDeadOrGhost("player") then
+        if UnitCastingInfo("player") or UnitChannelInfo("player") then
+            -- Defers the update down the chain so it doesn't fail silently
+            C_Timer.After(2.0, function() sfui.gear.Update() end)
+            return false
+        end
+        if UnitIsDeadOrGhost("player") then
             return false
         end
         C_EquipmentSet.UseEquipmentSet(setID)
@@ -414,10 +419,13 @@ function sfui.gear.Update()
     -- EquipHighestILvl is gated by the manual-edit pause AND the per-character max-level toggle.
     if autoEquipPaused() then return end
 
+    if UnitCastingInfo("player") or UnitChannelInfo("player") then
+        C_Timer.After(2.0, function() sfui.gear.Update() end)
+        return
+    end
+
     if sfui.highest and sfui.highest.EquipHighestILvl
         and not InCombatLockdown()
-        and not UnitCastingInfo("player")
-        and not UnitChannelInfo("player")
         and not UnitIsDeadOrGhost("player") then
         local atMax = UnitLevel and GetMaxPlayerLevel
             and UnitLevel("player") >= GetMaxPlayerLevel()

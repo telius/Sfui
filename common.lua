@@ -23,12 +23,12 @@ local function pcall_identity(val) return val end
 
 local function pcall_math_probe(val)
     -- This operation will explicitly crash if 'val' is a Mythic+ Private Aura 'Secret Value' (userdata)
-    return val + 0 
+    return val + 0
 end
 
 local function issecretvalue(val)
     if val == nil then return false end
-    
+
     if _G.issecretvalue and _G.issecretvalue(val) then return true end
 
     -- Deeper check: force an arithmetic mutation safely inside a protected call.
@@ -284,58 +284,6 @@ function sfui.common.copy(t)
 end
 
 local _, playerClass, playerClassID = UnitClass("player")
-
--- Safe Direct Lookup Tables (TWW / Dragonflight)
-sfui.common.FLASK_IDS = {
-    -- The War Within (Phials / Flasks)
-    431972, -- Flask of Alchemical Chaos
-    431973, -- Flask of Tempered Aggression
-    431974, -- Flask of Tempered Swiftness
-    431971, -- Flask of Tempered Mastery
-    431970, -- Flask of Tempered Versatility
-    432029, -- Crystalline Phial of Perception (Gathering)
-    -- Dragonflight (Phials)
-    370661, -- Phial of Elemental Chaos
-    370652, -- Phial of Static Empowerment
-    373257, -- Phial of Glacial Fury
-    371038, -- Phial of Icy Preservation
-    371172, -- Phial of Tepid Versatility
-    371339, -- Phial of Tobacious Versatility -> likely typo in source, checking IDs later if needed
-    371204, -- Phial of Still Air
-    371354, -- Phial of the Eye in the Storm
-    371386, -- Phial of Charged Isolation
-    -- 371339 removed: was duplicate of Tobacious Versatility above
-}
-
-sfui.common.AUGMENT_RUNE_IDS = {
-    -- The War Within
-    444583, -- Crystallized Augment Rune
-    -- Dragonflight
-    393438, -- Draconic Augment Rune
-    410332, -- Dreambound Augment Rune
-}
-
-sfui.common.VANTUS_RUNE_IDS = {
-    -- The War Within
-    444266, -- Vantus Rune: Nerub-ar Palace
-    -- Dragonflight
-    410337, -- Vantus Rune: Amirdrassil
-    400305, -- Vantus Rune: Aberrus
-    394148, -- Vantus Rune: Vault of the Incarnates
-}
-
-sfui.common.WEAPON_ENCHANT_IDS = {
-    -- The War Within (Oils / Stones)
-    432321, -- Algari Mana Oil
-    432323, -- Oil of Beledar's Grace
-    432328, -- Ironclaw Whetstone
-    432327, -- Ironclaw Weightstone
-    -- Dragonflight
-    394017, -- Howling Rune
-    394018, -- Buzzing Rune
-}
-
--- For now, we'll stick to the "Well Fed" check which is safe via GetAuraDataBySpellName.
 
 local wipe = wipe
 local C_Timer = C_Timer
@@ -1816,8 +1764,6 @@ function sfui.common.sync_masque(frame, subElements)
     end
 end
 
-
-
 -- ========================
 -- Item Utilities
 -- ========================
@@ -2140,6 +2086,7 @@ function sfui.common.create_label(parent, text, font, r, g, b)
     label:SetShadowOffset(0, 0)
     return label
 end
+
 function sfui.common.get_short_string(name)
     if not name then return "" end
 
@@ -2192,14 +2139,14 @@ function sfui.common.get_short_string(name)
     local abbrev = ""
     for word in name:gmatch("%a+") do
         if word:upper() ~= "OF" and word:upper() ~= "THE" then
-            local first = word:sub(1,1)
+            local first = word:sub(1, 1)
             if first == first:upper() then
                 abbrev = abbrev .. first
             end
         end
     end
     if abbrev:len() > 0 and abbrev:len() <= 4 then return abbrev end
-    
+
     return name:sub(1, 4):upper()
 end
 

@@ -111,9 +111,12 @@ local function HasPrimaryStat(itemLink, primaryStatName)
     local tooltipData = C_TooltipInfo and C_TooltipInfo.GetHyperlink(itemLink)
     if tooltipData and tooltipData.lines then
         local primaryString = ""
-        if primaryStatName == "ITEM_MOD_INTELLECT_SHORT" then primaryString = "Intellect"
-        elseif primaryStatName == "ITEM_MOD_AGILITY_SHORT" then primaryString = "Agility"
-        elseif primaryStatName == "ITEM_MOD_STRENGTH_SHORT" then primaryString = "Strength"
+        if primaryStatName == "ITEM_MOD_INTELLECT_SHORT" then
+            primaryString = "Intellect"
+        elseif primaryStatName == "ITEM_MOD_AGILITY_SHORT" then
+            primaryString = "Agility"
+        elseif primaryStatName == "ITEM_MOD_STRENGTH_SHORT" then
+            primaryString = "Strength"
         end
 
         if primaryString ~= "" then
@@ -284,8 +287,8 @@ function sfui.highest.GetBestItems(isPvP)
     -- Dynamic Frost DK Talent Overrides
     if specID == 251 then
         local frostbane = IsPlayerSpell(455993) or
-        (IsSpellKnownOrOverridesKnown and IsSpellKnownOrOverridesKnown(455993)) or
-        (IsSpellKnown and IsSpellKnown(455993))
+            (IsSpellKnownOrOverridesKnown and IsSpellKnownOrOverridesKnown(455993)) or
+            (IsSpellKnown and IsSpellKnown(455993))
         rule = { armor = rule.armor, stat = rule.stat, weaps = { ["1H_Dual"] = frostbane, ["2H"] = not frostbane } }
     end
 
@@ -736,7 +739,7 @@ function sfui.highest.GetBestItems(isPvP)
 
     local score2H = best2H and best2H.score or 0
     if best2H then
-        -- A 2H weapon occupies two slots, so its base ilvl component must be doubled to compare 
+        -- A 2H weapon occupies two slots, so its base ilvl component must be doubled to compare
         -- against the sum of a 1H + OH score (which organically adds two item levels together).
         score2H = score2H + (best2H.ilvl * (isPvP and 100 or 10))
     end
@@ -758,7 +761,7 @@ function sfui.highest.GetBestItems(isPvP)
     if _G.SFUI_DEBUG_WEAPONS and best[16] then
         sfui.common.print("|cffffff00[SFUI Debug] Slot 16 evaluated:|r")
         for i, itm in ipairs(best[16]) do
-            sfui.common.print("  ["..i.."]", itm.link, "Score:", math.floor(itm.score), "is2H:", tostring(itm.is2H))
+            sfui.common.print("  [" .. i .. "]", itm.link, "Score:", math.floor(itm.score), "is2H:", tostring(itm.is2H))
         end
         if best2H then sfui.common.print("  best2H:", best2H.link) end
         if finalPick[16] then sfui.common.print("  WINNER:", finalPick[16].link) else sfui.common.print("  WINNER: None") end
@@ -815,8 +818,8 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
             table.insert(equipQueue, { slotID = slotID, item = item })
         end
     end
-    
-    -- Ensure deterministic equip order (Main Hand 16 before Off Hand 17) to satisfy Titan's Grip constraints
+
+    -- Ensure deterministic equip order (Main Hand 16 before Off Hand 17) Titan's Grip constraints
     table.sort(equipQueue, function(a, b) return a.slotID < b.slotID end)
 
     local totalToEquip = #equipQueue
@@ -827,7 +830,6 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
     -- until the player confirms. Calling ClearCursor would dismiss the dialog.
     local function equipNext(index)
         if index > #equipQueue then
-            -- B1 fix: log AFTER all async equips complete, not before
             if totalToEquip > 0 then
                 if not silent then sfprint("Equipped " .. totalToEquip .. " upgrade(s)!") end
             else
@@ -867,4 +869,3 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
         if not silent then sfprint("Already wearing your highest gear.") end
     end
 end
-

@@ -46,7 +46,8 @@ scale_event_frame:SetScript("OnEvent", update_pixel_scale)
 
 function sfui.slash_command_handler(msg)
     if msg == "" then
-        if sfui.toggle_options_panel then sfui.toggle_options_panel() else sfui.common.print("sfui: options panel not available.") end
+        if sfui.toggle_options_panel then sfui.toggle_options_panel() else sfui.common.print(
+            "sfui: options panel not available.") end
     elseif msg == "research" then
         if sfui.research and sfui.research.toggle_selection then
             sfui.research.toggle_selection()
@@ -62,8 +63,6 @@ function sfui.slash_command_handler(msg)
     end
 end
 
-
--- function to handle /rl slash command
 function sfui.reload_ui_handler(msg)
     C_UI.Reload()
 end
@@ -102,7 +101,7 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
             SfuiDB.trackedOptionsWindow = SfuiDB.trackedOptionsWindow or {}
             SfuiDB.currencyCaps = SfuiDB.currencyCaps or {}
             SfuiDB.items = SfuiDB.items or {}
-            
+
             SfuiDecorDB = SfuiDecorDB or {}
             SfuiDecorDB.items = SfuiDecorDB.items or {}
 

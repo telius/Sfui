@@ -25,7 +25,8 @@ local GameTooltip       = _G.GameTooltip
 local GetTime           = _G.GetTime
 local tinsert           = _G.tinsert
 local select            = _G.select
-
+local GetInstanceInfo   = _G.GetInstanceInfo
+local C_ChallengeMode   = _G.C_ChallengeMode
 -- ========================
 -- Shared Backdrop Tables
 -- Reuse the same table to avoid per-call allocation.
@@ -47,15 +48,6 @@ local BACKDROP_MENU     = {
     edgeSize = 1,
 }
 local C_Item            = _G.C_Item
-local C_Container       = _G.C_Container
-local C_ToyBox          = _G.C_ToyBox
-local GetProfessions    = _G.GetProfessions
-local GetProfessionInfo = _G.GetProfessionInfo
-local PlayerHasToy      = _G.PlayerHasToy
-local GameTooltip       = _G.GameTooltip
-local GetTime           = _G.GetTime
-local tinsert           = _G.tinsert
-
 -- ========================
 -- Layout
 -- ========================
@@ -109,8 +101,17 @@ local function toy_is_accessible(toyID)
     return PlayerHasToy(toyID)
 end
 
+local function is_restricted_content()
+    local _, instanceType = GetInstanceInfo()
+    if instanceType == "pvp" or instanceType == "arena" then return true end
+    if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive() then return true end
+    return false
+end
+
 local function spell_cd_remaining(spellID)
     if not spellID then return 0 end
+    if is_restricted_content() then return 0 end
+    
     local cd = C_Spell.GetSpellCooldown(spellID)
     if cd and cd.startTime and cd.startTime > 0 and cd.duration and cd.duration > 1.5 then
         return cd.startTime + cd.duration - GetTime()
@@ -119,6 +120,8 @@ local function spell_cd_remaining(spellID)
 end
 
 local function toy_cd_remaining(toyID)
+    if is_restricted_content() then return 0 end
+    
     local start, dur = C_Container.GetItemCooldown(toyID)
     if start and start > 0 and dur and dur > 0 then
         return start + dur - GetTime()
