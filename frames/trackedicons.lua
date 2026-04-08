@@ -1448,7 +1448,18 @@ function sfui.trackedicons.initialize()
         sfui.trackedicons.Update()
         MarkDirty(2.0) -- Longer burst for world entry
     end)
+    -- 12.0.5+: fires when the system forces a spec change (arena PvP loadout lock,
+    -- talent reset, etc.) — treat identically to PLAYER_SPECIALIZATION_CHANGED.
+    sfui.events.RegisterEvent("SPEC_INVOLUNTARILY_CHANGED", function()
+        sfui.common.ensure_panels_initialized()
+        if sfui.common.SyncTrackedSpells then
+            sfui.common.SyncTrackedSpells()
+        end
+        sfui.trackedicons.Update()
+        MarkDirty(2.0)
+    end)
     sfui.events.RegisterEvent("SPELLS_CHANGED", function() MarkDirty() end)
+
 
     -- Real-time events that require immediate structural/GCD sync
     sfui.events.RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(unit)
