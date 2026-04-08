@@ -1,3 +1,13 @@
+## v0.6.3 (2026-04-08)
+
+### Features
+- **Alts Great Vault Reset**: Vault progress boxes for offline characters are now always cleared on weekly reset. Previously, slots from last week's activities would persist for characters that hadn't logged in yet.
+- **Alts Vault Reward Indicator**: Replaced the golden glow overlay on all vault boxes with an inline green "Loot!" text on the Great Vault header row, providing a cleaner notification for unclaimed vault rewards.
+- **Alts Dungeon Timed/Depleted**: Dungeon best key levels now distinguish between timed and depleted runs. Timed runs display with their normal rarity color; depleted-only bests show in grey with a † suffix. Tooltip shows a breakdown of both values.
+
+### Bug Fixes
+- **Alts Legends Quest**: Fixed the "Legends" weekly quest incorrectly showing as completed for all characters. Blizzard changed this to a warband/account-wide quest flag, but rewards are per-character. Completion is now tracked locally via `QUEST_TURNED_IN` events per character.
+
 ## v0.6.2 (2026-04-08)
 
 ### Features
