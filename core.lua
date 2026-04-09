@@ -181,6 +181,9 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
         if sfui.portals and sfui.portals.initialize then
             sfui.portals.initialize()
         end
+        if sfui.lootspec and sfui.lootspec.initialize then
+            sfui.lootspec.initialize()
+        end
 
 
 
@@ -192,7 +195,7 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
         -- Initialize Minimap Menu
         if not SfuiMinimapMenu then
             SfuiMinimapMenu = CreateFrame("Frame", "SfuiMinimapMenu", UIParent, "BackdropTemplate")
-            SfuiMinimapMenu:SetSize(160, 130)
+            SfuiMinimapMenu:SetSize(160, 155)
             SfuiMinimapMenu:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
             SfuiMinimapMenu:SetBackdropColor(0, 0, 0, 0.5)
             SfuiMinimapMenu:SetFrameStrata("TOOLTIP")
@@ -228,6 +231,11 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
                     sfui.portals.Toggle()
                 end
             end, -105)
+            AddMenuButton("|cff00cc66loot spec|r", function()
+                if sfui.lootspec and sfui.lootspec.Toggle then
+                    sfui.lootspec.Toggle()
+                end
+            end, -130)
 
             SfuiMinimapMenu.throttle = 0
             SfuiMinimapMenu.hideTimer = 0

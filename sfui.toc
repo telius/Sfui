@@ -48,4 +48,5 @@ portals_db.lua
 frames/portals.lua
 stats.lua
 frames/gear.lua
+frames/lootspec.lua
 frames/highest.lua
