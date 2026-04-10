@@ -1322,13 +1322,15 @@ RefreshZones = function()
             sfui.trackedoptions.RenderPanelSettings(rightContainer, selectedPanelData, 0, poolEndingY - 5,
                 SETTINGS_W - 22)
         else
-            -- Placeholder hint
-            local hint = rightContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            hint:SetPoint("TOP", 0, -30)
-            hint:SetWidth(SETTINGS_W - 40)
-            hint:SetTextColor(0.4, 0.4, 0.4, 1)
-            hint:SetText("← Select a panel to configure it")
-            hint:Show()
+            -- Placeholder hint — guard to prevent a new FontString accumulating each render
+            if not rightContainer._hint then
+                rightContainer._hint = rightContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                rightContainer._hint:SetPoint("TOP", 0, -30)
+                rightContainer._hint:SetWidth(SETTINGS_W - 40)
+                rightContainer._hint:SetTextColor(0.4, 0.4, 0.4, 1)
+                rightContainer._hint:SetText("← Select a panel to configure it")
+            end
+            rightContainer._hint:Show()
         end
     end
 end

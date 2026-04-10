@@ -3,15 +3,18 @@ local addonName, addon = ...
 sfui = sfui or {}
 sfui.lootspec = {}
 
--- ─── Localized APIs ──────────────────────────────────────────────────────────
 local CreateFrame               = CreateFrame
 local UIParent                  = UIParent
 local GameTooltip               = GameTooltip
 local GetNumSpecializations     = GetNumSpecializations
+local GetSpecialization         = GetSpecialization
 local GetSpecializationInfo     = GetSpecializationInfo
 local GetSpecializationInfoByID = GetSpecializationInfoByID
 local GetLootSpecialization     = GetLootSpecialization
 local SetLootSpecialization     = SetLootSpecialization
+local SetLootSpecialization     = SetLootSpecialization
+local UnitClass                 = UnitClass
+local _, ENGLISH_CLASS          = UnitClass("player")
 local C_ChallengeMode           = C_ChallengeMode
 local table                     = table
 local math                      = math
@@ -32,15 +35,52 @@ local MAX_FRAME_H = 860
 
 -- ─── DB helpers ───────────────────────────────────────────────────────────────
 local dbCache = nil
+local dbCacheClass = nil
 local function DB()
-    if dbCache then return dbCache end
+    if dbCache and dbCacheClass == ENGLISH_CLASS then return dbCache end
+
     SfuiDB.lootspec = SfuiDB.lootspec or {}
-    local db = SfuiDB.lootspec
+    SfuiDB.lootspec.classes = SfuiDB.lootspec.classes or {}
+
+    -- Migration from legacy global data
+    if SfuiDB.lootspec.bosses or SfuiDB.lootspec.dungeons then
+        if not SfuiDB.lootspec.classes[ENGLISH_CLASS] then
+            SfuiDB.lootspec.classes[ENGLISH_CLASS] = {
+                enabled = SfuiDB.lootspec.enabled,
+                defaultSpec = SfuiDB.lootspec.defaultSpec or 0,
+                bosses = SfuiDB.lootspec.bosses or {},
+                dungeons = SfuiDB.lootspec.dungeons or {}
+            }
+        end
+        SfuiDB.lootspec.enabled = nil
+        SfuiDB.lootspec.defaultSpec = nil
+        SfuiDB.lootspec.bosses = nil
+        SfuiDB.lootspec.dungeons = nil
+    end
+
+    -- Migration from recent per-spec implementation
+    if SfuiDB.lootspec.specs then
+        local specIdx = GetSpecialization()
+        local specID = specIdx and GetSpecializationInfo(specIdx) or 0
+        if specID ~= 0 and SfuiDB.lootspec.specs[specID] and not SfuiDB.lootspec.classes[ENGLISH_CLASS] then
+            SfuiDB.lootspec.classes[ENGLISH_CLASS] = SfuiDB.lootspec.specs[specID]
+        end
+        SfuiDB.lootspec.specs = nil
+    end
+
+    local db = SfuiDB.lootspec.classes[ENGLISH_CLASS]
+    if not db then
+        db = {}
+        SfuiDB.lootspec.classes[ENGLISH_CLASS] = db
+    end
+
     db.enabled     = (db.enabled ~= false)
     db.defaultSpec = db.defaultSpec or 0
     db.bosses      = db.bosses   or {}
     db.dungeons    = db.dungeons or {}
+
     dbCache = db
+    dbCacheClass = ENGLISH_CLASS
     return db
 end
 
@@ -84,7 +124,6 @@ local function CycleSpec(currentID)
 end
 
 -- ─── Auto-swap engine ─────────────────────────────────────────────────────────
-local inMPlusSpec = false
 
 local function ApplyLootSpec(specID, reason)
     if specID == nil then return end
@@ -113,7 +152,7 @@ end)
 sfui.events.RegisterEvent("LOOT_CLOSED", function()
     local db = DB()
     if not db.enabled then return end
-    if not inMPlusSpec then RestoreDefault("loot closed") end
+    if not db.inMPlusSpec then RestoreDefault("loot closed") end
 end)
 
 sfui.events.RegisterEvent("CHALLENGE_MODE_START", function()
@@ -124,14 +163,15 @@ sfui.events.RegisterEvent("CHALLENGE_MODE_START", function()
     if not mapID then return end
     local specID = db.dungeons[mapID]
     if specID and specID ~= 0 then
-        inMPlusSpec = true
+        db.inMPlusSpec = true
         ApplyLootSpec(specID, "M+")
     end
 end)
 
 sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", function()
-    if inMPlusSpec then
-        inMPlusSpec = false
+    local db = DB()
+    if db.inMPlusSpec then
+        db.inMPlusSpec = false
         RestoreDefault("left instance")
     end
 end)
@@ -269,11 +309,8 @@ local function AcquireRow(parent)
         btn:SetPoint("RIGHT", -PAD, 0)
         btn:SetBackdrop({
             bgFile   = "Interface\\Buttons\\WHITE8x8",
-            edgeFile = "Interface\\Buttons\\WHITE8x8",
-            edgeSize = 1,
         })
         btn:SetBackdropColor(0.05, 0.05, 0.05, 1)
-        btn:SetBackdropBorderColor(0.13, 0.13, 0.13, 1)
 
         local specIconTex = btn:CreateTexture(nil, "ARTWORK")
         specIconTex:SetSize(ICON_SIZE - 2, ICON_SIZE - 2)
@@ -298,16 +335,18 @@ local function AcquireRow(parent)
             if specID == 0 then
                 specLbl:SetText("— off —")
                 specLbl:SetTextColor(0.3, 0.3, 0.3, 1)
-                btn:SetBackdropBorderColor(0.1, 0.1, 0.1, 1)
             else
-                local _, _, _, _, _, classFile = GetSpecializationInfoByID(specID)
-                local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-                if cc then
-                    specLbl:SetTextColor(cc.r, cc.g, cc.b, 1)
-                    btn:SetBackdropBorderColor(cc.r * 0.4, cc.g * 0.4, cc.b * 0.4, 1)
+                local specColor = sfui.config and sfui.config.spec_colors and sfui.config.spec_colors[specID]
+                if specColor then
+                    specLbl:SetTextColor(specColor[1], specColor[2], specColor[3], 1)
                 else
-                    specLbl:SetTextColor(0.0, 0.8, 1.0, 1)
-                    btn:SetBackdropBorderColor(0.0, 0.35, 0.5, 1)
+                    local _, _, _, _, _, classFile = GetSpecializationInfoByID(specID)
+                    local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+                    if cc then
+                        specLbl:SetTextColor(cc.r, cc.g, cc.b, 1)
+                    else
+                        specLbl:SetTextColor(0.0, 0.8, 1.0, 1)
+                    end
                 end
                 specLbl:SetText(SpecName(specID))
             end
@@ -587,11 +626,8 @@ function sfui.lootspec.CreateFrame()
     defBtn:SetPoint("LEFT", defLabel, "RIGHT", 6, 0)
     defBtn:SetBackdrop({
         bgFile   = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Buttons\\WHITE8x8",
-        edgeSize = 1,
     })
     defBtn:SetBackdropColor(0.05, 0.05, 0.05, 1)
-    defBtn:SetBackdropBorderColor(0.13, 0.13, 0.13, 1)
     local defIcon = defBtn:CreateTexture(nil, "ARTWORK")
     defIcon:SetSize(14, 14)
     defIcon:SetPoint("LEFT", 3, 0)
@@ -609,8 +645,21 @@ function sfui.lootspec.CreateFrame()
         else
             local icon = SpecIcon(specID)
             if icon then defIcon:SetTexture(icon) defIcon:Show() else defIcon:Hide() end
+            
+            local specColor = sfui.config and sfui.config.spec_colors and sfui.config.spec_colors[specID]
+            if specColor then
+                defLbl:SetTextColor(specColor[1], specColor[2], specColor[3], 1)
+            else
+                local _, _, _, _, _, classFile = GetSpecializationInfoByID(specID)
+                local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+                if cc then
+                    defLbl:SetTextColor(cc.r, cc.g, cc.b, 1)
+                else
+                    defLbl:SetTextColor(0.0, 0.8, 1.0, 1)
+                end
+            end
+            
             defLbl:SetText(SpecName(specID))
-            defLbl:SetTextColor(0.0, 0.8, 1.0, 1)
         end
     end
     defBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -682,23 +731,6 @@ function sfui.lootspec.CreateFrame()
 
     local function SetActiveTab(tab)
         activeTab = tab
-
-        -- clean up previous content
-        -- Rows are hidden via ReleaseRows() inside BuildXContent.
-        -- We must NOT call SetParent(nil) on content children — that permanently
-        -- orphans pooled frames. Only hide orphaned non-pool children.
-        for i = content:GetNumChildren(), 1, -1 do
-            local c = select(i, content:GetChildren())
-            -- Only orphan frames we don't own in our pool
-            if c and c ~= rowPool[1] then -- skip pool frames
-                local inPool = false
-                for _, pr in ipairs(rowPool) do
-                    if c == pr then inPool = true; break end
-                end
-                if not inPool then c:Hide() end
-            end
-        end
-        -- FontStrings and Textures are released via ReleaseRegionPool inside BuildXContent.
 
         if tab == "raids" then
             tabRaid:SetBackdropColor(0.14, 0.0, 0.38, 1)

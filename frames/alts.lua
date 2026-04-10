@@ -1094,7 +1094,10 @@ function sfui.alts.UpdateUI(force)
         updateRequested = true
         C_Timer.After(0, function()
             updateRequested = false
-            sfui.alts.UpdateUI(true)
+            -- Re-check visibility: frame may have hidden between schedule and fire
+            if frame and frame:IsVisible() then
+                sfui.alts.UpdateUI(true)
+            end
         end)
         return
     end

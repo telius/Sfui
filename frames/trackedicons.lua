@@ -160,9 +160,16 @@ local function UpdateCountText(icon, count)
         sfui.common.SafeSetText(icon.count, count, 0)
         icon.count:Show()
     elseif type(count) == "number" and count > 0 then
-        icon.count:SetText(tostring(count))
+        -- Dirty check: skip the string alloc + C SetText call when unchanged
+        if icon._lastCount ~= count then
+            icon._lastCount = count
+            icon.count:SetText(tostring(count))
+        end
         icon.count:Show()
     else
+        if icon._lastCount ~= nil then
+            icon._lastCount = nil
+        end
         icon.count:Hide()
     end
 end

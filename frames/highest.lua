@@ -35,6 +35,13 @@ local function sfprint(msg)
     end
 end
 
+-- Debug helper: set _G.SFUI_DEBUG_SLOT = <inventory slot number> in-game
+-- to see a full score/validation breakdown for that slot.
+-- Example: /run SFUI_DEBUG_SLOT = 3   (shoulders)
+local function dbgSlotPrint(msg)
+    sfprint("|cffffff00[SFUI DBG]|r " .. tostring(msg))
+end
+
 
 local STAT_MAP = {
     [1] = "ITEM_MOD_STRENGTH_SHORT",
@@ -184,8 +191,12 @@ function sfui.highest.IsItemValidForSpec(itemLink, specID)
     local itemID, itemType, itemSubType, itemEquipLoc, _, classID, subclassID = GetItemInfoInstant(itemLink)
     if not itemEquipLoc or itemEquipLoc == "" then return false end
 
-    local itemName, _, _, baseLevel, itemMinLevel = GetItemInfo(itemLink)
+    local itemName, _, itemQuality, baseLevel, itemMinLevel = GetItemInfo(itemLink)
     local itemLevel = GetDetailedItemLevelInfo(itemLink) or baseLevel or 1
+
+    -- Never auto-equip grey (0) or white (1) quality items — these are cosmetic,
+    -- transmog pieces, or vendor junk and should never beat real gear in scoring.
+    if itemQuality and itemQuality < 2 then return false end
 
     -- Check if the player meets the required level for the item
     if itemMinLevel and itemMinLevel > UnitLevel("player") then return false end
@@ -465,6 +476,12 @@ function sfui.highest.GetBestItems(isPvP)
         for i = 1, numSlots do
             local s = pooledTargetSlots[i]
             table.insert(best[s], itemData)
+            if _G.SFUI_DEBUG_SLOT and s == _G.SFUI_DEBUG_SLOT then
+                local nameStr = GetItemInfo(itemLink) or itemLink
+                dbgSlotPrint(string.format("[slot%d] ADDED %s | ilvl=%.0f | equipped=%s | bag=%s,slot=%s",
+                    s, tostring(nameStr), itemLevel, tostring(isEquipped),
+                    tostring(bag), tostring(slot)))
+            end
         end
     end
 
@@ -650,6 +667,15 @@ function sfui.highest.GetBestItems(isPvP)
     -- Sort individual slots using the new score system
     for slotID, items in pairs(best) do
         table.sort(items, function(a, b) return a.score > b.score end)
+        if _G.SFUI_DEBUG_SLOT and slotID == _G.SFUI_DEBUG_SLOT then
+            dbgSlotPrint("=== Slot " .. slotID .. " candidates after scoring ===")
+            for rank, itm in ipairs(items) do
+                local nm = GetItemInfo(itm.link) or itm.link
+                dbgSlotPrint(string.format("  #%d %s | ilvl=%.0f | score=%.1f | equipped=%s",
+                    rank, tostring(nm), itm.ilvl, itm.score, tostring(itm.isEquipped)))
+            end
+            _G.SFUI_DEBUG_SLOT = nil -- auto-clear after one scan
+        end
     end
 
     local finalPick = {}

@@ -44,6 +44,7 @@ event_frame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED") -- 12.0.5+: immediate gear
 local gearEquipQueue = nil
 -- P1: debounce BAG_UPDATE_DELAYED so rapid bag changes don't fire full scans repeatedly
 local bagUpdatePending = false
+local zoneUpdateQueue = false
 
 -- Manual-edit protection: suppress BAG_UPDATE auto-equip while player is managing gear
 local manualEditUntil = 0
@@ -242,7 +243,6 @@ function sfui.gear.UpdateStatUI()
             if ui.lockIcons then
                 local ctxPvP = isCurrentlyPvP()
                 local lockTbl = ctxPvP and db.locked_items_pvp or db.locked_items_pve
-                if not lockTbl then lockTbl = db.locked_items end -- legacy fallback
                 local slotOrder = { 13, 14, 11, 12, 2, 16, 17 }
                 for k, ico in ipairs(ui.lockIcons) do
                     ico.tex:SetTexture(nil); ico.itemID = nil; ico:Hide()
@@ -275,10 +275,6 @@ function sfui.gear.UpdateStatUI()
                         if iid then
                             pveLocked = db.locked_items_pve and db.locked_items_pve[iid] or false
                             pvpLocked = db.locked_items_pvp and db.locked_items_pvp[iid] or false
-                            -- Legacy fallback
-                            if not db.locked_items_pve and not db.locked_items_pvp and db.locked_items and db.locked_items[iid] then
-                                pveLocked, pvpLocked = true, true
-                            end
                         end
                     end
                     local c
@@ -470,9 +466,17 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
                         common.print("Equipped queued set: " .. name)
                     end
                 end
+                gearEquipQueue = nil
+                event_frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+            else
+                -- Fix: Defer execution and check again
+                C_Timer.After(2, function()
+                    if gearEquipQueue and not InCombatLockdown() then
+                        -- re-evaluate using the same event flow
+                        event_frame:GetScript("OnEvent")(event_frame, "PLAYER_REGEN_ENABLED")
+                    end
+                end)
             end
-            gearEquipQueue = nil
-            event_frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
         end
         return
     end
@@ -508,9 +512,10 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
                     end
                     sfui.highest.EquipHighestILvl(isPvP, true)
                 end
+                -- UpdateStatUI shifted securely into the debounce block
+                if sfui.gear.UpdateStatUI then sfui.gear.UpdateStatUI() end
             end)
         end
-        if sfui.gear.UpdateStatUI then sfui.gear.UpdateStatUI() end
         return
     end
 
@@ -528,7 +533,13 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
     end
 
     if event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
-        C_Timer.After(0.5, function() sfui.gear.Update() end)
+        if not zoneUpdateQueue then
+            zoneUpdateQueue = true
+            C_Timer.After(0.5, function() 
+                zoneUpdateQueue = false
+                sfui.gear.Update() 
+            end)
+        end
         return
     end
 
@@ -546,7 +557,17 @@ gearFrame:SetMovable(true)
 gearFrame:EnableMouse(true)
 gearFrame:RegisterForDrag("LeftButton")
 gearFrame:SetScript("OnDragStart", gearFrame.StartMoving)
-gearFrame:SetScript("OnDragStop", gearFrame.StopMovingOrSizing)
+gearFrame:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    local point, relativeTo, relativePoint, xOfs, yOfs = self:GetPoint()
+    SfuiDB = SfuiDB or {}
+    SfuiDB.gear_pos = {
+        point = point,
+        relativePoint = relativePoint,
+        x = xOfs,
+        y = yOfs
+    }
+end)
 gearFrame:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8" })
 gearFrame:SetBackdropColor(0.055, 0.055, 0.055, 0.97)
 gearFrame:Hide()
@@ -611,6 +632,13 @@ end
 -- ON SHOW: build per-spec cards
 -- -------------------------------------------------------------------------
 gearFrame:SetScript("OnShow", function(self)
+    if not self.posLoaded then
+        self.posLoaded = true
+        if SfuiDB.gear_pos then
+            self:ClearAllPoints()
+            self:SetPoint(SfuiDB.gear_pos.point, UIParent, SfuiDB.gear_pos.relativePoint, SfuiDB.gear_pos.x, SfuiDB.gear_pos.y)
+        end
+    end
     if sfui.gear.UpdateStatUI then sfui.gear.UpdateStatUI() end
     if self.initialized then
         if self.SelectSpecTab then
@@ -663,8 +691,6 @@ gearFrame:SetScript("OnShow", function(self)
                 if sdb[key] then
                     sdb[key][b.itemID] = nil
                 end
-                -- Legacy cleanup
-                if sdb.locked_items then sdb.locked_items[b.itemID] = nil end
                 sfui.gear.UpdateStatUI()
             end
         end)
@@ -860,16 +886,8 @@ gearFrame:SetScript("OnShow", function(self)
                 if itemID then
                     SfuiDB.gear[id] = SfuiDB.gear[id] or {}
                     local ldb = SfuiDB.gear[id]
-                    -- Migrate legacy format on first interaction
-                    if ldb.locked_items then
-                        ldb.locked_items_pve = ldb.locked_items_pve or {}
-                        ldb.locked_items_pvp = ldb.locked_items_pvp or {}
-                        for k in pairs(ldb.locked_items) do
-                            ldb.locked_items_pve[k] = true
-                            ldb.locked_items_pvp[k] = true
-                        end
-                        ldb.locked_items = nil
-                    end
+                    ldb.locked_items_pve = ldb.locked_items_pve or {}
+                    ldb.locked_items_pvp = ldb.locked_items_pvp or {}
                     local key = forPvP and "locked_items_pvp" or "locked_items_pve"
                     ldb[key] = ldb[key] or {}
                     if ldb[key][itemID] then
@@ -909,11 +927,6 @@ gearFrame:SetScript("OnShow", function(self)
                         and SfuiDB.gear[id].locked_items_pve[iid]
                     local pvpL = iid and SfuiDB.gear[id] and SfuiDB.gear[id].locked_items_pvp
                         and SfuiDB.gear[id].locked_items_pvp[iid]
-                    -- Legacy fallback
-                    if not pveL and not pvpL and iid and SfuiDB.gear[id] and SfuiDB.gear[id].locked_items
-                        and SfuiDB.gear[id].locked_items[iid] then
-                        pveL, pvpL = true, true
-                    end
                     local tag = ""
                     if pveL and pvpL then tag = string.format("|cff%02x%02x%02x[PvE+PvP]|r ", BOTH_COLOR[1]*255, BOTH_COLOR[2]*255, BOTH_COLOR[3]*255)
                     elseif pveL then tag = string.format("|cff%02x%02x%02x[PvE]|r ", PVE_COLOR[1]*255, PVE_COLOR[2]*255, PVE_COLOR[3]*255)
@@ -1262,6 +1275,21 @@ end
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
 f:SetScript("OnEvent", function()
+    -- Global single-pass legacy DB migration
+    if SfuiDB and SfuiDB.gear then
+        for specID, db in pairs(SfuiDB.gear) do
+            if type(specID) == "number" and db.locked_items then
+                db.locked_items_pve = db.locked_items_pve or {}
+                db.locked_items_pvp = db.locked_items_pvp or {}
+                for k in pairs(db.locked_items) do
+                    db.locked_items_pve[k] = true
+                    db.locked_items_pvp[k] = true
+                end
+                db.locked_items = nil
+            end
+        end
+    end
+    
     InitToggleHook()
     InitPaperDollTrinketHook()
 end)
