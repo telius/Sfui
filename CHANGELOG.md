@@ -1,3 +1,8 @@
+## v0.6.4 (2026-04-10)
+
+### Features
+- **Gear Evaluator Engine**: Grey (poor) and White (common) quality items are now completely excluded from auto-equip and gear scoring pools regardless of their item level. This ensures transmog appearances or vendor junk mapped to current expansion ilvls cannot artificially outscore real equipment.
+
 ## v0.6.3 (2026-04-08)
 
 ### Features

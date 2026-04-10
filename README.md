@@ -10,6 +10,15 @@ Supports [Masque](https://www.curseforge.com/wow/addons/masque) for button skinn
 
 ## Features
 
+### Gear Manager
+A dedicated, floating Gear Manager window accessed via a new button on the Character panel.
+- **Auto Equip Engine**: Automatically detects and equips upgrades when items drop into your bags based on comprehensive highest-ilvl logic per-slot.
+- **Smart Validation**: Gracefully ignores grey/white quality items (like hidden transmog shells) and correctly handles dynamic primary stat shifting (like Agility/Intellect depending on current spec).
+- **Multi-Spec Profiles**: Independent PvE and PvP configurations per specialization that automatically swap your gear sets on Battleground or Arena entry.
+- **Lock Features**: Allows locking specific trinkets or slots to prevent them from being overwritten during auto-evaluations.
+
+![Gear Manager](.previews/lootspec.png)
+
 ### Tracking Manager
 Comprehensive manager for all your tracking needs. Configure auras, cooldowns, and specialty bars with ease.
 - **Unified Interface**: Single point of control for all SFUI tracking modules.
