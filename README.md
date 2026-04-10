@@ -10,6 +10,13 @@ Supports [Masque](https://www.curseforge.com/wow/addons/masque) for button skinn
 
 ## Features
 
+### Loot Spec Swapper
+A fast menu attached to the loot frame or character panel to rapidly override your current loot specialization.
+- **Visual Indicators**: Color-coded spec buttons make it obvious what spec's loot table you are rolling against.
+- **Convenience**: Quickly target off-spec weapons or trinkets without digging through the default UI portraits.
+
+![Loot Spec Swapper](.previews/lootspec.png)
+
 ### Gear Manager
 A dedicated, floating Gear Manager window accessed via a new button on the Character panel.
 - **Auto Equip Engine**: Automatically detects and equips upgrades when items drop into your bags based on comprehensive highest-ilvl logic per-slot.
@@ -17,7 +24,7 @@ A dedicated, floating Gear Manager window accessed via a new button on the Chara
 - **Multi-Spec Profiles**: Independent PvE and PvP configurations per specialization that automatically swap your gear sets on Battleground or Arena entry.
 - **Lock Features**: Allows locking specific trinkets or slots to prevent them from being overwritten during auto-evaluations.
 
-![Gear Manager](.previews/lootspec.png)
+![Gear Manager](.previews/gear.png)
 
 ### Tracking Manager
 Comprehensive manager for all your tracking needs. Configure auras, cooldowns, and specialty bars with ease.
