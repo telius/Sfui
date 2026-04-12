@@ -195,13 +195,19 @@ local function GetRaidData()
             return {}
         end
     end
+    local oldInstance = EJ_GetCurrentInstance and EJ_GetCurrentInstance()
     local raids = {}
     local instIdx = 1
     while true do
         local instanceID, name = EJ_GetInstanceByIndex(instIdx, true)
         if not instanceID then break end
         local raid = { name = name, instanceID = instanceID, bosses = {} }
-        EJ_SelectInstance(instanceID)
+        
+        -- MUST use securecall to prevent our addon from silently hijacking the
+        -- Encounter Journal C++ state. If we do this unsecurely, the next time 
+        -- the user hovers an EJ Item Button, the tooltip will spread our taint
+        -- directly into the GameTooltip money frame processor and crash.
+        securecall(EJ_SelectInstance, instanceID)
         local encIdx = 1
         while true do
             -- EJ_GetEncounterInfoByIndex: name, description, bossID, rootSectionID, link
@@ -219,6 +225,7 @@ local function GetRaidData()
         if #raid.bosses > 0 then table.insert(raids, raid) end
         instIdx = instIdx + 1
     end
+    if oldInstance then securecall(EJ_SelectInstance, oldInstance) end
     raidDataCache = raids
     return raids
 end
