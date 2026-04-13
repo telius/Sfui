@@ -1,3 +1,8 @@
+## v0.6.6 (2026-04-13)
+
+### Features
+- **UI Updates**: Modularized portal abbreviations, fixed tooltip anchoring, and updated gear manager UI logic.
+
 ## v0.6.5 (2026-04-13)
 
 ### Bug Fixes
