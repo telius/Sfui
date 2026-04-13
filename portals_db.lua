@@ -228,3 +228,53 @@ sfui.portals_db.LEGACY_GROUPS = {
         },
     },
 }
+
+-- ========================
+-- Global UI Name Abbreviations
+-- Consumed by sfui.common.get_short_string()
+-- ========================
+sfui.portals_db.SHORT_STRINGS = {
+    ["Ara-Kara, City of Echoes"] = "ARA",
+    ["City of Threads"] = "COT",
+    ["The Stonevault"] = "SV",
+    ["The Dawnbreaker"] = "DB",
+    ["Mists of Tirna Scithe"] = "MISTS",
+    ["The Necrotic Wake"] = "NW",
+    ["Siege of Boralus"] = "SIEGE",
+    ["Grim Batol"] = "GB",
+    ["Darkflame Cleft"] = "DFC",
+    ["Cinderbrew Meadery"] = "CM",
+    ["Priory of the Sacred Flame"] = "PSF",
+    ["The Rookery"] = "ROOK",
+    ["Operation: Floodgate"] = "FLOOD",
+    ["Liberation of Undermine"] = "LOU",
+    ["Darkmoon"] = "DM",
+    ["Theater of Pain"] = "TOP",
+    ["Ruby Life Pools"] = "RLP",
+    ["The Nokhud Offensive"] = "TNO",
+    ["Algeth'ar Academy"] = "AA",
+    ["Halls of Infusion"] = "HOI",
+    ["Neltharus"] = "NELT",
+    ["Brackenhide Hollow"] = "BH",
+    ["Uldaman: Legacy of Tyr"] = "ULD",
+    ["Operation: Mechagon - Junkyard"] = "JUNK",
+    ["Operation: Mechagon - Workshop"] = "WORK",
+    ["Return to Karazhan: Lower"] = "LOW",
+    ["Return to Karazhan: Upper"] = "UPP",
+    ["Stonevault"] = "SV",
+    ["Ara-Kara"] = "ARA",
+    ["Necrotic Wake"] = "NW",
+    ["Operation: Mechagon"] = "MECH",
+    ["Siege of Boralus (S2)"] = "SIEGE",
+    ["Eco-Dome Al'dani"] = "ECO",
+    ["Manaforge Omega"] = "OMEGA",
+    ["Pit of Saron"] = "POS",
+    ["Magisters' Terrace"] = "MGT",
+    ["Seat of the Triumvirate"] = "SEAT",
+    ["Maisara Cavern"] = "MAIS",
+    ["Nexus Point Xenas"] = "NPX",
+    ["Nexus-Point Xenas"] = "NPX",
+    ["Windrunner Spire"] = "SPIRE",
+    ["Skyreach"] = "SKY",
+    ["Skyreach (New)"] = "SKY"
+}

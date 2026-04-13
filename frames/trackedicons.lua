@@ -747,7 +747,8 @@ local function CreateIconFrame(parent, id, entry, panelConfig)
         local showTooltips = GetIconValue(self.entry.settings, panelConfig, "showTooltips", false)
         if showTooltips and GameTooltip and self.id and not issecretvalue(self.id) then
             pcall(function()
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                -- Safety: anchor to parent to prevent inheriting secret dimensional taint
+                GameTooltip:SetOwner(self:GetParent(), "ANCHOR_RIGHT")
                 if self.entry.type == "item" then
                     GameTooltip:SetItemByID(self.id)
                 else

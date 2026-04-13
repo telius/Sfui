@@ -26,9 +26,6 @@ local table = _G.table
 local GetInventoryItemLink = _G.GetInventoryItemLink
 local GetItemInfoInstant = _G.GetItemInfoInstant
 local IsShiftKeyDown = _G.IsShiftKeyDown
--- P6: localize level APIs used in the hot BAG_UPDATE path
-local UnitLevel = _G.UnitLevel
-local GetMaxPlayerLevel = _G.GetMaxLevelForPlayerExpansion or _G.GetMaxPlayerLevel
 
 
 local event_frame = CreateFrame("Frame")
@@ -97,6 +94,8 @@ end
 -- Per-character settings helper.
 -- Returns (and auto-creates) SfuiDB.gear_char["Name-Realm"] for the logged-in character.
 local function charDB()
+    SfuiDB = SfuiDB or {}
+    SfuiDB.gear_char = SfuiDB.gear_char or {}
     local key = (_G.UnitName and _G.UnitName("player") or "?") .. "-" .. (_G.GetRealmName and _G.GetRealmName() or "?")
     SfuiDB.gear_char[key] = SfuiDB.gear_char[key] or {}
     return SfuiDB.gear_char[key]
@@ -162,7 +161,7 @@ function sfui.gear.UpdateStatUI()
     if not SfuiGearManagerFrame or not SfuiGearManagerFrame:IsShown() then return end
 
     if SfuiGearManagerFrame.maxLvlChk then
-        SfuiGearManagerFrame.maxLvlChk:SetChecked(charDB().max_level_autoequip or false)
+        SfuiGearManagerFrame.maxLvlChk:SetChecked(charDB().autoequip_enabled or false)
     end
 
     -- Status label: shows what gear mode is currently active
@@ -192,7 +191,8 @@ function sfui.gear.UpdateStatUI()
             local isEquipped = setID and select(4, C_EquipmentSet.GetEquipmentSetInfo(setID))
             local checkmark = isEquipped and " \xE2\x9C\x93" or ""
             text = (isPvP and "PvP" or "PvE") .. ": " .. targetSet .. checkmark
-            r, g, b = isEquipped and 0 or 1, isEquipped and 1 or 0.85, isEquipped and 1 or 0.2
+            local baseColor = isPvP and PVP_COLOR or PVE_COLOR
+            r, g, b = isEquipped and 0 or baseColor[1], isEquipped and 1 or baseColor[2], isEquipped and 1 or baseColor[3]
         else
             text = isPvP and "PvP" or "PvE"
             r, g, b = 0.55, 0.55, 0.55
@@ -212,32 +212,7 @@ function sfui.gear.UpdateStatUI()
             local db = SfuiDB.gear[specID] or {}
             SfuiDB.gear[specID] = db
 
-            if ui.pveDrop then
-                ui.pveDrop:SetText(db.pve_set ~= "" and db.pve_set or "None")
-                local pveActive = db.pve_set and db.pve_set ~= ""
-                    and C_EquipmentSet.GetEquipmentSetID(db.pve_set)
-                    and select(4, C_EquipmentSet.GetEquipmentSetInfo(C_EquipmentSet.GetEquipmentSetID(db.pve_set)))
-                local pt = ui.pveDrop:GetNormalTexture()
-                if pt then
-                    if pveActive then pt:SetVertexColor(0, 1, 1) else pt:SetVertexColor(PVE_COLOR[1], PVE_COLOR[2], PVE_COLOR[3]) end
-                end
-                local pfs = ui.pveDrop:GetFontString()
-                if pfs then pfs:SetTextColor(PVE_COLOR[1], PVE_COLOR[2], PVE_COLOR[3]) end
-            end
-            if ui.pvpDrop then
-                ui.pvpDrop:SetText(db.pvp_set ~= "" and db.pvp_set or "None")
-                local pvpActive = db.pvp_set and db.pvp_set ~= ""
-                    and C_EquipmentSet.GetEquipmentSetID(db.pvp_set)
-                    and select(4, C_EquipmentSet.GetEquipmentSetInfo(C_EquipmentSet.GetEquipmentSetID(db.pvp_set)))
-                local vt = ui.pvpDrop:GetNormalTexture()
-                if vt then
-                    if pvpActive then vt:SetVertexColor(0, 1, 1) else vt:SetVertexColor(PVP_COLOR[1], PVP_COLOR[2], PVP_COLOR[3]) end
-                end
-                local vfs = ui.pvpDrop:GetFontString()
-                if vfs then vfs:SetTextColor(PVP_COLOR[1], PVP_COLOR[2], PVP_COLOR[3]) end
-            end
             if ui.pawnEdit then ui.pawnEdit:SetText(db.pawn_string or "") end
-
 
             -- locked item icons (per slot, in lockSlots column order: T1,T2,R1,R2,A,W1,W2)
             if ui.lockIcons then
@@ -425,9 +400,7 @@ function sfui.gear.Update()
     if sfui.highest and sfui.highest.EquipHighestILvl
         and not InCombatLockdown()
         and not UnitIsDeadOrGhost("player") then
-        local atMax = UnitLevel and GetMaxPlayerLevel
-            and UnitLevel("player") >= GetMaxPlayerLevel()
-        local shouldEquip = (not atMax) or charDB().max_level_autoequip
+        local shouldEquip = charDB().autoequip_enabled
         if shouldEquip then
             sfui.highest.EquipHighestILvl(isPvP, true)
         end
@@ -497,9 +470,8 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
                 if autoEquipPaused() then return end
                 -- Fix 2: if a gear set is configured AND equipped, don't override it
                 if isGearSetEquipped() then return end
-                local atMax = UnitLevel and GetMaxPlayerLevel
-                    and UnitLevel("player") >= GetMaxPlayerLevel()
-                local shouldEquip = (not atMax) or charDB().max_level_autoequip
+                
+                local shouldEquip = charDB().autoequip_enabled
                 if shouldEquip and sfui.highest and sfui.highest.EquipHighestILvl
                     and not InCombatLockdown()
                     and not UnitCastingInfo("player")
@@ -559,6 +531,13 @@ gearFrame:RegisterForDrag("LeftButton")
 gearFrame:SetScript("OnDragStart", gearFrame.StartMoving)
 gearFrame:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
+    -- Force TOPLEFT absolute anchoring so the frame always unfolds downwards
+    local left = self:GetLeft()
+    local top = self:GetTop()
+    if left and top then
+        self:ClearAllPoints()
+        self:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+    end
     local point, relativeTo, relativePoint, xOfs, yOfs = self:GetPoint()
     SfuiDB = SfuiDB or {}
     SfuiDB.gear_pos = {
@@ -577,9 +556,38 @@ local closeBtn = common.create_flat_button(gearFrame, "X", 20, 20)
 closeBtn:SetPoint("TOPRIGHT", gearFrame, "TOPRIGHT", -5, -5)
 closeBtn:SetScript("OnClick", function() gearFrame:Hide() end)
 
+local collapseBtn = common.create_flat_button(gearFrame, "-", 20, 20)
+collapseBtn:SetPoint("TOPRIGHT", gearFrame, "TOPRIGHT", -30, -5)
+collapseBtn:SetScript("OnClick", function()
+    -- Lock header rigidly in place by migrating active anchor to TOPLEFT on first collapse
+    local left = gearFrame:GetLeft()
+    local top = gearFrame:GetTop()
+    if left and top then
+        gearFrame:ClearAllPoints()
+        gearFrame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+    end
 
+    gearFrame.collapsed = not gearFrame.collapsed
+    SfuiDB = SfuiDB or {}
+    SfuiDB.gear_collapsed = gearFrame.collapsed
 
--- P5: cache equipment set options; rebuilt only when equipSetOptionsCache is nil
+    if gearFrame.collapsed then
+        collapseBtn:SetText("+")
+        if gearFrame.content then gearFrame.content:Hide() end
+        gearFrame:SetHeight(42) -- specific header height
+    else
+        collapseBtn:SetText("-")
+        if gearFrame.content then gearFrame.content:Show() end
+        gearFrame:SetHeight(gearFrame.expandedHeight or 162)
+    end
+end)
+
+-- Main content container for body children
+gearFrame.content = CreateFrame("Frame", nil, gearFrame, "BackdropTemplate")
+gearFrame.content:SetPoint("TOPLEFT", gearFrame, "TOPLEFT", 0, -42)
+gearFrame.content:SetPoint("BOTTOMRIGHT", gearFrame, "BOTTOMRIGHT")
+gearFrame.content:Show()
+
 local function GetEquipmentSetOptions()
     if equipSetOptionsCache then return equipSetOptionsCache end
     local options = { { text = "None", value = "" } }
@@ -593,6 +601,7 @@ local function GetEquipmentSetOptions()
     equipSetOptionsCache = options
     return options
 end
+
 
 -- -------------------------------------------------------------------------
 -- HELPER: styled edit box (no border)
@@ -628,6 +637,34 @@ local function mkLabel(parent, txt, r, g, b)
     return fs
 end
 
+-- Global Header UI Configuration
+gearFrame.highPvE = common.create_flat_button(gearFrame, "PvE", 40, 18)
+gearFrame.highPvE:SetPoint("TOPLEFT", gearFrame, "TOPLEFT", 150, -11)
+gearFrame.highPvE:SetScript("OnClick", function()
+    if sfui.highest and sfui.highest.EquipHighestILvl then sfui.highest.EquipHighestILvl(false) end
+end)
+
+gearFrame.highPvP = common.create_flat_button(gearFrame, "PvP", 40, 18)
+gearFrame.highPvP:SetPoint("TOPLEFT", gearFrame, "TOPLEFT", 195, -11)
+gearFrame.highPvP:SetScript("OnClick", function()
+    if sfui.highest and sfui.highest.EquipHighestILvl then sfui.highest.EquipHighestILvl(true) end
+end)
+
+gearFrame.statusLabel = gearFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+gearFrame.statusLabel:SetPoint("LEFT", gearFrame.highPvP, "RIGHT", 10, 0)
+gearFrame.statusLabel:SetJustifyH("LEFT")
+gearFrame.statusLabel:SetShadowOffset(0, 0)
+gearFrame.statusLabel:SetText("")
+
+gearFrame.maxLvlChk = common.create_checkbox(gearFrame, "Enable",
+    function() return charDB().autoequip_enabled end,
+    function(c)
+        charDB().autoequip_enabled = c
+        if c then sfui.gear.Update() end
+    end)
+gearFrame.maxLvlChk:SetPoint("TOPLEFT", gearFrame, "TOPLEFT", 360, -9)
+gearFrame.maxLvlChk.text:SetShadowOffset(0, 0)
+
 -- -------------------------------------------------------------------------
 -- ON SHOW: build per-spec cards
 -- -------------------------------------------------------------------------
@@ -637,6 +674,16 @@ gearFrame:SetScript("OnShow", function(self)
         if SfuiDB.gear_pos then
             self:ClearAllPoints()
             self:SetPoint(SfuiDB.gear_pos.point, UIParent, SfuiDB.gear_pos.relativePoint, SfuiDB.gear_pos.x, SfuiDB.gear_pos.y)
+            
+            -- Convert legacy positional saves cleanly to TOPLEFT bounds if needed
+            if SfuiDB.gear_pos.point ~= "TOPLEFT" then
+                local left = self:GetLeft()
+                local top = self:GetTop()
+                if left and top then
+                    self:ClearAllPoints()
+                    self:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+                end
+            end
         end
     end
     if sfui.gear.UpdateStatUI then sfui.gear.UpdateStatUI() end
@@ -654,15 +701,29 @@ gearFrame:SetScript("OnShow", function(self)
     local numSpecs = GetNumSpecializations()
     if numSpecs == 0 then numSpecs = 1 end
 
-    local CARD_H  = 120
-    local PAD_TOP = 50
-    local BOT_H   = 52
-    self:SetSize(490, PAD_TOP + CARD_H + BOT_H)
+    local HEADER_H = 42
+    local CARD_H   = 120
+    self.expandedHeight = HEADER_H + CARD_H
+    
+    if SfuiDB and SfuiDB.gear_collapsed ~= nil then
+        self.collapsed = SfuiDB.gear_collapsed
+    end
+    
+    if self.collapsed then
+        collapseBtn:SetText("+")
+        if self.content then self.content:Hide() end
+        self:SetSize(490, HEADER_H)
+    else
+        collapseBtn:SetText("-")
+        if self.content then self.content:Show() end
+        self:SetSize(490, self.expandedHeight)
+    end
 
     self.tabBtns = self.tabBtns or {}
     local activeSpecId = GetSpecializationInfo(GetSpecialization() or 1)
 
     self.SelectSpecTab = function(f, specID)
+        f.activeSpecID = specID
         for id, ui in pairs(f.specUIs) do
             if id == specID then
                 if ui.card then ui.card:Show() end
@@ -672,6 +733,7 @@ gearFrame:SetScript("OnShow", function(self)
                 if f.tabBtns[id] then f.tabBtns[id]:SetAlpha(0.3) end
             end
         end
+        if sfui.gear.UpdateStatUI then sfui.gear.UpdateStatUI() end
     end
 
     -- icon helper: clicking (left OR right) unlocks the slot
@@ -713,7 +775,7 @@ gearFrame:SetScript("OnShow", function(self)
         if id then
             local btn = CreateFrame("Button", nil, self, "BackdropTemplate")
             btn:SetSize(28, 28)
-            btn:SetPoint("TOPLEFT", self, "TOPLEFT", startX, -10)
+            btn:SetPoint("TOPLEFT", self, "TOPLEFT", startX, -7)
             local t = btn:CreateTexture(nil, "ARTWORK")
             t:SetAllPoints()
             t:SetTexture(icon)
@@ -724,7 +786,7 @@ gearFrame:SetScript("OnShow", function(self)
         end
     end
 
-    local yOff = -PAD_TOP
+    local yOff = -5
     for i = 1, numSpecs do
         local id, specName, _, icon = GetSpecializationInfo(i)
         if not id then return end
@@ -733,9 +795,9 @@ gearFrame:SetScript("OnShow", function(self)
         local ui = self.specUIs[id]
 
         -- Card (no border, subtle background)
-        local card = CreateFrame("Frame", nil, self, "BackdropTemplate")
+        local card = CreateFrame("Frame", nil, self.content, "BackdropTemplate")
         card:SetSize(470, CARD_H - 4)
-        card:SetPoint("TOPLEFT", self, "TOPLEFT", 10, yOff)
+        card:SetPoint("TOPLEFT", self.content, "TOPLEFT", 10, yOff)
         card:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8" })
         card:SetBackdropColor(0.09, 0.09, 0.09, 0.88)
         ui.card = card
@@ -855,7 +917,7 @@ gearFrame:SetScript("OnShow", function(self)
         end, "")
         pvpDrop:SetPoint("TOPLEFT", card, "TOPLEFT", CX + 193, -5)
         ui.pvpDrop       = pvpDrop
-
+        
         -- ROW 2: Lock section (2 sub-rows)
         -- Sub-row A (icons, y=-38): slot icons shown when locked; click to unlock
         -- Sub-row B (buttons, y=-63): lock toggle buttons, one per slot
@@ -1154,35 +1216,6 @@ gearFrame:SetScript("OnShow", function(self)
         -- yOff = yOff - CARD_H -- Disabled due to tab layout
     end
     self:SelectSpecTab(activeSpecId)
-
-    -- Bottom strip
-    self.maxLvlChk = common.create_checkbox(self, "Auto Equip at Max Level",
-        function() return charDB().max_level_autoequip end,
-        function(c)
-            charDB().max_level_autoequip = c
-            if c then sfui.gear.Update() end
-        end)
-    self.maxLvlChk:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", 15, 28)
-    self.maxLvlChk.text:SetShadowOffset(0, 0)
-
-    local highPvE = common.create_flat_button(self, "PvE", 115, 22)
-    highPvE:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", 15, 5)
-    highPvE:SetScript("OnClick", function()
-        if sfui.highest and sfui.highest.EquipHighestILvl then sfui.highest.EquipHighestILvl(false) end
-    end)
-
-    local highPvP = common.create_flat_button(self, "PvP", 115, 22)
-    highPvP:SetPoint("BOTTOMRIGHT", self, "BOTTOMRIGHT", -5, 5)
-    highPvP:SetScript("OnClick", function()
-        if sfui.highest and sfui.highest.EquipHighestILvl then sfui.highest.EquipHighestILvl(true) end
-    end)
-
-    -- Status label centred between the two buttons
-    local statusLabel = self:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    statusLabel:SetPoint("BOTTOM", self, "BOTTOM", 0, 10)
-    statusLabel:SetJustifyH("CENTER")
-    statusLabel:SetShadowOffset(0, 0)
-    self.statusLabel = statusLabel
 
     if sfui.gear.UpdateStatUI then sfui.gear.UpdateStatUI() end
 end)

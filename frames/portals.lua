@@ -538,22 +538,12 @@ local function build_portals_frame()
         insets   = { left = 0, right = 0, top = 0, bottom = 0 },
     })
     portalFrame:SetBackdropColor(unpack(cfg.appearance.backdropColor))
-    portalFrame:SetBackdropBorderColor(unpack(cfg.appearance.highlightColor))
+    portalFrame:SetBackdropBorderColor(unpack(cfg.colors.black))
     tinsert(UISpecialFrames, "SfuiPortalsFrame")
 
     portalFrame.refreshable = {}
 
-    -- Title + close
-    local title = portalFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    title:SetPoint("TOP", 0, -6)
-    title:SetText("|cff6600ffPortals|r")
-
-    local closeBtn = sfui.common.create_flat_button(portalFrame, "×", 16, 16)
-    closeBtn:SetPoint("TOPRIGHT", -4, -4)
-    closeBtn:SetScript("OnClick", function() portalFrame:Hide() end)
-    closeBtn:GetFontString():SetTextColor(1, 0.3, 0.3, 1)
-
-    local curY = -22
+    local curY = -6
 
     -- ── M+ Season Portals ────────────────────────────────────────
     local seasonKnown = {}
@@ -647,8 +637,7 @@ local function build_portals_frame()
         end
     end
 
-    curY = curY - 6
-    portalFrame:SetSize(FRAME_WIDTH, math.abs(curY) + 8)
+    portalFrame:SetSize(FRAME_WIDTH, math.abs(curY) + 4)
 
     -- Refresh states on every open
     portalFrame:SetScript("OnShow", function(self)

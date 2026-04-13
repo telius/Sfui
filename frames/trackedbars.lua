@@ -266,8 +266,10 @@ local function CreateBar(cooldownID)
                     return -- Abort safely to preserve the global UI state
                 end
             end
-            
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            -- Anchor to the parent container instead of the bar itself!
+            -- Anchoring to a StatusBar that holds a secret value (like duration) mathematically
+            -- taints the entire GameTooltip's localized dimensions, crashing future money scans.
+            GameTooltip:SetOwner(self:GetParent(), "ANCHOR_RIGHT")
             GameTooltip:SetSpellByID(secureSpell)
             GameTooltip:Show()
         end
