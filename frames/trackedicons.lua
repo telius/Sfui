@@ -142,35 +142,47 @@ sfui.trackedicons.StartGlow = StartGlow
 -- Helper to create count text (stacks/charges)
 local function CreateCountText(icon)
     if icon.count then return end
-
-    local count = icon:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    count:SetPoint("BOTTOMRIGHT", -2, 2)
+    -- Match Blizzard ActionButton.Count exactly:
+    --   Font:     NumberFontNormal (ActionButton.lua layout template)
+    --   Position: BOTTOMRIGHT -3, 1  (ActionButton.lua:1633-1634)
+    local count = icon:CreateFontString(nil, "OVERLAY")
+    if NumberFontNormal then
+        count:SetFontObject(NumberFontNormal)
+    else
+        -- Fallback if NumberFontNormal unavailable
+        count:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
+    end
+    count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -3, 1)
     count:SetJustifyH("RIGHT")
     icon.count = count
 end
 
 
--- Helper to update count text value
-local function UpdateCountText(icon, count)
+-- Helper to update count text value.
+-- Mirrors Blizzard's CooldownViewer (CooldownViewer.lua:1057) and ActionButton (ActionButton.lua:809):
+-- pass the count value directly to SetText — NEVER compare it in Lua when it may be secret.
+local function UpdateCountText(icon, displayStr)
     if not icon.count then CreateCountText(icon) end
 
-    local isSecret = issecretvalue(count)
-
-    if isSecret then
-        sfui.common.SafeSetText(icon.count, count, 0)
-        icon.count:Show()
-    elseif type(count) == "number" and count > 0 then
-        -- Dirty check: skip the string alloc + C SetText call when unchanged
-        if icon._lastCount ~= count then
-            icon._lastCount = count
-            icon.count:SetText(tostring(count))
-        end
+    if issecretvalue(displayStr) then
+        -- Secret value (M+ cooldown-restricted): SafeSetText handles the
+        -- LuaDurationObject transparently without triggering taint on comparison.
+        sfui.common.SafeSetText(icon.count, displayStr, 0)
         icon.count:Show()
     else
-        if icon._lastCount ~= nil then
-            icon._lastCount = nil
+        -- Non-secret: safe to branch. Convert to string for uniform dirty-check.
+        -- "" or "0" hides the badge (no display count, or items with stack=0).
+        local str = (displayStr ~= nil and displayStr ~= 0) and tostring(displayStr) or ""
+        if str ~= "" and str ~= "0" then
+            if icon._lastCount ~= str then
+                icon._lastCount = str
+                icon.count:SetText(str)
+            end
+            icon.count:Show()
+        else
+            if icon._lastCount ~= nil then icon._lastCount = nil end
+            icon.count:Hide()
         end
-        icon.count:Hide()
     end
 end
 
@@ -186,7 +198,9 @@ scratchParent:Hide()
 local scratchCooldown = CreateFrame("Cooldown", nil, scratchParent, "CooldownFrameTemplate")
 
 local function UpdateIconCooldown(icon, activeID, resolvedType)
-    local count = 0
+    -- count starts as "" for spells (GetSpellDisplayCount returns "") and as 0
+    -- for items (GetItemCount returns a number). Use type-appropriate default.
+    local count = (resolvedType == "item") and 0 or ""
     local isEnabled = true
     local isUsable, notEnoughPower = true, false
     local isOnCooldown = false
@@ -267,14 +281,22 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
             if icon.shadowCooldown then icon.shadowCooldown:Clear() end
         end
 
-        -- Charges: supports tainted activeID
-        local ok_ch, charges = pcall(C_Spell.GetSpellCharges, activeID)
-        if ok_ch and charges ~= nil then
-            local cc = charges.currentCharges
-            if cc ~= nil then
-                count = cc
+        -- Display count string for the badge text.
+        -- C_Spell.GetSpellDisplayCount covers: spell charges, soul fragments,
+        -- resource-derived counts, alternate power, etc. — exactly what Blizzard's
+        -- own ActionButton (ActionButton.lua:809) and SpellFlyout use.
+        --
+        -- SecretWhenSpellCooldownRestricted = true: the return value may be a
+        -- secret LuaDurationObject in M+. We MUST NOT compare it in Lua.
+        -- We pass it straight to UpdateCountText/SetText (C++ handles secrets natively).
+        local displayStr = ""
+        if C_Spell.GetSpellDisplayCount then
+            local ok_dc, dc = pcall(C_Spell.GetSpellDisplayCount, activeID)
+            if ok_dc and dc ~= nil then
+                displayStr = dc  -- string or secret — never compared below
             end
         end
+        count = displayStr  -- passed to UpdateCountText; never compared in Lua
     end
 
     -- Glow arming
@@ -294,12 +316,17 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
         if not HasFullControl() and not isUsable then isUsable = true end
     end
 
-    -- Readiness
+    -- Readiness: use only NeverSecret fields for branching.
+    -- cdInfo.isActive (= isOnCooldown) already correctly handles charge-based spells:
+    -- when a spell has multiple charges and at least one is available, isActive=false
+    -- so isOnCooldown=false and the spell is considered ready naturally.
+    -- GetSpellCastCount/GetSpellCharges are SecretWhenSpellCooldownRestricted in M+
+    -- and must NOT be compared in Lua.
     local isReady
     if icon.type == "item" then
         isReady = not isOnCooldown and (isEnabled ~= false)
     else
-        isReady = (not isOnCooldown or sfui.common.SafeGT(count, 0)) and (isEnabled ~= false) and isUsable
+        isReady = not isOnCooldown and (isEnabled ~= false) and isUsable
     end
 
     return count, isReady, isUsable, notEnoughPower, isOnCooldown
@@ -495,8 +522,26 @@ local function UpdateIconState(icon, panelConfig)
             icon:Show()
         end
 
-        -- Update Count Text
-        UpdateCountText(icon, count)
+        -- Update Count Text.
+        -- For spell/cooldown/buff entries: GetSpellDisplayCount already covers soul
+        -- fragments, charges, and resource pool counts (returned in `count` as a
+        -- potentially-secret string — handled by UpdateCountText/SafeSetText).
+        --
+        -- Additionally, for entries that are aura/buff type, overlay applications
+        -- (stack count) if > 1. applications is a plain NeverSecret integer from
+        -- C_UnitAuras.GetPlayerAuraBySpellID — safe to compare directly.
+        -- This mirrors Blizzard's CooldownViewer RefreshApplications (CooldownViewer.lua:1258).
+        local displayCount = count
+        if icon.type ~= "item" and activeID and activeID ~= 0 and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+            local ok_aura, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, activeID)
+            if ok_aura and aura and aura.applications and aura.applications > 1 then
+                -- Aura applications: always a safe integer (NeverSecret). Show instead
+                -- of the spell display count so that buff stacks (e.g. Maelstrom Weapon)
+                -- display correctly on tracked icons, matching CooldownViewer behavior.
+                displayCount = aura.applications
+            end
+        end
+        UpdateCountText(icon, displayCount)
 
         -- Visibility / Settings check
         icon.cooldown:SetHideCountdownNumbers(not GetIconValue(entrySettings, panelConfig, "textEnabled", true))
@@ -1467,6 +1512,23 @@ function sfui.trackedicons.initialize()
         MarkDirty(2.0)
     end)
     sfui.events.RegisterEvent("SPELLS_CHANGED", function() MarkDirty() end)
+
+    -- Soul fragments, charges, resource-gated display counts.
+    -- SPELL_UPDATE_CHARGES fires when any spell's GetSpellDisplayCount value changes
+    -- (this is the same event Blizzard's ActionButton uses for UpdateCount).
+    sfui.events.RegisterEvent("SPELL_UPDATE_CHARGES", function()
+        _needsStateUpdate = true
+    end)
+
+    -- UNIT_POWER_UPDATE covers soul fragments (Fury power type for VDH) and other
+    -- resource pools that gate GetSpellDisplayCount values. Keep the burst very short
+    -- so we don't continuously hammer UpdateAllIconStates while out of combat.
+    -- Filter to 'player' only: args are (event, unit, powerType).
+    sfui.events.RegisterEvent("UNIT_POWER_UPDATE", function(event, unit)
+        if unit == "player" then
+            _needsStateUpdate = true
+        end
+    end)
 
 
     -- Real-time events that require immediate structural/GCD sync

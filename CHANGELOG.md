@@ -1,4 +1,14 @@
-## v0.6.6 (2026-04-13)
+## v0.6.7 (2026-04-14)
+
+### Features
+- **Tracked Icons (Display Count)**: Implemented native `GetSpellDisplayCount` support on tracked icons, mirroring the Blizzard action bar exactly. Soul fragments (Soul Cleave, Spirit Bomb), spell charges, reagent use counts, and all resource-pool-derived counts now display on icon badges.
+- **Tracked Icons (Aura Stacks)**: Added `C_UnitAuras.GetPlayerAuraBySpellID.applications` overlay for tracked spell/buff entries. Stack counts (e.g. Maelstrom Weapon, Irresistible Pain) now display when `applications > 1`, matching CooldownViewer `RefreshApplications` behavior.
+- **Tracked Icons (Count Font/Position)**: Count badge now uses `NumberFontNormal` and is positioned at `BOTTOMRIGHT -3, 1` to exactly match the Blizzard action bar count fontstring.
+
+### Bug Fixes
+- **Tracked Icons (Taint)**: Eliminated all secret-value taint errors in `UpdateIconCooldown`. Readiness logic now uses only `NeverSecret` fields (`cdInfo.isActive`, `cdInfo.isOnGCD`, `cdInfo.isEnabled`). `GetSpellDisplayCount` result is passed directly to `SetText`/`SafeSetText` without any Lua-level comparison.
+
+
 
 ### Features
 - **UI Updates**: Modularized portal abbreviations, fixed tooltip anchoring, and updated gear manager UI logic.
