@@ -643,20 +643,47 @@ function sfui.trackedoptions.RenderBarsTab(parent)
         return h
     end
 
-    Header("Spell / Icon", 5, 160)
-    Header("Show Name", 165, 80)
-    Header("Stack Mode", 245, 80)
-    Header("Show Stacks", 325, 80)
-    Header("To Health", 405, 80)
-    Header("Timer", 485, 80)
-    Header("Spec Color", 565, 80)
-    Header("Custom Color", 645, 80)
-    Header("Pandemic", 730, 70)
-    Header("P.Color", 805, 60)
+    Header("Spell / Icon", 5, 130)
+    Header("Order", 135, 40)
+    Header("Show Name", 185, 75)
+    Header("Stack Mode", 265, 75)
+    Header("Show Stacks", 345, 75)
+    Header("To Health", 425, 75)
+    Header("Timer", 505, 75)
+    Header("Spec Color", 585, 75)
+    Header("Custom Color", 665, 80)
+    Header("Pandemic", 745, 60)
+    Header("P.Col", 815, 60)
 
     s3y = s3y - 25
 
     local spells = sfui.trackedbars.GetKnownSpells and sfui.trackedbars.GetKnownSpells()
+    
+    if spells then
+        table.sort(spells, function(a, b)
+            local cA = sfui.trackedbars.GetConfig and sfui.trackedbars.GetConfig(a.id) or {}
+            local cB = sfui.trackedbars.GetConfig and sfui.trackedbars.GetConfig(b.id) or {}
+            local hA = cA.stackAboveHealth and 1 or 0
+            local hB = cB.stackAboveHealth and 1 or 0
+
+            -- Group Attached vs Normal first
+            if hA ~= hB then return hA > hB end
+
+            -- Then sort by index
+            if hA == 1 then
+                local idxA = cA.attachedIndex or cA.priority or 100
+                local idxB = cB.attachedIndex or cB.priority or 100
+                if idxA ~= idxB then return idxA < idxB end
+            else
+                local idxA = cA.normalIndex or cA.priority or 100
+                local idxB = cB.normalIndex or cB.priority or 100
+                if idxA ~= idxB then return idxA < idxB end
+            end
+
+            return (a.name or "") < (b.name or "")
+        end)
+    end
+    
     local ly = s3y
     if spells then
         for i, info in ipairs(spells) do
@@ -671,10 +698,49 @@ function sfui.trackedoptions.RenderBarsTab(parent)
             row:SetBackdropColor(0.1, 0.1, 0.1, (i % 2 == 0) and 0.5 or 0.3)
 
             -- Icon & Name
-            local iconTex = row:CreateTexture(nil, "ARTWORK"); iconTex:SetSize(32, 32); iconTex:SetPoint("LEFT", 4, 0); iconTex
-                :SetTexture(icon)
-            local lName = row:CreateFontString(nil, "OVERLAY", "GameFontNormal"); lName:SetPoint("LEFT", iconTex, "RIGHT",
-                8, 0); lName:SetText(name)
+            local iconTex = row:CreateTexture(nil, "ARTWORK"); iconTex:SetSize(32, 32); iconTex:SetPoint("LEFT", 4, 0); iconTex:SetTexture(icon)
+            local lName = row:CreateFontString(nil, "OVERLAY", "GameFontNormal");
+            lName:SetPoint("LEFT", iconTex, "RIGHT", 4, 0);
+            lName:SetWidth(95); lName:SetWordWrap(false); lName:SetJustifyH("LEFT");
+            lName:SetText(name)
+
+            -- Order controls
+            local btnUp = CreateFrame("Button", nil, row)
+            btnUp:SetSize(16, 16)
+            btnUp:SetPoint("LEFT", 140, 6)
+            btnUp:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollUp-Up")
+            btnUp:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollUp-Up", "ADD")
+            
+            local btnDown = CreateFrame("Button", nil, row)
+            btnDown:SetSize(16, 16)
+            btnDown:SetPoint("LEFT", 140, -8)
+            btnDown:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up")
+            btnDown:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up", "ADD")
+
+            local function BumpIndex(direction)
+                local cfg = sfui.trackedbars.GetConfig and sfui.trackedbars.GetConfig(id) or {}
+                local isAttached = cfg.stackAboveHealth
+                local curIdx = 100
+                
+                if isAttached then
+                    curIdx = cfg.attachedIndex or cfg.priority or 100
+                else
+                    curIdx = cfg.normalIndex or cfg.priority or 100
+                end
+                
+                local dbEntry = common.ensure_tracked_bar_db(id)
+                if isAttached then
+                    dbEntry.attachedIndex = curIdx + direction
+                else
+                    dbEntry.normalIndex = curIdx + direction
+                end
+                
+                sfui.trackedoptions.RenderBarsTab(parent) 
+                Refresh() 
+            end
+            
+            btnUp:SetScript("OnClick", function() BumpIndex(-1) end)
+            btnDown:SetScript("OnClick", function() BumpIndex(1) end)
 
             -- Checkboxes (No labels, centered under headers)
             local function RC(k, tip, x)

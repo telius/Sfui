@@ -402,21 +402,39 @@ local function UpdateLayout()
     -- Update container/child icon sizes if changed globally
     local iconSize = globalDB.iconSize or cfg.icon_size or 20
 
-    -- Simple Sort (Priority > Name)
-    local function SimpleSort(a, b)
+    -- Normal Sort (Normal Index > Name)
+    local function NormalSort(a, b)
         local cA = GetTrackedBarConfig(a.cooldownID)
         local cB = GetTrackedBarConfig(b.cooldownID)
-        local pA = (cA and cA.priority) or 0
-        local pB = (cB and cB.priority) or 0
-        if pA ~= pB then return pA < pB end
+        
+        -- Default to 100 or legacy priority if unassigned, so they sit below manually bumped bars.
+        local nA = (cA and cA.normalIndex) or (cA and cA.priority) or 100
+        local nB = (cB and cB.normalIndex) or (cB and cB.priority) or 100
 
-        local nA = C_Spell.GetSpellName(a.cooldownID) or ""
-        local nB = C_Spell.GetSpellName(b.cooldownID) or ""
-        return nA < nB
+        if nA ~= nB then return nA < nB end
+
+        local nA_name = C_Spell.GetSpellName(a.cooldownID) or ""
+        local nB_name = C_Spell.GetSpellName(b.cooldownID) or ""
+        return nA_name < nB_name
+    end
+
+    -- Attached Sort (Attached Index > Name)
+    local function AttachedSort(a, b)
+        local cA = GetTrackedBarConfig(a.cooldownID)
+        local cB = GetTrackedBarConfig(b.cooldownID)
+        
+        local aA = (cA and cA.attachedIndex) or (cA and cA.priority) or 100
+        local aB = (cB and cB.attachedIndex) or (cB and cB.priority) or 100
+
+        if aA ~= aB then return aA < aB end
+
+        local nA_name = C_Spell.GetSpellName(a.cooldownID) or ""
+        local nB_name = C_Spell.GetSpellName(b.cooldownID) or ""
+        return nA_name < nB_name
     end
 
     -- 1. Standard Layout
-    table.sort(standardBars, SimpleSort)
+    table.sort(standardBars, NormalSort)
     local yOffset = 0
     for _, bar in ipairs(standardBars) do
         local config = GetTrackedBarConfig(bar.cooldownID)
@@ -429,7 +447,7 @@ local function UpdateLayout()
 
     -- 2. Attached Layout
     if #attachedBars > 0 then
-        table.sort(attachedBars, SimpleSort)
+        table.sort(attachedBars, AttachedSort)
 
         local spacing = sfui.config.barLayout.spacing or 1
         local anchor = _G["sfui_bar0_Backdrop"]

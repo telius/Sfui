@@ -292,15 +292,25 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
         local displayStr = ""
         
         -- 1. Try GetSpellDisplayCount (Actionbar native representation & Soul Fragments)
+        -- dc may be a secret LuaDurationObject; doing 'dc == ""' triggers immediate taint.
+        -- We just assign it to displayStr, and rely on safe type-checking later.
         if C_Spell.GetSpellDisplayCount then
             local ok_dc, dc = pcall(C_Spell.GetSpellDisplayCount, activeID)
-            if ok_dc and dc ~= nil and dc ~= "" then
+            if ok_dc and dc ~= nil then
                 displayStr = dc
             end
         end
 
+        local function IsFallbackNeeded(val)
+            -- Secret values can sometimes be "secret strings" in 11.0.
+            -- issecretvalue provides the official C++ level check. If it is secret,
+            -- it is a valid value, not an empty string, and must not be compared.
+            if issecretvalue(val) then return false end
+            return val == ""
+        end
+
         -- 2. Try SpellChargeInfo (CooldownViewer priority for >1 charge spells)
-        if displayStr == "" and C_Spell.GetSpellCharges then
+        if IsFallbackNeeded(displayStr) and C_Spell.GetSpellCharges then
             local ok_ch, ch = pcall(C_Spell.GetSpellCharges, activeID)
             if ok_ch and ch and ch.maxCharges and ch.maxCharges > 1 then
                 displayStr = ch.currentCharges or ""
@@ -308,12 +318,12 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
         end
 
         -- 3. Try GetSpellCastCount (CooldownViewer fallback fallback)
-        if displayStr == "" and C_Spell.GetSpellCastCount then
+        if IsFallbackNeeded(displayStr) and C_Spell.GetSpellCastCount then
             local ok_cc, cc = pcall(C_Spell.GetSpellCastCount, activeID)
             if ok_cc and cc ~= nil then
-                -- LuaDurationObject/secret or explicit number > 0
+                -- cc may be a secret value or an explicit number > 0
                 if issecretvalue(cc) then
-                    displayStr = cc
+                    displayStr = cc -- Safely bypass
                 elseif type(cc) == "number" and cc > 0 then
                     displayStr = cc
                 end

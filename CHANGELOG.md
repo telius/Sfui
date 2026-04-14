@@ -1,3 +1,12 @@
+## v0.6.7b (2026-04-14)
+
+### Features
+- **Tracked Bars (Manual Ordering)**: Implemented manual reordering for both Normal and Attached tracks. Bars can now be moved up/down independently via [▲]/[▼] controls in the settings panel.
+- **Tracked Bars (Independent Sort Tracks)**: Sorting logic now treats Normal and Health-attached bars as distinct layout pools with their own manual indices.
+
+### Bug Fixes
+- **Tracked Icons (Taint Safety)**: Fixed critical "Secret String" comparison errors in `GetSpellDisplayCount` that would trigger in restricted M+ environments. Replaced literal string checks with `issecretvalue` short-circuiting to safely handle protected Blizzard payloads.
+
 ## v0.6.7a (2026-04-14)
 
 ### Bug Fixes
