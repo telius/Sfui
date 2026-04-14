@@ -1,6 +1,10 @@
-## v0.6.7 (2026-04-14)
+## v0.6.7a (2026-04-14)
 
-### Features
+### Bug Fixes
+- **Tracked Icons (Bone Shield)**: Extracted native `cdInfo.linkedSpellIDs` deeply out of the C++ CooldownViewer bridge to force aura applications checking on proxy cooldowns. Resolves a massive Blizzard-inherited disconnect where tracking `Marrowrend` naturally failed to query `Bone Shield` aura stacks.
+- **Tracked Icons (CooldownViewer Counts)**: Shifted `GetSpellDisplayCount` interpretation to act as a fallback hierarchy rather than an isolated source. `UpdateIconCooldown` will now correctly simulate CooldownViewer counting priority (incorporating `GetSpellCharges` and `GetSpellChargeInfo`) if the base Actionbar query turns up dry.
+
+## v0.6.7 (2026-04-14)
 - **Tracked Icons (Display Count)**: Implemented native `GetSpellDisplayCount` support on tracked icons, mirroring the Blizzard action bar exactly. Soul fragments (Soul Cleave, Spirit Bomb), spell charges, reagent use counts, and all resource-pool-derived counts now display on icon badges.
 - **Tracked Icons (Aura Stacks)**: Added `C_UnitAuras.GetPlayerAuraBySpellID.applications` overlay for tracked spell/buff entries. Stack counts (e.g. Maelstrom Weapon, Irresistible Pain) now display when `applications > 1`, matching CooldownViewer `RefreshApplications` behavior.
 - **Tracked Icons (Count Font/Position)**: Count badge now uses `NumberFontNormal` and is positioned at `BOTTOMRIGHT -3, 1` to exactly match the Blizzard action bar count fontstring.

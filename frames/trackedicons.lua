@@ -290,12 +290,36 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
         -- secret LuaDurationObject in M+. We MUST NOT compare it in Lua.
         -- We pass it straight to UpdateCountText/SetText (C++ handles secrets natively).
         local displayStr = ""
+        
+        -- 1. Try GetSpellDisplayCount (Actionbar native representation & Soul Fragments)
         if C_Spell.GetSpellDisplayCount then
             local ok_dc, dc = pcall(C_Spell.GetSpellDisplayCount, activeID)
-            if ok_dc and dc ~= nil then
-                displayStr = dc  -- string or secret — never compared below
+            if ok_dc and dc ~= nil and dc ~= "" then
+                displayStr = dc
             end
         end
+
+        -- 2. Try SpellChargeInfo (CooldownViewer priority for >1 charge spells)
+        if displayStr == "" and C_Spell.GetSpellCharges then
+            local ok_ch, ch = pcall(C_Spell.GetSpellCharges, activeID)
+            if ok_ch and ch and ch.maxCharges and ch.maxCharges > 1 then
+                displayStr = ch.currentCharges or ""
+            end
+        end
+
+        -- 3. Try GetSpellCastCount (CooldownViewer fallback fallback)
+        if displayStr == "" and C_Spell.GetSpellCastCount then
+            local ok_cc, cc = pcall(C_Spell.GetSpellCastCount, activeID)
+            if ok_cc and cc ~= nil then
+                -- LuaDurationObject/secret or explicit number > 0
+                if issecretvalue(cc) then
+                    displayStr = cc
+                elseif type(cc) == "number" and cc > 0 then
+                    displayStr = cc
+                end
+            end
+        end
+
         count = displayStr  -- passed to UpdateCountText; never compared in Lua
     end
 
@@ -481,7 +505,7 @@ local function UpdateIconState(icon, panelConfig)
     local entrySettings = icon.entry.settings or _emptyTable
 
     -- 1. Determine the Correct Spell/Item ID and Texture
-    local iconTexture, activeID, resolvedType = sfui.trackedicons.GetIconTexture(icon.id, icon.type, icon.entry)
+    local iconTexture, activeID, resolvedType, linkedSpellIDs = sfui.trackedicons.GetIconTexture(icon.id, icon.type, icon.entry)
 
     -- 2. FORCE TEXTURE REFRESH (Fixes "Reload Required" for reordering)
     if icon.texture and iconTexture then
@@ -533,8 +557,23 @@ local function UpdateIconState(icon, panelConfig)
         -- This mirrors Blizzard's CooldownViewer RefreshApplications (CooldownViewer.lua:1258).
         local displayCount = count
         if icon.type ~= "item" and activeID and activeID ~= 0 and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
-            local ok_aura, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, activeID)
-            if ok_aura and aura and aura.applications and aura.applications > 1 then
+            local aura = nil
+            local ok_aura, baseAura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, activeID)
+            
+            if ok_aura and baseAura then
+                aura = baseAura
+            elseif linkedSpellIDs then
+                -- Try resolving linked auras (e.g., Marrowrend tracking -> Bone Shield aura)
+                for _, linkedID in ipairs(linkedSpellIDs) do
+                    local ok_linked, linkedAura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, linkedID)
+                    if ok_linked and linkedAura then
+                        aura = linkedAura
+                        break
+                    end
+                end
+            end
+
+            if aura and aura.applications and aura.applications > 1 then
                 -- Aura applications: always a safe integer (NeverSecret). Show instead
                 -- of the spell display count so that buff stacks (e.g. Maelstrom Weapon)
                 -- display correctly on tracked icons, matching CooldownViewer behavior.
@@ -574,11 +613,13 @@ function sfui.trackedicons.GetIconTexture(id, type, entry)
     local activeID = id
     local iconTexture
     local resolvedType = type
+    local linkedSpellIDs = nil
 
     if type == "cooldown" and entry and entry.cooldownID then
         -- Get cooldown info from Blizzard's CDM
         local cdInfo = SafeGetCooldownViewerCooldownInfo(entry.cooldownID)
         if cdInfo then
+            linkedSpellIDs = cdInfo.linkedSpellIDs
             if cdInfo.spellID and cdInfo.spellID > 0 then
                 activeID = cdInfo.overrideSpellID or cdInfo.spellID
                 iconTexture = C_Spell.GetSpellTexture(activeID)
@@ -620,7 +661,7 @@ function sfui.trackedicons.GetIconTexture(id, type, entry)
         end
     end
 
-    return iconTexture, activeID, resolvedType
+    return iconTexture, activeID, resolvedType, linkedSpellIDs
 end
 
 -- Apply square icon + border style from config
