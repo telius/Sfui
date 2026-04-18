@@ -1,3 +1,10 @@
+## v0.6.7c (2026-04-18)
+
+### Bug Fixes
+- **Tracked Bars (Mythic+)**: Fixed an issue where the string `"0"` would appear on icons in Mythic+ due to the `C_Spell.GetSpellCharges` API obfuscating empty cooldown counts as Secret Values.
+- **Tracked Icons / Bars**: Fixed a severe Lua error crashing the UI in Mythic+ when evaluating `chargeInfo.maxCharges`. The evaluation is now safely wrapped in a protected execution environment (`SafeGT`).
+- **Tracked Options**: Stack counts on standard icons are now hidden by default to reduce UI clutter, and will only render if explicitly enabled via the global "Show Stack Count" option in the config menu.
+
 ## v0.6.7b (2026-04-14)
 
 ### Features
