@@ -541,8 +541,7 @@ function sfui.trackedoptions.RenderBarsTab(parent)
         s1y - 20)
     BCheck(sec1c, "Show Duration", function() return GetB("showDuration", true) end, function(v) db.showDuration = v end,
         nil, 160, s1y - 50)
-    BCheck(sec1c, "Show Stack Count", function() return GetB("showStacks", true) end, function(v) db.showStacks = v end,
-        nil, 160, s1y - 80)
+    BCheck(sec1c, "Show Stack Count", function() return GetB("showStacks", false) end, function(v) db.showStacks = v end, "Show stack counts on the bar icons by default.", 160, s1y - 80)
 
     -- Col 2: Position & Size
     local col2x = 350
@@ -763,11 +762,112 @@ function sfui.trackedoptions.RenderBarsTab(parent)
                 return cb
             end
 
-            RC("showName", "Show spell name on bar", 185)
-            RC("stackMode", "Bar becomes a stack counter", 265)
-            RC("showStacksText", "Show stack count as text", 345)
-            RC("stackAboveHealth", "Attach to Health Bar", 425)
-            RC("showDuration", "Show cooldown timer", 505)
+            -- Helper: determine whether stack+timer mode is active for this bar
+            -- (stackMode OR showStacksText is ON, and showDuration not explicitly false)
+            local function IsStackTimerMode()
+                local dbEntry = specBars and specBars[id]
+                local isAttached = (dbEntry and dbEntry.stackAboveHealth) or false
+                if isAttached then return false end
+                
+                local isStack = (dbEntry and (dbEntry.stackMode or dbEntry.showStacksText)) or false
+                local timerOff = dbEntry and (dbEntry.showDuration == false)
+                return isStack and not timerOff
+            end
+
+            -- showName checkbox — greyed-out and forced off in stack+timer mode
+            local showNameCB = common.create_checkbox(row, "",
+                function()
+                    if IsStackTimerMode() then return false end
+                    local dbEntry = specBars and specBars[id]
+                    if dbEntry and dbEntry.showName ~= nil then return dbEntry.showName end
+                    local cfgEntry = cfg.trackedBars and cfg.trackedBars.defaults and cfg.trackedBars.defaults[id]
+                    if cfgEntry and cfgEntry.showName ~= nil then return cfgEntry.showName end
+                    return true -- default on
+                end,
+                function(v)
+                    if IsStackTimerMode() then return end -- locked out
+                    common.ensure_tracked_bar_db(id).showName = v; Refresh()
+                end,
+                "Show spell name on bar.\nDisabled when Stack Mode + Timer are both active\n(timer is shown in the name slot instead).")
+            showNameCB:SetScale(1.0)
+            showNameCB:SetPoint("LEFT", 185, 0)
+
+            -- Dim the showName checkbox label/check when locked out
+            local function UpdateNameCheckState()
+                if IsStackTimerMode() then
+                    showNameCB:SetAlpha(0.35)
+                    showNameCB:SetEnabled(false)
+                else
+                    showNameCB:SetAlpha(1.0)
+                    showNameCB:SetEnabled(true)
+                end
+            end
+            UpdateNameCheckState()
+
+            -- stackMode checkbox — also triggers showName lock update
+            local stackModeCB = common.create_checkbox(row, "",
+                function()
+                    local dbEntry = specBars and specBars[id]
+                    if dbEntry and dbEntry.stackMode ~= nil then return dbEntry.stackMode end
+                    return false
+                end,
+                function(v)
+                    common.ensure_tracked_bar_db(id).stackMode = v
+                    UpdateNameCheckState()
+                    Refresh()
+                end,
+                "Bar becomes a stack counter\nWhen combined with Timer, the remaining time\nis shown on the left instead of the spell name.")
+            stackModeCB:SetScale(1.0)
+            stackModeCB:SetPoint("LEFT", 265, 0)
+            -- showStacksText checkbox — also triggers showName lock update
+            local showStacksTextCB = common.create_checkbox(row, "",
+                function()
+                    local dbEntry = specBars and specBars[id]
+                    if dbEntry and dbEntry.showStacksText ~= nil then return dbEntry.showStacksText end
+                    return false
+                end,
+                function(v)
+                    common.ensure_tracked_bar_db(id).showStacksText = v
+                    UpdateNameCheckState()
+                    Refresh()
+                end,
+                "Show stack count as text")
+            showStacksTextCB:SetScale(1.0)
+            showStacksTextCB:SetPoint("LEFT", 345, 0)
+            local stackAboveHealthCB = common.create_checkbox(row, "",
+                function()
+                    local dbEntry = specBars and specBars[id]
+                    if dbEntry and dbEntry.stackAboveHealth ~= nil then return dbEntry.stackAboveHealth end
+                    return false
+                end,
+                function(v)
+                    common.ensure_tracked_bar_db(id).stackAboveHealth = v
+                    UpdateNameCheckState()
+                    Refresh()
+                end,
+                "Attach to Health Bar")
+            stackAboveHealthCB:SetScale(1.0)
+            stackAboveHealthCB:SetPoint("LEFT", 425, 0)
+
+            -- showDuration (Timer) — update showName lock state when toggled
+            local timerCB = common.create_checkbox(row, "",
+                function()
+                    local dbEntry = specBars and specBars[id]
+                    if dbEntry and dbEntry.showDuration ~= nil then return dbEntry.showDuration end
+                    return false
+                end,
+                function(v)
+                    common.ensure_tracked_bar_db(id).showDuration = v
+                    UpdateNameCheckState()
+                    Refresh()
+                end,
+                "Show cooldown timer.\nWhen combined with Stack Mode, the timer appears\non the left side instead of the spell name.")
+            timerCB:SetScale(1.0)
+            timerCB:SetPoint("LEFT", 505, 0)
+
+            -- Keep state in sync when the row re-renders (e.g. after RenderBarsTab is called).
+            row:SetScript("OnShow", function() UpdateNameCheckState() end)
+
             RC("useSpecColor", "Use Spec Color (from config)", 585)
 
             -- Custom Color Swatch

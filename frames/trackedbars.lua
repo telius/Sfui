@@ -286,17 +286,13 @@ local function SetupBarState(bar, config, cfg)
     local isStackMode = config and config.stackMode or false
     local isAttached = config and config.stackAboveHealth or false
     local showStacksText = config and config.showStacksText or false
+    local showDurationEnabled = not (config and config.showDuration == false)
+    local wantCenteredStacks = isStackMode or showStacksText
+    local isTimerAndStacks = wantCenteredStacks and showDurationEnabled
 
     if isStackMode then
         for i = 1, cfg.maxSegments do bar.segments[i]:Hide() end
-        bar.status:Show(); bar.name:Show(); bar.time:Show(); bar.icon:Show(); bar.count:Hide()
-
-        -- Center time in Stack Mode
-        bar.time:ClearAllPoints()
-        bar.time:SetPoint("CENTER", bar.status, "CENTER", 0, 0)
-        common.style_text(bar.time, nil, cfg.fonts.stackModeDurationSize, "")
-
-        if config and config.showName == false then bar.name:Hide() end
+        bar.status:Show(); bar.time:Show(); bar.icon:Show(); bar.count:Hide()
     else
         for i = 1, cfg.maxSegments do bar.segments[i]:Hide() end
         -- Standard Mode
@@ -304,20 +300,6 @@ local function SetupBarState(bar, config, cfg)
         bar.count:ClearAllPoints()
         bar.count:SetPoint("CENTER", bar.icon, "CENTER", 0, 0)
         common.style_text(bar.count, nil, nil)
-
-        if config and config.showName == false then bar.name:Hide() end
-        if config and config.showDuration == false then bar.time:Hide() end
-        if config and config.showStacks == false then bar.count:Hide() end
-
-        -- Text Position Logic: Center if Attached or Stacks Text, Right if Standard
-        bar.time:ClearAllPoints()
-        if isAttached or showStacksText then
-            bar.time:SetPoint("CENTER", bar.status, "CENTER", 0, 0)
-            common.style_text(bar.time, nil, cfg.fonts.stackModeDurationSize, "")
-        else
-            bar.time:SetPoint("RIGHT", -(cfg.spacing or 5), 0)
-            -- Use default small font style implicitly or re-apply if needed (assuming CreateBar set it)
-        end
     end
 
     -- Icon Visibility Override for Attached bars
@@ -329,8 +311,58 @@ local function SetupBarState(bar, config, cfg)
     end
 
     -- Hide count if showing stacks as main text (redundant)
-    if showStacksText then
+    if showStacksText or isStackMode then
         bar.count:Hide()
+    end
+
+    -- Text Position Logic
+    if isTimerAndStacks then
+        bar.name:Show()
+        bar.name:ClearAllPoints()
+        bar.name:SetPoint("CENTER", bar.status, "CENTER", 0, 0)
+        common.style_text(bar.name, nil, cfg.fonts.stackModeDurationSize, "")
+        
+        bar.time:ClearAllPoints()
+        if isAttached then
+            -- Attached: Stacks in CENTER, Timer on RIGHT
+            bar.time:SetPoint("RIGHT", -(cfg.spacing or 5), 0)
+        else
+            -- Standard: Stacks in CENTER, Timer on LEFT
+            bar.time:SetPoint("LEFT", cfg.spacing or 5, 0)
+        end
+        -- Reset timer to normal size
+        common.style_text(bar.time, nil, nil)
+    elseif wantCenteredStacks then
+        -- Stacks/Timer shown CENTER via bar.time; Name on LEFT via bar.name.
+        bar.name:Show()
+        bar.name:ClearAllPoints()
+        bar.name:SetPoint("LEFT", cfg.spacing or 5, 0)
+        -- Reset name to normal size if it was previously large
+        common.style_text(bar.name, nil, nil)
+
+        bar.time:ClearAllPoints()
+        bar.time:SetPoint("CENTER", bar.status, "CENTER", 0, 0)
+        common.style_text(bar.time, nil, cfg.fonts.stackModeDurationSize, "")
+
+        if config and config.showName == false then bar.name:Hide() end
+        if not showDurationEnabled and not showStacksText then bar.time:Hide() end
+    else
+        -- Standard position: Name LEFT, Time RIGHT (or CENTER if attached)
+        bar.name:Show()
+        bar.name:ClearAllPoints()
+        bar.name:SetPoint("LEFT", cfg.spacing or 5, 0)
+        
+        bar.time:ClearAllPoints()
+        if isAttached then
+            bar.time:SetPoint("CENTER", bar.status, "CENTER", 0, 0)
+            common.style_text(bar.time, nil, cfg.fonts.stackModeDurationSize, "")
+        else
+            bar.time:SetPoint("RIGHT", -(cfg.spacing or 5), 0)
+        end
+
+        if config and config.showName == false then bar.name:Hide() end
+        if config and config.showDuration == false then bar.time:Hide() end
+        if config and config.showStacks == false then bar.count:Hide() end
     end
 
     -- Color Logic
@@ -483,10 +515,6 @@ local function UpdateLayout()
                 bar.iconFrame:Hide()
                 if bar.iconFrame.borderBackdrop then bar.iconFrame.borderBackdrop:Hide() end
 
-                -- Re-anchor name to the far left since icon is hidden
-                bar.name:ClearAllPoints()
-                bar.name:SetPoint("LEFT", cfg.spacing or 5, 0)
-
                 anchor = bar
             end
         end
@@ -559,6 +587,7 @@ end
 -- Helper: Perform protected blizzard frame scraping
 local function _pcall_get_app_text(blizzFrame)
     if blizzFrame.Icon and blizzFrame.Icon.Applications then
+        if not blizzFrame.Icon.Applications:IsShown() then return nil end
         return blizzFrame.Icon.Applications:GetText()
     end
     return nil
@@ -578,7 +607,12 @@ local function _pcall_sync_bar_values(blizzFrame, status, timeString, config, cu
     common.SafeSetValue(status, val)
 
     local barText = _pcall_get_duration_text(blizzFrame)
-    if config and config.showStacksText then
+    local db = SfuiDB and SfuiDB.trackedBars or {}
+    local showDur = not (db.showDuration == false or (config and config.showDuration == false))
+    local wantCenteredStacks = (config and config.stackMode) or (config and config.showStacksText)
+    local isTimerAndStacks = wantCenteredStacks and showDur
+
+    if config and config.showStacksText and not isTimerAndStacks then
         if type(currentStacks) == "number" or (not issecretvalue(currentStacks)) then
             barText = tostring(currentStacks)
         else
@@ -647,7 +681,7 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
     -- 2. Try Spell Charges (for abilities with charges, mostly missing auraInstanceID)
     if not currentStacks and myBar.spellID then
         local ok, chargeInfo = pcall(C_Spell.GetSpellCharges, myBar.spellID)
-        if ok and chargeInfo and chargeInfo.currentCharges then
+        if ok and chargeInfo and chargeInfo.currentCharges and common.SafeGT(chargeInfo.maxCharges, 1) then
             -- Accept secret numeric charges too
             local cc = chargeInfo.currentCharges
             if type(cc) == "number" or issecretvalue(cc) then
@@ -683,28 +717,41 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
 
     local db = SfuiDB and SfuiDB.trackedBars or {}
 
-    -- Handle text visibility toggles (Global and Per-Bar options)
-    local showName = db.showName
-    if config and config.showName ~= nil then
-        showName = config.showName
-    end
-
-    if showName == false then
-        myBar.name:Hide()
-    else
-        myBar.name:Show()
-    end
-
-    if db.showDuration == false or (config and config.showDuration == false) then
-        myBar.time:Hide()
-    else
-        myBar.time:Show()
-    end
-
+    -- Stack+Timer mode: when stackMode AND timer are both enabled, the time is
+    -- shown on the left (name position) and the name is suppressed.
+    local showDurationEnabled = not (db.showDuration == false or (config and config.showDuration == false))
+    local wantCenteredStacks = isStackMode or (config and config.showStacksText)
     local isAttached = config and config.stackAboveHealth or false
-    local showStacksText = config and config.showStacksText or false
+    local isTimerAndStacks = wantCenteredStacks and showDurationEnabled
 
-    if db.showStacks == false or (config and config.showStacks == false) or isStackMode or isAttached or showStacksText then
+    -- Handle text visibility toggles (Global and Per-Bar options)
+    if isTimerAndStacks then
+        -- Stack count in CENTER (via name), time remaining on LEFT (via time).
+        myBar.name:Show()
+        myBar.time:Show()
+    else
+        local showName = db.showName
+        if config and config.showName ~= nil then
+            showName = config.showName
+        end
+
+        if showName == false then
+            myBar.name:Hide()
+        else
+            myBar.name:Show()
+        end
+
+        if not showDurationEnabled and not wantCenteredStacks then
+            myBar.time:Hide()
+        else
+            myBar.time:Show()
+        end
+    end
+
+    local showStacksText = config and config.showStacksText or false
+    local showStacks = (config and config.showStacks ~= nil) and config.showStacks or (db.showStacks == true)
+
+    if not showStacks or isStackMode or isAttached or showStacksText then
         myBar.count:Hide()
     else
         myBar.count:Show()
@@ -790,15 +837,57 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
             local ok, txt = pcall(_pcall_get_duration_text, blizzFrame)
             if ok and txt then barText = txt end
 
-            if config and config.showStacksText then
+            if config and config.showStacksText and not isTimerAndStacks then
                 barText = tostring(currentStacks)
             end
             myBar.time:SetText(barText)
+        end
+
+        -- Stack+Timer mode: override bar.name text to show stack count in center
+        -- (runs after aura-name assignments above so stacks always win)
+        if isTimerAndStacks then
+            if issecretvalue(currentStacks) then
+                common.SafeSetText(myBar.name, currentStacks)
+            elseif type(currentStacks) == "number" then
+                myBar.name:SetText(currentStacks > 0 and tostring(currentStacks) or "")
+            else
+                local numStacks = tonumber(currentStacks)
+                if numStacks and numStacks <= 0 then
+                    myBar.name:SetText("")
+                else
+                    myBar.name:SetText(tostring(currentStacks))
+                end
+            end
         end
     else
         -- NORMAL MODE: Bar represents Duration
         if blizzFrame.Bar then
             pcall(_pcall_sync_bar_values, blizzFrame, myBar.status, myBar.time, config, currentStacks)
+        end
+        
+        -- Override bar.name if we want centered stacks and timer
+        if isTimerAndStacks then
+            if issecretvalue(currentStacks) then
+                common.SafeSetText(myBar.name, currentStacks)
+            elseif type(currentStacks) == "number" then
+                myBar.name:SetText(currentStacks > 0 and tostring(currentStacks) or "")
+            else
+                local numStacks = tonumber(currentStacks)
+                if numStacks and numStacks <= 0 then
+                    myBar.name:SetText("")
+                else
+                    myBar.name:SetText(tostring(currentStacks))
+                end
+            end
+            
+            -- Also ensure myBar.time is showing the actual duration, since _pcall_sync_bar_values 
+            -- might have wrongly overridden it with stacks based on showStacksText alone
+            if blizzFrame.Bar then
+                local ok, txt = pcall(_pcall_get_duration_text, blizzFrame)
+                if ok and txt then 
+                    myBar.time:SetText(txt) 
+                end
+            end
         end
 
         if common.IsNumericAndPositive(currentStacks) then
@@ -806,7 +895,7 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
         else
             if issecretvalue(currentStacks) then
                 myBar.count:SetText(currentStacks)
-            elseif currentStacks ~= 0 and currentStacks ~= "" then
+            elseif currentStacks ~= 0 and currentStacks ~= "0" and currentStacks ~= "" then
                 myBar.count:SetText(currentStacks)
             else
                 myBar.count:SetText("")
@@ -1135,7 +1224,12 @@ local function UpdateBarsState()
                 -- Update duration/name text
                 if blizzFrame.Bar.Duration then
                     local text = blizzFrame.Bar.Duration:GetText() or ""
-                    if config and config.showStacksText then
+                    local db = SfuiDB and SfuiDB.trackedBars or {}
+                    local showDur = not (db.showDuration == false or (config and config.showDuration == false))
+                    local wantCenteredStacks = (config and config.stackMode) or (config and config.showStacksText)
+                    local isTimerAndStacks = wantCenteredStacks and showDur
+
+                    if config and config.showStacksText and not isTimerAndStacks then
                         if myBar.currentStacks then
                             if type(myBar.currentStacks) == "number" or not issecretvalue(myBar.currentStacks) then
                                 text = tostring(myBar.currentStacks)

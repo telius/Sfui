@@ -1427,8 +1427,8 @@ function sfui.alts.UpdateUI(force)
                     { key = "stormarion",  label = "Stormarion", group = "core" },
                     -- Bonus / event weeklies
                     { key = "bounty",      label = "Bounty",     group = "bonus" },
-                    { key = "twRaid",      label = "TW Raid",    group = "bonus" },
                     { key = "gildedStash", label = "Stash",      group = "bonus", isCount = true },
+                    { key = "twRaid",      label = "TW Raid",    group = "bonus" },
                 }
                 -- Colours: completed / inProgress / available — per group
                 local CORE_DONE   = { 0.40, 0.00, 1.00, 0.85 }  -- #6600ff vivid purple

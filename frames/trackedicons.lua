@@ -312,7 +312,7 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
         -- 2. Try SpellChargeInfo (CooldownViewer priority for >1 charge spells)
         if IsFallbackNeeded(displayStr) and C_Spell.GetSpellCharges then
             local ok_ch, ch = pcall(C_Spell.GetSpellCharges, activeID)
-            if ok_ch and ch and ch.maxCharges and ch.maxCharges > 1 then
+            if ok_ch and ch and ch.currentCharges and sfui.common.SafeGT(ch.maxCharges, 1) then
                 displayStr = ch.currentCharges or ""
             end
         end
