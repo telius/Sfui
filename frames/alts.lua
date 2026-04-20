@@ -88,12 +88,16 @@ local function AcquireCell(parent)
         if f.rightText then
             f.rightText:Hide()
         end
-        -- Hide any extra textures/buttons that might have been added
+        -- Hide any extra textures, fonts, or buttons that might have been added
         -- OPTIMIZATION: Avoid { f:GetRegions() } which creates a temporary table
         local numRegions = f:GetNumRegions()
         for i = 1, numRegions do
             local r = select(i, f:GetRegions())
-            if r and r:IsObjectType("Texture") then r:Hide() end
+            if r and r ~= f.text then
+                if r:IsObjectType("Texture") or r:IsObjectType("FontString") then
+                    r:Hide()
+                end
+            end
         end
         local numChildren = f:GetNumChildren()
         for i = 1, numChildren do
