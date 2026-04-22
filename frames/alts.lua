@@ -1406,19 +1406,6 @@ function sfui.alts.UpdateUI(force)
                 
                 for _, itemConfig in ipairs(items) do
                     local cData = alt.data.currencies[itemConfig.id]
-                    local val = cData and (type(cData) == "table" and cData.val or cData) or 0
-                    local displayVal
-                    if val >= 1000 then
-                        displayVal = string.format("%.1fk", val / 1000)
-                    else
-                        displayVal = tostring(val)
-                    end
-                    
-                    if displayText ~= "" then
-                        displayText = displayText .. "  "
-                    end
-                    displayText = displayText .. string.format("|T%d:12:12:0:0|t %s", itemConfig.icon, displayVal)
-
                     -- Check weekly cap
                     local isCapped = false
                     local displayMaxQuantity = cData and type(cData) == "table" and cData.maxQuantity or 0
@@ -1438,7 +1425,25 @@ function sfui.alts.UpdateUI(force)
                         end
                     end
                     
-                    if isCapped then anyCapped = true end
+                    local val = cData and (type(cData) == "table" and cData.val or cData) or 0
+                    local displayVal
+                    if val >= 1000 then
+                        displayVal = string.format("%.1fk", val / 1000)
+                    else
+                        displayVal = tostring(val)
+                    end
+                    
+                    if displayText ~= "" then
+                        displayText = displayText .. "  "
+                    end
+                    
+                    if isCapped then
+                        local r, g, b = unpack(sfui.config.appearance.errorColor)
+                        local colorCode = string.format("|cff%02x%02x%02x", r * 255, g * 255, b * 255)
+                        displayText = displayText .. string.format("|T%d:12:12:0:0|t %s%s|r", itemConfig.icon, colorCode, displayVal)
+                    else
+                        displayText = displayText .. string.format("|T%d:12:12:0:0|t %s", itemConfig.icon, displayVal)
+                    end
                     
                     table.insert(tooltipLines, {
                         itemConfig = itemConfig,
@@ -1449,12 +1454,7 @@ function sfui.alts.UpdateUI(force)
                 end
 
                 text:SetText(displayText)
-
-                if anyCapped then
-                    text:SetTextColor(unpack(sfui.config.appearance.errorColor)) -- Red when maxed
-                else
-                    text:SetTextColor(unpack(sfui.config.colors.white)) -- White
-                end
+                text:SetTextColor(unpack(sfui.config.colors.white)) -- Base color is white, overrides are embedded
 
                 -- Add tooltip for currency
                 cell:SetScript("OnEnter", function(self)
