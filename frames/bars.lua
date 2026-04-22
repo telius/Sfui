@@ -511,7 +511,7 @@ do
         if bar1 then return bar1 end
         local bar = common.create_bar("bar1", "StatusBar", UIParent, nil, "secondaryPowerBar")
         bar.TextValue = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        bar.TextValue:SetFont("Fonts\\FRIZQT__.TTF", cfg.secondaryPowerBar.fontSize, "NONE")
+        bar.TextValue:SetFont("Fonts\\FRIZQT__.TTF", cfg.secondaryPowerBar.fontSize, "")
         bar.TextValue:SetShadowOffset(1, -1)
         bar.TextValue:SetPoint("CENTER")
         bar1 = bar
@@ -595,7 +595,7 @@ do
         if vigor_bar then return vigor_bar end
         local bar = common.create_bar("vigorBar", "StatusBar", UIParent)
         bar.TextValue = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        bar.TextValue:SetFont("Fonts\\FRIZQT__.TTF", cfg.secondaryPowerBar.fontSize, "NONE")
+        bar.TextValue:SetFont("Fonts\\FRIZQT__.TTF", cfg.secondaryPowerBar.fontSize, "")
         bar.TextValue:SetShadowOffset(1, -1); bar.TextValue:SetPoint("CENTER")
         local iconSize = 40
         bar.whirlingSurgeIcon = create_icon(bar, "sfui_WhirlingSurgeIcon", iconSize, 361584)
@@ -659,7 +659,7 @@ do
         if mount_speed_bar then return mount_speed_bar end
         local bar = common.create_bar("mountSpeedBar", "StatusBar", UIParent)
         bar.TextValue = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        bar.TextValue:SetFont("Fonts\\FRIZQT__.TTF", 12, "NONE")
+        bar.TextValue:SetFont("Fonts\\FRIZQT__.TTF", 12, "")
         bar.TextValue:SetShadowOffset(1, -1)
         bar.TextValue:SetPoint("CENTER")
         bar.lastSpeed = 0 -- Cache for change detection

@@ -33,9 +33,16 @@ local function issecretvalue(val)
 
     -- Fast early exit: if the engine reports no secret restrictions are active at all
     -- (12.0.5+ C_Secrets API), there's no need to run the expensive arithmetic probe.
+    -- HasSecretRestrictions() covers cooldown/aura secrets; ShouldUnitStatsBeSecret()
+    -- (new in 12.0.5) covers stat/power queries (e.g. UnitPower in PvP/M+).
     local C_Secrets = _G.C_Secrets
-    if C_Secrets and C_Secrets.HasSecretRestrictions and not C_Secrets.HasSecretRestrictions() then
-        return false
+    if C_Secrets then
+        local noAuraSecrets = C_Secrets.HasSecretRestrictions and not C_Secrets.HasSecretRestrictions()
+        local noStatSecrets = C_Secrets.ShouldUnitStatsBeSecret == nil
+                           or not C_Secrets.ShouldUnitStatsBeSecret()
+        if noAuraSecrets and noStatSecrets then
+            return false
+        end
     end
 
     -- Deeper check: force an arithmetic mutation safely inside a protected call.

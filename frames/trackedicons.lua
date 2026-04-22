@@ -221,7 +221,8 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
             -- 12.0.1 Hotfix: 'SetCooldown' no longer legally accepts Secret Values.
             -- Addons MUST acquire a DurationObject and pass it to 'SetCooldownFromDurationObject'.
             if icon.cooldown.SetCooldownFromDurationObject and C_Spell.GetSpellCooldownDuration then
-                local ok_dur, durationObj = pcall(C_Spell.GetSpellCooldownDuration, activeID)
+                -- ignoreGCD=true (12.0.5+): skip GCD-only cooldowns to avoid phantom swipe
+                local ok_dur, durationObj = pcall(C_Spell.GetSpellCooldownDuration, activeID, true)
                 if ok_dur and durationObj then
                     icon.cooldown:SetCooldownFromDurationObject(durationObj)
                     if icon.shadowCooldown then
@@ -286,9 +287,9 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
         -- resource-derived counts, alternate power, etc. — exactly what Blizzard's
         -- own ActionButton (ActionButton.lua:809) and SpellFlyout use.
         --
-        -- SecretWhenSpellCooldownRestricted = true: the return value may be a
-        -- secret LuaDurationObject in M+. We MUST NOT compare it in Lua.
-        -- We pass it straight to UpdateCountText/SetText (C++ handles secrets natively).
+        -- SecretWhenCooldownsRestricted = true (predicate renamed in 12.0.5):
+        -- the return value may be a secret LuaDurationObject in M+.
+        -- We MUST NOT compare it in Lua. Pass straight to UpdateCountText/SetText.
         local displayStr = ""
         
         -- 1. Try GetSpellDisplayCount (Actionbar native representation & Soul Fragments)
@@ -1621,6 +1622,37 @@ function sfui.trackedicons.initialize()
 
     sfui.events.RegisterEvent("TRAIT_CONFIG_UPDATED", function()
         MarkDirty(0.5, not InCombatLockdown())
+    end)
+
+    -- 12.0.5+: fires when Blizzard switches the aura data provider (e.g. into M+ obfuscated
+    -- mode). When useRealDataProvider=false, all aura queries will return secret/fake data.
+    -- We reset all icon states immediately so stale cooldown/stack data is cleared before
+    -- the next proper UNIT_AURA fires. When returning to real data we also force a refresh.
+    sfui.events.RegisterEvent("AURA_DATA_PROVIDER_SWITCH", function(useRealDataProvider)
+        if not useRealDataProvider then
+            -- Entering secret/fake aura mode (M+ key started, etc.)
+            -- Clear all icon cooldown frames and count badges to avoid stale display.
+            for _, panel in pairs(panels) do
+                if panel.icons then
+                    for _, icon in pairs(panel.icons) do
+                        if icon.cooldown then
+                            icon.cooldown:Clear()
+                        end
+                        if icon.shadowCooldown then
+                            icon.shadowCooldown:Clear()
+                        end
+                        if icon.count then
+                            icon.count:Hide()
+                        end
+                        icon._lastCount = nil
+                        icon._wasOnCooldown = false
+                        icon._pendingGlow = false
+                    end
+                end
+            end
+        end
+        -- Force a full update on both entry and exit so icons reflect real state ASAP.
+        MarkDirty(1.0, true)
     end)
 
     -- OnUpdate: Only process when dirty or during burst period (for smooth glow/alpha transitions)

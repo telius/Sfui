@@ -292,6 +292,15 @@ local function OnEvent(self, event, ...)
 
         local isInstant, name = is_instant_spell(spellID)
         if isInstant then
+            -- 12.0.5: UnitSpellHaste is SecretWhenUnitStatsRestricted.
+            -- When stats are secret (M+ combat), we cannot compute the real
+            -- hasted GCD duration. Skip the instant cast bar entirely rather
+            -- than display a wrong duration.
+            local C_Secrets = _G.C_Secrets
+            if C_Secrets and C_Secrets.ShouldUnitStatsBeSecret and C_Secrets.ShouldUnitStatsBeSecret() then
+                return
+            end
+
             local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
             local texture = info and info.iconID
 

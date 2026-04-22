@@ -144,14 +144,25 @@ local PROF_KP_SOURCES = {
 local CATEGORIES = {}
 
 local CURRENCIES = {
-    { id = 3343, label = "Champ",    icon = 7639519 },                       -- Champion Dawncrest
-    { id = 3345, label = "Hero",     icon = 7639521 },                       -- Hero Dawncrest
-    { id = 3347, label = "Myth",     icon = 7639523 },                       -- Gilded Dawncrest
+    { isGroup = true, label = "Crests", items = {
+        { id = 3345, icon = 7639521 },                       -- Hero Dawncrest
+        { id = 3347, icon = 7639523 },                       -- Gilded Dawncrest
+    }},
     { id = 3212, label = "Spark",    icon = 7551418, displayItem = 232875 }, -- Spark of Fortune / Spark of Radiance (item: usable count)
     { id = 3378, label = "Catalyst", icon = 4622294 },                       -- Catalyst Charges
-    { id = 3376, label = "Dumdum",   icon = 134569 },                        -- Shard of Dundun
-    { id = 3028, label = "Key",      icon = 4622270 },                       -- Restored Coffer Key
-    { id = 3310, label = "Shard",    icon = 133016 },                        -- Coffer Key Shard
+    { isGroup = true, label = "Keys", items = {
+        { id = 3028, icon = 4622270 },                       -- Restored Coffer Key
+        { id = 3310, icon = 133016 },                        -- Coffer Key Shard
+    }},
+    -- 12.0.5 Currencies and Items
+    { isGroup = true, label = "VoidCore", items = {
+        { id = 3418,   icon = 0 },                             -- Nebulous Voidcore
+        { id = 268650, icon = 0, isItem = true },              -- Ascendant Voidshard
+        { id = 268552, icon = 0, isItem = true },              -- Ascendant Voidcore
+    }},
+    { id = 3405,   label = "Accolade", icon = 0 },                             -- Field Accolade
+    { id = 3373,   label = "Pearl",    icon = 0 },                             -- Angler Pearls
+    { id = 267051, label = "Particle", icon = 0, isItem = true },              -- Dark Particle
 }
 
 -- Warband pool quests: IsQuestFlaggedCompleted is account-wide for these,
@@ -183,7 +194,7 @@ local function ReleaseDynamicCategories()
     for i = #CATEGORIES, 1, -1 do
         local cat = table.remove(CATEGORIES, i)
         if cat.isDynamic then
-            ReleaseTable(cat)
+            ReleaseTableRecursive(cat)
         end
     end
 end
@@ -261,8 +272,44 @@ function sfui.alts.RefreshDynamicCategories(force)
 
     for _, currencyDef in ipairs(CURRENCIES) do
         local cc = AcquireTable()
-        cc.name, cc.label, cc.type = "CURRENCY_" .. currencyDef.id, currencyDef.label, "currency"
-        cc.id, cc.icon = currencyDef.id, currencyDef.icon
+        if currencyDef.isGroup then
+            cc.name = "CURRENCY_GROUP_" .. currencyDef.items[1].id
+            cc.label = currencyDef.label
+            cc.type = "currency_group"
+            cc.items = AcquireTable()
+            for _, itemDef in ipairs(currencyDef.items) do
+                local itemConfig = AcquireTable()
+                itemConfig.id = itemDef.id
+                itemConfig.isItem = itemDef.isItem
+                local icon = itemDef.icon
+                if not icon or icon == 0 then
+                    if itemConfig.isItem then
+                        icon = C_Item.GetItemIconByID(itemConfig.id) or 134400
+                    else
+                        local info = C_CurrencyInfo.GetCurrencyInfo(itemConfig.id)
+                        icon = (info and info.iconFileID) or 134400
+                    end
+                end
+                itemConfig.icon = icon
+                table.insert(cc.items, itemConfig)
+            end
+        else
+            cc.name, cc.label, cc.type = "CURRENCY_" .. currencyDef.id, currencyDef.label, "currency"
+            cc.id = currencyDef.id
+            cc.isItem = currencyDef.isItem
+            
+            local icon = currencyDef.icon
+            if not icon or icon == 0 then
+                if cc.isItem then
+                    icon = C_Item.GetItemIconByID(cc.id) or 134400
+                else
+                    local info = C_CurrencyInfo.GetCurrencyInfo(cc.id)
+                    icon = (info and info.iconFileID) or 134400
+                end
+            end
+            cc.icon = icon
+        end
+        
         table.insert(CATEGORIES, cc)
     end
 
@@ -560,19 +607,19 @@ function sfui.alts.PerformSync(isLogout)
 
     -- PvP and Expansion Currencies
     data.currencies = data.currencies or {}
-    for _, currencyDef in ipairs(CURRENCIES) do
-        if currencyDef.id == 248242 then -- Vault Tokens are items, not currencies in C_CurrencyInfo
-            local count = C_Item.GetItemCount(currencyDef.id, true) or 0
-            data.currencies[currencyDef.id] = count
+    local function SyncCurrency(cDef)
+        if cDef.isItem then
+            local count = C_Item.GetItemCount(cDef.id, true) or 0
+            data.currencies[cDef.id] = count
         else
-            local info = C_CurrencyInfo.GetCurrencyInfo(currencyDef.id)
+            local info = C_CurrencyInfo.GetCurrencyInfo(cDef.id)
             if info then
-                data.currencies[currencyDef.id] = data.currencies[currencyDef.id] or {}
-                local c = data.currencies[currencyDef.id]
+                data.currencies[cDef.id] = data.currencies[cDef.id] or {}
+                local c = data.currencies[cDef.id]
                 -- If the currency has a linked displayItem, show item bag count instead of currency quantity.
                 -- e.g. Spark of Fortune accumulates as total earned; the spendable Spark of Radiance is an item.
-                if currencyDef.displayItem then
-                    c.val = C_Item.GetItemCount(currencyDef.displayItem, false) or 0
+                if cDef.displayItem then
+                    c.val = C_Item.GetItemCount(cDef.displayItem, false) or 0
                 else
                     c.val = info.quantity
                 end
@@ -583,12 +630,22 @@ function sfui.alts.PerformSync(isLogout)
                 c.useTotalEarned = info.useTotalEarnedForMaxQty
 
                 if info.maxQuantity and info.maxQuantity > 0 then
-                    local currentGlobalMax = SfuiDB.currencyCaps and SfuiDB.currencyCaps[currencyDef.id] or 0
+                    local currentGlobalMax = SfuiDB.currencyCaps and SfuiDB.currencyCaps[cDef.id] or 0
                     if info.maxQuantity > currentGlobalMax then
-                        SfuiDB.currencyCaps[currencyDef.id] = info.maxQuantity
+                        SfuiDB.currencyCaps[cDef.id] = info.maxQuantity
                     end
                 end
             end
+        end
+    end
+
+    for _, currencyDef in ipairs(CURRENCIES) do
+        if currencyDef.isGroup then
+            for _, itemDef in ipairs(currencyDef.items) do
+                SyncCurrency(itemDef)
+            end
+        else
+            SyncCurrency(currencyDef)
         end
     end
 
@@ -1339,37 +1396,61 @@ function sfui.alts.UpdateUI(force)
                     cell:SetScript("OnEnter", nil)
                     cell:SetScript("OnLeave", nil)
                 end
-            elseif cat.type == "currency" then
-                local cData = alt.data.currencies[cat.id]
-                local val = cData and (type(cData) == "table" and cData.val or cData) or 0
-                local displayVal
-                if val >= 1000 then
-                    displayVal = string.format("%.1fk", val / 1000)
-                else
-                    displayVal = tostring(val)
-                end
-                text:SetText(string.format("|T%d:12:12:0:0|t %s", cat.icon, displayVal))
+            elseif cat.type == "currency" or cat.type == "currency_group" then
+                local isGroup = (cat.type == "currency_group")
+                local items = isGroup and cat.items or { cat }
+                
+                local displayText = ""
+                local tooltipLines = {}
+                local anyCapped = false
+                
+                for _, itemConfig in ipairs(items) do
+                    local cData = alt.data.currencies[itemConfig.id]
+                    local val = cData and (type(cData) == "table" and cData.val or cData) or 0
+                    local displayVal
+                    if val >= 1000 then
+                        displayVal = string.format("%.1fk", val / 1000)
+                    else
+                        displayVal = tostring(val)
+                    end
+                    
+                    if displayText ~= "" then
+                        displayText = displayText .. "  "
+                    end
+                    displayText = displayText .. string.format("|T%d:12:12:0:0|t %s", itemConfig.icon, displayVal)
 
-                -- Check weekly cap
-                local isCapped = false
-                local displayMaxQuantity = cData and type(cData) == "table" and cData.maxQuantity or 0
-                if SfuiDB.currencyCaps and SfuiDB.currencyCaps[cat.id] and SfuiDB.currencyCaps[cat.id] > displayMaxQuantity then
-                    displayMaxQuantity = SfuiDB.currencyCaps[cat.id]
-                end
+                    -- Check weekly cap
+                    local isCapped = false
+                    local displayMaxQuantity = cData and type(cData) == "table" and cData.maxQuantity or 0
+                    if SfuiDB.currencyCaps and SfuiDB.currencyCaps[itemConfig.id] and SfuiDB.currencyCaps[itemConfig.id] > displayMaxQuantity then
+                        displayMaxQuantity = SfuiDB.currencyCaps[itemConfig.id]
+                    end
 
-                if cData and type(cData) == "table" then
-                    if cData.max and cData.max > 0 and cData.earned and cData.earned >= cData.max then
-                        isCapped = true
-                    elseif displayMaxQuantity > 0 then
-                        if cData.useTotalEarned and cData.totalEarned and cData.totalEarned >= displayMaxQuantity then
+                    if cData and type(cData) == "table" then
+                        if cData.max and cData.max > 0 and cData.earned and cData.earned >= cData.max then
                             isCapped = true
-                        elseif not cData.useTotalEarned and cData.val and cData.val >= displayMaxQuantity then
-                            isCapped = true
+                        elseif displayMaxQuantity > 0 then
+                            if cData.useTotalEarned and cData.totalEarned and cData.totalEarned >= displayMaxQuantity then
+                                isCapped = true
+                            elseif not cData.useTotalEarned and cData.val and cData.val >= displayMaxQuantity then
+                                isCapped = true
+                            end
                         end
                     end
+                    
+                    if isCapped then anyCapped = true end
+                    
+                    table.insert(tooltipLines, {
+                        itemConfig = itemConfig,
+                        cData = cData,
+                        isCapped = isCapped,
+                        displayMaxQuantity = displayMaxQuantity
+                    })
                 end
 
-                if isCapped then
+                text:SetText(displayText)
+
+                if anyCapped then
                     text:SetTextColor(unpack(sfui.config.appearance.errorColor)) -- Red when maxed
                 else
                     text:SetTextColor(unpack(sfui.config.colors.white)) -- White
@@ -1378,24 +1459,63 @@ function sfui.alts.UpdateUI(force)
                 -- Add tooltip for currency
                 cell:SetScript("OnEnter", function(self)
                     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                    if cat.id == 248242 then
-                        GameTooltip:SetItemByID(cat.id)
-                    else
-                        GameTooltip:SetCurrencyByID(cat.id)
-                        -- Add weekly progress info
-                        if cData and type(cData) == "table" then
-                            GameTooltip:AddLine(" ")
-                            if cData.max and cData.max > 0 then
-                                GameTooltip:AddDoubleLine("Weekly Earned:",
-                                    string.format("%d / %d", cData.earned or 0, cData.max), 1, 1, 1, 1, 1, 1)
-                            elseif displayMaxQuantity > 0 then
-                                local currentAmount = cData.useTotalEarned and cData.totalEarned or cData.val
-                                GameTooltip:AddDoubleLine("Season Earned:",
-                                    string.format("%d / %d", currentAmount or 0, displayMaxQuantity), 1, 1, 1, 1, 1, 1)
+                    if not isGroup then
+                        local tLine = tooltipLines[1]
+                        if tLine.itemConfig.isItem then
+                            GameTooltip:SetItemByID(tLine.itemConfig.id)
+                        else
+                            GameTooltip:SetCurrencyByID(tLine.itemConfig.id)
+                            if tLine.cData and type(tLine.cData) == "table" then
+                                GameTooltip:AddLine(" ")
+                                if tLine.cData.max and tLine.cData.max > 0 then
+                                    GameTooltip:AddDoubleLine("Weekly Earned:",
+                                        string.format("%d / %d", tLine.cData.earned or 0, tLine.cData.max), 1, 1, 1, 1, 1, 1)
+                                elseif tLine.displayMaxQuantity > 0 then
+                                    local currentAmount = tLine.cData.useTotalEarned and tLine.cData.totalEarned or tLine.cData.val
+                                    GameTooltip:AddDoubleLine("Season Earned:",
+                                        string.format("%d / %d", currentAmount or 0, tLine.displayMaxQuantity), 1, 1, 1, 1, 1, 1)
+                                end
+                                if tLine.isCapped then
+                                    GameTooltip:AddLine("Season/Weekly cap reached!", 1, 0, 0)
+                                end
                             end
-                            if isCapped then
+                        end
+                        GameTooltip:Show()
+                        return
+                    end
+                    
+                    -- Group tooltip
+                    GameTooltip:AddLine(cat.label, 1, 1, 1)
+                    for _, tLine in ipairs(tooltipLines) do
+                        local name
+                        if tLine.itemConfig.isItem then
+                            name = C_Item.GetItemInfo(tLine.itemConfig.id) or "Item"
+                        else
+                            local info = C_CurrencyInfo.GetCurrencyInfo(tLine.itemConfig.id)
+                            name = info and info.name or "Currency"
+                        end
+                        
+                        GameTooltip:AddLine(" ")
+                        GameTooltip:AddLine(string.format("|T%d:16:16:0:0|t %s", tLine.itemConfig.icon, name))
+                        
+                        if tLine.cData and type(tLine.cData) == "table" then
+                            if tLine.cData.max and tLine.cData.max > 0 then
+                                GameTooltip:AddDoubleLine("Weekly Earned:",
+                                    string.format("%d / %d", tLine.cData.earned or 0, tLine.cData.max), 1, 1, 1, 1, 1, 1)
+                            elseif tLine.displayMaxQuantity > 0 then
+                                local currentAmount = tLine.cData.useTotalEarned and tLine.cData.totalEarned or tLine.cData.val
+                                GameTooltip:AddDoubleLine("Season Earned:",
+                                    string.format("%d / %d", currentAmount or 0, tLine.displayMaxQuantity), 1, 1, 1, 1, 1, 1)
+                            else
+                                local val = tLine.cData.val or 0
+                                GameTooltip:AddDoubleLine("Total:", tostring(val), 1, 1, 1, 1, 1, 1)
+                            end
+                            if tLine.isCapped then
                                 GameTooltip:AddLine("Season/Weekly cap reached!", 1, 0, 0)
                             end
+                        else
+                            local val = tLine.cData or 0
+                            GameTooltip:AddDoubleLine("Total:", tostring(val), 1, 1, 1, 1, 1, 1)
                         end
                     end
                     GameTooltip:Show()

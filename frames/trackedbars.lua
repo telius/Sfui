@@ -1287,6 +1287,30 @@ function sfui.trackedbars.initialize()
         if SyncWithBlizzard then SyncWithBlizzard() end
     end)
 
+    -- 12.0.5+: fires when Blizzard switches the aura data provider to/from obfuscated
+    -- mode (e.g. M+ key starts). When useRealDataProvider=false, all bars referencing
+    -- aura data will have stale/secret values. Hide everything immediately and flag for
+    -- a full rebuild. When returning to real data, flag for rebuild so bars reappear.
+    sfui.events.RegisterEvent("AURA_DATA_PROVIDER_SWITCH", function(useRealDataProvider)
+        if not useRealDataProvider then
+            -- Entering fake/secret aura mode — hide all active bars immediately.
+            for id, bar in pairs(bars) do
+                if bar:IsShown() then bar:Hide() end
+                -- Clear any cached stack/pandemic data so the next real UNIT_AURA
+                -- starts from a clean state rather than sustaining stale values.
+                bar._auraStackCache = nil
+                bar._auraStackTimer = nil
+                bar._stackPeakVal   = nil
+                bar._stackPeakTimer = nil
+                bar._inPandemic     = false
+                bar._cachedMaxDur   = nil
+            end
+            wipe(activeCooldownIDs)
+        end
+        -- Force a full structure sync on both entry and exit from obfuscated mode.
+        sfui.trackedbars.isDirty = true
+    end)
+
     -- Throttled OnUpdate for smooth bar progress AND structure updates
     local syncThrottle = 0
     sfui.events.RegisterUpdate(cfg.updateThrottle or 0.05, function(elapsed)

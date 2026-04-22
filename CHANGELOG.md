@@ -1,3 +1,13 @@
+## v0.7.0 (2026-04-22)
+
+### Features
+- **Alts Tracker (Currencies)**: Added support for Patch 12.0.5 world content and Voidforge currencies including Nebulous Voidcore, Ascendant Voidcore, Ascendant Voidshard, Field Accolades, Dark Particles, and Angler Pearls.
+- **Alts Tracker (Currency Grouping)**: Implemented a new `currency_group` type to cleanly combine related items into single rows (e.g. Heroic/Mythic Crests, Keys/Shards, Voidforge upgrade tokens). Tooltips now dynamically parse and display progress for all items in the group.
+
+### Bug Fixes
+- **Castbar (Mythic+ Taint)**: Resolved an issue in M+ environments where the instant cast bar would crash the UI due to evaluating `UnitSpellHaste`, which is now `SecretWhenUnitStatsRestricted` in Patch 12.0.5. Evaluated logic is now proactively guarded behind `C_Secrets.ShouldUnitStatsBeSecret()`.
+- **UI Render**: Removed deprecated `"NONE"` font flags causing engine crashes in 12.0.5.
+
 ## v0.6.7c (2026-04-18)
 
 ### Bug Fixes
