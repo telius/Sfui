@@ -1,3 +1,15 @@
+## v0.7.1 (2026-05-01)
+
+### Features
+- **Loot Spec (World & Delves)**: Added full auto-swap and bonus roll suppression support for Delves and World Bosses. New "All World Bosses" and "All Delves" global toggles are now available at the top of the Raids and Dungeons tabs.
+- **Loot Spec (Database Pruning)**: The Encounter Journal data builders now automatically cross-reference saved settings and permanently prune orphaned raid boss and dungeon map keys from previous expansion seasons, eliminating cross-season configuration bloat.
+
+### Bug Fixes
+- **Gear Manager (Respec Sync)**: Reduced the `PLAYER_SPECIALIZATION_CHANGED` execution delay from 1.5s to 0.1s and forced the clearance of `manualEditUntil` lockout locks. Gear now auto-equips instantly during specialization swaps even if the character frame was previously opened.
+- **Loot Spec (M+ Bonus Rolls)**: Fixed a bug where bonus rolls at the end of a Mythic+ run would bypass suppression rules. The addon now proactively caches the active challenge map ID during the run since the WoW API forcibly nils it the moment the timer completes.
+- **Loot Spec (Bonus Roll Suppression)**: Resolved a race condition where the Blizzard UI would forcefully unhide the `BonusRollFrame` milliseconds after the addon successfully suppressed it. Suppression is now enforced by a secure `Show()` hook with a 10-second lockdown window.
+- **Loot Spec (Row Recycling)**: Fixed an object-pooling state leak where rapidly switching between Raids and Dungeons tabs could cause the "All Delves" custom row to inherit a stale `field` property from a recycled boss row, breaking its ability to save configuration data.
+
 ## v0.7.0 (2026-04-22)
 
 ### Features
