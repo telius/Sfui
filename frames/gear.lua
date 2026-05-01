@@ -495,7 +495,11 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
 
     if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "SPEC_INVOLUNTARILY_CHANGED" then
         if arg1 ~= "player" and event == "PLAYER_SPECIALIZATION_CHANGED" then return end
-        C_Timer.After(1.5, function() sfui.gear.Update() end)
+        
+        -- Force clear manual edit pause so gear updates immediately even if CharacterFrame was open
+        manualEditUntil = 0
+        
+        C_Timer.After(0.1, function() sfui.gear.Update() end)
         if SfuiGearManagerFrame and SfuiGearManagerFrame.SelectSpecTab then
             local specIdx = GetSpecialization()
             local specId = specIdx and GetSpecializationInfo(specIdx)
