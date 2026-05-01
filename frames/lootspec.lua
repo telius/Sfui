@@ -165,11 +165,21 @@ local function GetActiveMPlusSpec()
     return (specID and specID ~= 0) and specID or nil
 end
 
+local function GetActiveDelveSpec()
+    local _, t = IsInInstance()
+    if t == "scenario" then
+        local specID = DB().dungeons["delves"]
+        return (specID and specID ~= 0) and specID or nil
+    end
+    return nil
+end
+
 -- True when we should hold the applied spec rather than restore on loot/zone.
 -- Raid: hold until next encounter or leaving.
 -- M+:  hold until the end-of-run chest is looted or the player leaves.
 --      After CHALLENGE_MODE_COMPLETED, GetActiveChallengeMapID() returns nil
 --      so IsInActiveMPlus() becomes false — chest LOOT_CLOSED restores correctly.
+-- Delve: hold until leaving the scenario.
 local function IsInManagedInstance()
     local _, t = IsInInstance()
     if t == "raid" then return true end
@@ -178,6 +188,7 @@ local function IsInManagedInstance()
         and C_ChallengeMode.GetActiveChallengeMapID() then
         return true
     end
+    if t == "scenario" then return true end
     return false
 end
 
@@ -187,6 +198,8 @@ local GetDungeonData
 -- Tracks the encounterID of the currently active boss encounter.
 local currentEncounterID   = nil
 local currentEncounterName = nil
+local lastEncounterID      = nil
+local lastEncounterName    = nil
 local currentChallengeMapID = nil
 
 -- Set when we apply a non-default spec; cleared on restore.
@@ -198,10 +211,24 @@ local specApplied = false
 sfui.events.RegisterEvent("ENCOUNTER_START", function(_, encounterID, encounterName)
     currentEncounterID   = encounterID
     currentEncounterName = encounterName
+    lastEncounterID      = encounterID
+    lastEncounterName    = encounterName
     local db = DB()
     if not db.enabled then return end
-    local entry  = db.bosses[encounterID]
-    local specID = type(entry) == "table" and entry.spec or (type(entry) == "number" and entry) or 0
+    local specID = 0
+    local _, instanceType = IsInInstance()
+    
+    if instanceType == "none" then
+        local wEntry = db.bosses["worldbosses"]
+        if type(wEntry) == "table" and wEntry.spec and wEntry.spec ~= 0 then
+            specID = wEntry.spec
+        end
+    end
+    
+    if specID == 0 then
+        local entry  = db.bosses[encounterID]
+        specID = type(entry) == "table" and entry.spec or (type(entry) == "number" and entry) or 0
+    end
     if specID ~= 0 then
         specApplied = true
         ApplyLootSpec(specID, "encounter")
@@ -239,9 +266,13 @@ sfui.events.RegisterEvent("BONUS_ROLL_ACTIVATE", function()
 
     -- Global guard: if nobody has a checkbox ticked, never suppress.
     local anyBonus = false
-    for _, entry in pairs(db.bosses) do
-        if type(entry) == "table" and entry.bonus == true then anyBonus = true ; break end
+    if type(db.bosses["worldbosses"]) == "table" and db.bosses["worldbosses"].bonus == true then anyBonus = true end
+    if not anyBonus then
+        for _, entry in pairs(db.bosses) do
+            if type(entry) == "table" and entry.bonus == true then anyBonus = true ; break end
+        end
     end
+    if not anyBonus and db.bonusDungeons["delves"] == true then anyBonus = true end
     if not anyBonus then
         for _, v in pairs(db.bonusDungeons) do
             if v == true then anyBonus = true ; break end
@@ -250,14 +281,25 @@ sfui.events.RegisterEvent("BONUS_ROLL_ACTIVATE", function()
     if not anyBonus then return end
 
     local wantBonus = false
-    if currentEncounterID then
-        local entry = db.bosses[currentEncounterID]
+    local _, instanceType = IsInInstance()
+
+    local encID = currentEncounterID or lastEncounterID
+    if encID then
+        local entry = db.bosses[encID]
         wantBonus = type(entry) == "table" and entry.bonus == true
+        if not wantBonus and instanceType == "none" then
+            local wEntry = db.bosses["worldbosses"]
+            if type(wEntry) == "table" and wEntry.bonus == true then wantBonus = true end
+        end
     else
-        local mapID = C_ChallengeMode.GetActiveChallengeMapID
-            and C_ChallengeMode.GetActiveChallengeMapID()
-        if not mapID then mapID = currentChallengeMapID end
-        if mapID then wantBonus = db.bonusDungeons[mapID] == true end
+        if instanceType == "scenario" then
+            wantBonus = db.bonusDungeons["delves"] == true
+        else
+            local mapID = C_ChallengeMode.GetActiveChallengeMapID
+                and C_ChallengeMode.GetActiveChallengeMapID()
+            if not mapID then mapID = currentChallengeMapID end
+            if mapID then wantBonus = db.bonusDungeons[mapID] == true end
+        end
     end
 
     if not wantBonus then
@@ -275,8 +317,9 @@ sfui.events.RegisterEvent("BONUS_ROLL_ACTIVATE", function()
         end
         -- Notify the player that the voidcore prompt was suppressed.
         local ctx
-        if currentEncounterName then
-            ctx = currentEncounterName
+        local activeEncName = currentEncounterName or lastEncounterName
+        if activeEncName then
+            ctx = activeEncName
         else
             local mapID = C_ChallengeMode.GetActiveChallengeMapID
                 and C_ChallengeMode.GetActiveChallengeMapID()
@@ -323,6 +366,12 @@ sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", function()
     if mplusSpec then
         specApplied = true
         ApplyLootSpec(mplusSpec, "entered M+ instance")
+        return
+    end
+    local delveSpec = GetActiveDelveSpec()
+    if delveSpec then
+        specApplied = true
+        ApplyLootSpec(delveSpec, "entered delve")
         return
     end
     if not IsInManagedInstance() and specApplied then
@@ -393,7 +442,7 @@ GetRaidData = function()
             end
         end
         for encID in pairs(db.bosses) do
-            if not validBosses[encID] then
+            if encID ~= "worldbosses" and not validBosses[encID] then
                 db.bosses[encID] = nil
             end
         end
@@ -450,10 +499,10 @@ GetDungeonData = function()
             validDungs[dung.mapID] = true
         end
         for mapID in pairs(db.dungeons) do
-            if not validDungs[mapID] then db.dungeons[mapID] = nil end
+            if mapID ~= "delves" and not validDungs[mapID] then db.dungeons[mapID] = nil end
         end
         for mapID in pairs(db.bonusDungeons) do
-            if not validDungs[mapID] then db.bonusDungeons[mapID] = nil end
+            if mapID ~= "delves" and not validDungs[mapID] then db.bonusDungeons[mapID] = nil end
         end
     end
 
@@ -764,6 +813,28 @@ local function BuildRaidContent(content, width)
         return 60
     end
 
+    -- Special Global Row for World Bosses
+    local wbRow = AcquireRow(content)
+    wbRow:SetSize(width, ROW_H)
+    wbRow:SetPoint("TOPLEFT", 0, y)
+    wbRow.bg:SetColorTexture(0.05, 0.05, 0.05, 0.35)
+    wbRow.icon:SetTexture(132049) -- INV_Misc_Map_01 or similar world icon
+    wbRow.icon:Show()
+    wbRow.nameFS:SetText("All World Bosses")
+    wbRow.nameFS:SetTextColor(1.0, 0.8, 0.0, 1)
+
+    wbRow.specBtn.keyID = "worldbosses"
+    wbRow.specBtn.field = "spec"
+    wbRow.specBtn:Refresh()
+    wbRow.specBtn:Show()
+
+    wbRow.bonusCB.encID = "worldbosses"
+    wbRow.bonusCB.mapID = nil
+    wbRow.bonusCB:Refresh()
+    wbRow.bonusCB:Show()
+
+    y = y - ROW_H - 16 -- Extra padding before the first raid section
+
     for _, raid in ipairs(raids) do
         local sh = AcquireFontString(content.fsPool, content, "OVERLAY", "GameFontNormal")
         sh:ClearAllPoints()
@@ -851,6 +922,29 @@ local function BuildDungeonContent(content, width)
         msg:SetTextColor(0.4, 0.4, 0.4, 1)
         return 60
     end
+
+    -- Special Global Row for Delves
+    local delveRow = AcquireRow(content)
+    delveRow:SetSize(width, ROW_H)
+    delveRow:SetPoint("TOPLEFT", 0, y)
+    delveRow.bg:SetColorTexture(0.05, 0.05, 0.05, 0.35)
+    delveRow.icon:SetTexture(5286915) -- UI-Delves-Icon or similar
+    delveRow.icon:Show()
+    delveRow.nameFS:SetText("All Delves")
+    delveRow.nameFS:SetTextColor(1.0, 0.8, 0.0, 1)
+
+    delveRow.specBtn.keyID = "delves"
+    delveRow.specBtn.storageKey = "dungeons"
+    delveRow.specBtn.field = nil
+    delveRow.specBtn:Refresh()
+    delveRow.specBtn:Show()
+
+    delveRow.bonusCB.encID = nil
+    delveRow.bonusCB.mapID = "delves"
+    delveRow.bonusCB:Refresh()
+    delveRow.bonusCB:Show()
+
+    y = y - ROW_H - 16
 
     for i, dung in ipairs(dungeons) do
         local mapID = dung.mapID
