@@ -1,3 +1,12 @@
+## v0.7.2a (2026-05-05)
+
+### Features
+- **Location Reminder**: The addon now proactively prints a "Keystone invite received" chat message when the invitation popup appears, allowing you to easily verify the dungeon name and key level before clicking Accept.
+
+### Bug Fixes
+- **Location Reminder**: Fixed a severe logic flaw where protected Mythic+ payload properties (key level, leader name) triggered arithmetic taint errors, causing the module to crash silently.
+- **Location Reminder**: Corrected a parameter shift bug caused by the SFUI event multiplexer where the event payload was misaligned, entirely preventing the module from successfully polling LFG search result updates.
+
 ## v0.7.2 (2026-05-05)
 
 ### Features

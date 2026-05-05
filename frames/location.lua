@@ -71,7 +71,7 @@ function sfui.location.on_roster_update()
         sfui_common.print(
             pc .. "★ GROUP FILLED" .. reset_c
             .. " → " .. cc .. (pendingDungeon or "unknown dungeon") .. reset_c
-            .. (pendingLeader and (" | leader: " .. pendingLeader) or "")
+            .. " | leader: " .. tostring(pendingLeader)
         )
 
         reset_state()
@@ -81,8 +81,27 @@ end
 -- -------------------------------------------------------
 -- Core: invite-accepted handler
 -- -------------------------------------------------------
-local function on_application_status(searchResultID, newStatus)
+local function on_application_status(event, searchResultID, newStatus)
     if not is_enabled() then return end
+    -- If we receive an invite, print it immediately so the user can see what they are accepting
+    if newStatus == "invited" then
+        local resultData = C_LFGList.GetSearchResultInfo(searchResultID)
+        if not resultData then return end
+        local activityInfo = C_LFGList.GetActivityInfoTable(resultData.activityIDs and resultData.activityIDs[1])
+        if not activityInfo or activityInfo.categoryID ~= 2 then return end
+
+        local dungeonName = activityInfo.fullName or "?"
+        local keyLevel    = resultData.name or ""
+        local leader      = resultData.leaderName or ""
+
+        sfui_common.print(
+            pc .. "Keystone invite received" .. reset_c
+            .. " → " .. cc .. dungeonName .. " " .. tostring(keyLevel) .. reset_c
+            .. " | leader: " .. tostring(leader)
+        )
+        return
+    end
+
     if newStatus ~= "inviteaccepted" then return end
 
     -- Pull LFG data – both calls can return nil if data hasn't loaded yet.
@@ -101,19 +120,19 @@ local function on_application_status(searchResultID, newStatus)
     end
 
     local dungeonName = activityInfo.fullName or "?"
-    -- searchResultData.name is the key level string in M+ (may be protected)
     local keyLevel    = resultData.name or ""
     local leader      = resultData.leaderName or ""
 
-    -- Build a single reused string so we don't re-concat on roster update
-    pendingDungeon = dungeonName .. (keyLevel ~= "" and (" " .. keyLevel) or "")
-    pendingLeader  = leader ~= "" and leader or nil
+    -- Build strings carefully to avoid comparing SecretValues (which throws errors)
+    -- LFG names and leaders are often protected payload objects in Mythic+.
+    pendingDungeon = dungeonName .. " " .. tostring(keyLevel)
+    pendingLeader  = leader
 
     if sfui_config.location.printOnInvite then
         sfui_common.print(
             pc .. "Keystone accepted" .. reset_c
             .. " → " .. cc .. pendingDungeon .. reset_c
-            .. (pendingLeader and (" | leader: " .. pendingLeader) or "")
+            .. " | leader: " .. tostring(pendingLeader)
             .. " (waiting for group to fill…)"
         )
     end
