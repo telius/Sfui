@@ -29,16 +29,22 @@ local activeCooldownIDs = {}
 
 -- Helper to get tracking config for a specific ID
 local configCache = {}
+-- Pool of wiped config tables recycled from InvalidateConfigCache, avoiding
+-- per-spec-change allocations when the same ~N bars are re-resolved.
+local configPool = {}
 local function GetTrackedBarConfig(cooldownID)
     if not cooldownID then return nil end
     local cached = configCache[cooldownID]
     if cached then return cached end
 
-    local cfg = { _id = cooldownID }
+    -- Reuse a pooled (already-wiped) table if one is available
+    local cfg = table.remove(configPool) or {}
+    cfg._id = cooldownID
 
     -- 1. Base Defaults (lowest priority)
-    if cfg.trackedBars and cfg.trackedBars.defaults then
-        local defaults = cfg.trackedBars.defaults
+    local trackedBarsCfg = sfui.config.trackedBars
+    if trackedBarsCfg and trackedBarsCfg.defaults then
+        local defaults = trackedBarsCfg.defaults
         local entry = defaults[cooldownID] or defaults[tonumber(cooldownID)]
         if entry then
             local match = true
@@ -117,8 +123,14 @@ function sfui.trackedbars.GetKnownSpells()
     return sorted
 end
 
--- Cache invalidation (call when settings change)
+-- Cache invalidation (call when settings change).
+-- Wipes and recycles config tables into configPool so the next
+-- GetTrackedBarConfig call can reuse them without allocating.
 function sfui.trackedbars.InvalidateConfigCache()
+    for _, v in pairs(configCache) do
+        wipe(v)
+        configPool[#configPool + 1] = v
+    end
     wipe(configCache)
 end
 

@@ -900,7 +900,9 @@ end
 
 function WQS:DoRefresh()
     refreshCount = refreshCount + 1
-    if refreshCount > 300 then
+    -- Sweep stale entries every 50 refreshes (~15 min at typical WQ update cadence).
+    -- Previously 300, which let expired quest data accumulate for too long.
+    if refreshCount > 50 then
         refreshCount = 0
         local now = GetTime()
         for qID, data in pairs(rewardDataCache) do

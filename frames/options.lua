@@ -727,18 +727,17 @@ function sfui.create_options_panel()
         self:ClearFocus()
     end)
 
-    -- Combat Logging
-    local combatlog_header = automation_panel:CreateFontString(nil, "OVERLAY", g.font)
-    combatlog_header:SetPoint("TOPLEFT", color_label, "BOTTOMLEFT", 0, -25)
-    combatlog_header:SetTextColor(white[1], white[2], white[3])
-    combatlog_header:SetText("combat logging")
-
     local auto_log_cb = create_checkbox(automation_panel, "auto combat log", "autoCombatLog", function(checked)
         if sfui.logs and sfui.logs.set_enabled then
             sfui.logs.set_enabled(checked)
         end
     end, "automatically start/stop combat logging when entering mythic+ and raids.")
-    auto_log_cb:SetPoint("TOPLEFT", combatlog_header, "BOTTOMLEFT", 0, -10)
+    auto_log_cb:SetPoint("TOPLEFT", color_label, "BOTTOMLEFT", 0, -25)
+
+    if SfuiDB.keystoneReminder == nil then SfuiDB.keystoneReminder = true end
+    local keystone_cb = create_checkbox(automation_panel, "keystone location reminder", "keystoneReminder", nil,
+        "prints the dungeon name and key level to chat when a mythic+ invite is accepted, and again when the group fills.")
+    keystone_cb:SetPoint("TOPLEFT", auto_log_cb, "BOTTOMLEFT", 0, -10)
 
     -- 7. Minimap Panel
     local minimap_header = minimap_panel:CreateFontString(nil, "OVERLAY", g.font)

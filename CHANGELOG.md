@@ -1,3 +1,14 @@
+## v0.7.2 (2026-05-05)
+
+### Features
+- **Location Reminder**: Replaced the standalone `MythicLocationReminder` addon with a built-in SFUI module. The feature has been highly optimized to eliminate background memory footprint and garbage collection overhead.
+- **Automation Settings**: Added a togglable "keystone reminder" option to the Automation configuration panel, enabled by default, ensuring the addon prints the dungeon name and key level to chat when a Mythic+ invite is accepted, and again when the group fills.
+
+### Optimizations
+- **Tracked Bars**: Resolved a performance bug by implementing a `configPool` to recycle configuration tables during `InvalidateConfigCache` calls, achieving zero allocations and zero GC pressure during frequent spec-swapping or UI refreshes.
+- **World Quests**: Addressed memory bloat in the `wqs.lua` world quest system by lowering the stale cache eviction threshold from 300 to 50 refreshes, significantly reducing background memory load during long play sessions.
+- **Location Module**: Implemented the location module leveraging the shared `sfui.events` multiplexer rather than creating a dedicated UI frame, avoiding redundant object allocations.
+
 ## v0.7.1 (2026-05-01)
 
 ### Features
