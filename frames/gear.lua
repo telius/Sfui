@@ -42,6 +42,10 @@ local gearEquipQueue = nil
 -- P1: debounce BAG_UPDATE_DELAYED so rapid bag changes don't fire full scans repeatedly
 local bagUpdatePending = false
 local zoneUpdateQueue = false
+-- Guard: prevents stacking C_Timer.After(Update) calls during prolonged casts
+local updateScheduled = false
+-- Counter: caps PLAYER_REGEN_ENABLED retry depth after combat
+local regenRetries = 0
 
 -- Manual-edit protection: suppress BAG_UPDATE auto-equip while player is managing gear
 local manualEditUntil = 0
@@ -93,12 +97,15 @@ end
 
 -- Per-character settings helper.
 -- Returns (and auto-creates) SfuiDB.gear_char["Name-Realm"] for the logged-in character.
+local charDBCache = nil
 local function charDB()
+    if charDBCache then return charDBCache end
     SfuiDB = SfuiDB or {}
     SfuiDB.gear_char = SfuiDB.gear_char or {}
     local key = (_G.UnitName and _G.UnitName("player") or "?") .. "-" .. (_G.GetRealmName and _G.GetRealmName() or "?")
     SfuiDB.gear_char[key] = SfuiDB.gear_char[key] or {}
-    return SfuiDB.gear_char[key]
+    charDBCache = SfuiDB.gear_char[key]
+    return charDBCache
 end
 
 local function TryEquipSet(setName)
@@ -113,8 +120,11 @@ local function TryEquipSet(setName)
             return false
         end
         if UnitCastingInfo("player") or UnitChannelInfo("player") then
-            -- Defers the update down the chain so it doesn't fail silently
-            C_Timer.After(2.0, function() sfui.gear.Update() end)
+            -- Defers the update; guard prevents stacking timers during long casts
+            if not updateScheduled then
+                updateScheduled = true
+                C_Timer.After(2.0, function() updateScheduled = false; sfui.gear.Update() end)
+            end
             return false
         end
         if UnitIsDeadOrGhost("player") then
@@ -131,8 +141,11 @@ local function TryEquipSet(setName)
     return false
 end
 
--- P4: module-level scratch list reused across UpdateStatUI calls to avoid per-call allocation
-local pawnScratchList = {}
+-- P4: pre-allocated scratch list with 4 fixed sub-tables; reused to avoid per-call allocation
+local pawnScratchList = {
+    { stat = "", weight = 0 }, { stat = "", weight = 0 },
+    { stat = "", weight = 0 }, { stat = "", weight = 0 },
+}
 local function pawnSortDesc(a, b) return a.weight > b.weight end
 
 local statAbbrv    = { Haste = "H", Mastery = "M", Versatility = "V", Crit = "C", H = "H", M = "M", V = "V", C = "C" }
@@ -308,16 +321,17 @@ function sfui.gear.UpdateStatUI()
                 end
                 local pawnOrder
                 if targetDB.pawn_weights and not hasSet then
-                    -- P4: reuse scratch list instead of allocating a new table every call
+                    -- P4: reuse pre-allocated sub-tables; no allocation in hot path
                     local n = 0
                     for k, v in pairs(targetDB.pawn_weights) do
                         local sName = k:gsub("Rating", "")
                         if sName == "Haste" or sName == "Mastery" or sName == "Versatility" or sName == "Crit" then
                             n = n + 1
-                            pawnScratchList[n] = { stat = sName, weight = v }
+                            local e = pawnScratchList[n]
+                            if not e then e = { stat = "", weight = 0 }; pawnScratchList[n] = e end
+                            e.stat = sName; e.weight = v
                         end
                     end
-                    -- Clear any leftover entries from a previous longer list
                     for i = n + 1, #pawnScratchList do pawnScratchList[i] = nil end
                     table.sort(pawnScratchList, pawnSortDesc)
                     pawnOrder = {}
@@ -393,7 +407,10 @@ function sfui.gear.Update()
     if autoEquipPaused() then return end
 
     if UnitCastingInfo("player") or UnitChannelInfo("player") then
-        C_Timer.After(2.0, function() sfui.gear.Update() end)
+        if not updateScheduled then
+            updateScheduled = true
+            C_Timer.After(2.0, function() updateScheduled = false; sfui.gear.Update() end)
+        end
         return
     end
 
@@ -434,21 +451,25 @@ event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
             if not UnitCastingInfo("player") and not UnitChannelInfo("player") and not UnitIsDeadOrGhost("player") then
                 local name = C_EquipmentSet.GetEquipmentSetInfo(gearEquipQueue)
                 C_EquipmentSet.UseEquipmentSet(gearEquipQueue)
-                if name then
-                    if common and common.print then
-                        common.print("Equipped queued set: " .. name)
-                    end
+                if name and common and common.print then
+                    common.print("Equipped queued set: " .. name)
                 end
                 gearEquipQueue = nil
+                regenRetries = 0
                 event_frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
-            else
-                -- Fix: Defer execution and check again
+            elseif regenRetries < 5 then
+                -- Still casting post-combat: retry up to 5 times (10 s total) then give up
+                regenRetries = regenRetries + 1
                 C_Timer.After(2, function()
                     if gearEquipQueue and not InCombatLockdown() then
-                        -- re-evaluate using the same event flow
                         event_frame:GetScript("OnEvent")(event_frame, "PLAYER_REGEN_ENABLED")
                     end
                 end)
+            else
+                -- Give up: discard the queued set equip
+                gearEquipQueue = nil
+                regenRetries = 0
+                event_frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
             end
         end
         return
@@ -1098,14 +1119,21 @@ gearFrame:SetScript("OnShow", function(self)
                 targetDB = db.hero[ui.activeHero]
             end
             if targetDB.pawn_weights then
-                table.wipe(pawnScratchList)
+                -- Reuse pre-allocated sub-tables; indexed write avoids table.wipe allocation churn
+                local m = 0
                 for k, v in pairs(targetDB.pawn_weights) do
                     local st = statAbbrv[k]
-                    if st then table.insert(pawnScratchList, { s = st, weight = v }) end
+                    if st then
+                        m = m + 1
+                        local e = pawnScratchList[m]
+                        if not e then e = { stat = "", weight = 0 }; pawnScratchList[m] = e end
+                        e.stat = st; e.weight = v
+                    end
                 end
+                for i = m + 1, #pawnScratchList do pawnScratchList[i] = nil end
                 table.sort(pawnScratchList, pawnSortDesc)
                 local cur = {}
-                for i = 1, 4 do cur[i] = pawnScratchList[i] and pawnScratchList[i].s or statPool[i] end
+                for i = 1, 4 do cur[i] = pawnScratchList[i] and pawnScratchList[i].stat or statPool[i] end
                 return cur
             end
             return targetDB.stat_order
@@ -1289,13 +1317,15 @@ local function InitPaperDollTrinketHook()
                 local specID = common.get_current_spec_id()
                 if itemID and specID then
                     SfuiDB.gear[specID] = SfuiDB.gear[specID] or {}
-                    SfuiDB.gear[specID].locked_trinkets = SfuiDB.gear[specID].locked_trinkets or {}
-                    if SfuiDB.gear[specID].locked_trinkets[itemID] then
-                        SfuiDB.gear[specID].locked_trinkets[itemID] = nil
-                        if common and common.print then common.print("Trinket unlocked: " .. link) end
+                    local ctxPvP = isCurrentlyPvP()
+                    local key = ctxPvP and "locked_items_pvp" or "locked_items_pve"
+                    SfuiDB.gear[specID][key] = SfuiDB.gear[specID][key] or {}
+                    if SfuiDB.gear[specID][key][itemID] then
+                        SfuiDB.gear[specID][key][itemID] = nil
+                        if common and common.print then common.print("Trinket unlocked (" .. (ctxPvP and "PvP" or "PvE") .. "): " .. link) end
                     else
-                        SfuiDB.gear[specID].locked_trinkets[itemID] = true
-                        if common and common.print then common.print("Trinket locked: " .. link) end
+                        SfuiDB.gear[specID][key][itemID] = true
+                        if common and common.print then common.print("Trinket locked (" .. (ctxPvP and "PvP" or "PvE") .. "): " .. link) end
                     end
                     sfui.gear.UpdateStatUI()
                 end

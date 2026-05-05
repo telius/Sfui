@@ -26,7 +26,6 @@ local ROW_H                     = 24
 local ICON_SIZE                 = 18
 local PAD                       = 8
 local COL_W                     = 170 -- loot spec button width
-local CB_COL_W                  = 28  -- bonus roll checkbox column width
 local FRAME_W                   = 620
 local HEADER_H                  = 82 -- pixels occupied by title/controls/tabs
 local FOOTER_H                  = 24
@@ -34,7 +33,7 @@ local MIN_FRAME_H               = 160
 local MAX_FRAME_H               = 860
 -- Pre-computed name column width (constant since all terms are constants).
 -- width passed to builders is always FRAME_W-10.
-local NAME_COL_W = (FRAME_W - 10) - COL_W - CB_COL_W - PAD * 4 - ICON_SIZE
+local NAME_COL_W = (FRAME_W - 10) - COL_W - PAD * 3 - ICON_SIZE
 
 -- ─── DB helpers ───────────────────────────────────────────────────────────────
 local dbCache                   = nil
@@ -81,17 +80,12 @@ local function DB()
     db.defaultSpec    = db.defaultSpec or 0
     db.bosses         = db.bosses or {}
     db.dungeons       = db.dungeons or {}
-    db.bonusDungeons  = db.bonusDungeons or {}
 
-    -- Migrate flat boss specIDs → nested { spec, bonus } tables.
-    -- bonus is boolean: true = use voidcore, false/nil = suppress BonusRollFrame.
-    -- _migrated sentinel prevents re-running this loop on every session start.
+    -- Migrate flat boss specIDs → nested { spec } tables.
     if not db._migrated then
         for k, v in pairs(db.bosses) do
             if type(v) == "number" then
-                db.bosses[k] = { spec = v, bonus = false }
-            elseif type(v) == "table" and type(v.bonus) == "number" then
-                v.bonus = (v.bonus ~= 0)
+                db.bosses[k] = { spec = v }
             end
         end
         db._migrated = true
@@ -195,12 +189,7 @@ end
 local GetRaidData
 local GetDungeonData
 
--- Tracks the encounterID of the currently active boss encounter.
-local currentEncounterID   = nil
-local currentEncounterName = nil
-local lastEncounterID      = nil
-local lastEncounterName    = nil
-local currentChallengeMapID = nil
+
 
 -- Set when we apply a non-default spec; cleared on restore.
 -- Not persisted — resets to false on every reload/login (Lua state is fresh).
@@ -208,11 +197,7 @@ local specApplied = false
 
 -- ─── Events ───────────────────────────────────────────────────────────────────
 
-sfui.events.RegisterEvent("ENCOUNTER_START", function(_, encounterID, encounterName)
-    currentEncounterID   = encounterID
-    currentEncounterName = encounterName
-    lastEncounterID      = encounterID
-    lastEncounterName    = encounterName
+sfui.events.RegisterEvent("ENCOUNTER_START", function(_, encounterID)
     local db = DB()
     if not db.enabled then return end
     local specID = 0
@@ -242,93 +227,6 @@ sfui.events.RegisterEvent("ENCOUNTER_START", function(_, encounterID, encounterN
 end)
 
 sfui.events.RegisterEvent("ENCOUNTER_END", function()
-    currentEncounterID   = nil
-    currentEncounterName = nil
-end)
-
-sfui.events.RegisterEvent("CHALLENGE_MODE_START", function()
-    currentChallengeMapID = C_ChallengeMode.GetActiveChallengeMapID and C_ChallengeMode.GetActiveChallengeMapID()
-end)
-
-sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", function()
-    C_Timer.After(1, function()
-        currentChallengeMapID = C_ChallengeMode.GetActiveChallengeMapID and C_ChallengeMode.GetActiveChallengeMapID()
-    end)
-end)
-
--- ─── Bonus-roll checkbox suppression ─────────────────────────────────────────
--- Global guard: if no boss/dungeon has the checkbox enabled, never suppress.
--- Per-entry: checkbox ON → let BonusRollFrame show; OFF → hide it.
-local suppressBonusUntil = 0
-sfui.events.RegisterEvent("BONUS_ROLL_ACTIVATE", function()
-    local db = DB()
-    if not db.enabled then return end
-
-    -- Global guard: if nobody has a checkbox ticked, never suppress.
-    local anyBonus = false
-    if type(db.bosses["worldbosses"]) == "table" and db.bosses["worldbosses"].bonus == true then anyBonus = true end
-    if not anyBonus then
-        for _, entry in pairs(db.bosses) do
-            if type(entry) == "table" and entry.bonus == true then anyBonus = true ; break end
-        end
-    end
-    if not anyBonus and db.bonusDungeons["delves"] == true then anyBonus = true end
-    if not anyBonus then
-        for _, v in pairs(db.bonusDungeons) do
-            if v == true then anyBonus = true ; break end
-        end
-    end
-    if not anyBonus then return end
-
-    local wantBonus = false
-    local _, instanceType = IsInInstance()
-
-    local encID = currentEncounterID or lastEncounterID
-    if encID then
-        local entry = db.bosses[encID]
-        wantBonus = type(entry) == "table" and entry.bonus == true
-        if not wantBonus and instanceType == "none" then
-            local wEntry = db.bosses["worldbosses"]
-            if type(wEntry) == "table" and wEntry.bonus == true then wantBonus = true end
-        end
-    else
-        if instanceType == "scenario" then
-            wantBonus = db.bonusDungeons["delves"] == true
-        else
-            local mapID = C_ChallengeMode.GetActiveChallengeMapID
-                and C_ChallengeMode.GetActiveChallengeMapID()
-            if not mapID then mapID = currentChallengeMapID end
-            if mapID then wantBonus = db.bonusDungeons[mapID] == true end
-        end
-    end
-
-    if not wantBonus then
-        suppressBonusUntil = GetTime() + 10
-        if BonusRollFrame then
-            BonusRollFrame:Hide()
-            if not BonusRollFrame.sfuiHooked then
-                BonusRollFrame.sfuiHooked = true
-                hooksecurefunc(BonusRollFrame, "Show", function(self)
-                    if GetTime() < suppressBonusUntil then
-                        self:Hide()
-                    end
-                end)
-            end
-        end
-        -- Notify the player that the voidcore prompt was suppressed.
-        local ctx
-        local activeEncName = currentEncounterName or lastEncounterName
-        if activeEncName then
-            ctx = activeEncName
-        else
-            local mapID = C_ChallengeMode.GetActiveChallengeMapID
-                and C_ChallengeMode.GetActiveChallengeMapID()
-            if not mapID then mapID = currentChallengeMapID end
-            ctx = mapID and (C_ChallengeMode.GetMapUIInfo(mapID)) or "unknown"
-        end
-        sfui.common.print(string.format(
-            "bonus roll suppressed |cffaaaaaa(%s)|r", ctx or "?"))
-    end
 end)
 
 
@@ -501,9 +399,6 @@ GetDungeonData = function()
         for mapID in pairs(db.dungeons) do
             if mapID ~= "delves" and not validDungs[mapID] then db.dungeons[mapID] = nil end
         end
-        for mapID in pairs(db.bonusDungeons) do
-            if mapID ~= "delves" and not validDungs[mapID] then db.bonusDungeons[mapID] = nil end
-        end
     end
 
     return dungeons
@@ -626,7 +521,7 @@ local function AcquireRow(parent)
                     -- nested boss entry
                     local entry = db.bosses[self.keyID]
                     if type(entry) ~= "table" then
-                        entry = { spec = (type(entry) == "number" and entry or 0), bonus = false }
+                        entry = { spec = (type(entry) == "number" and entry or 0) }
                         db.bosses[self.keyID] = entry
                     end
                     if mouseBtn == "RightButton" then entry[self.field] = 0
@@ -656,61 +551,6 @@ local function AcquireRow(parent)
         -- loot spec picker (anchored right, single column)
         r.specBtn = MakeSpecButton(-PAD)
 
-        -- bonus roll checkbox (centered in CB_COL_W, to the LEFT of specBtn)
-        local cb = CreateFrame("CheckButton", nil, r, "BackdropTemplate")
-        cb:SetSize(14, 14)
-        cb:SetPoint("RIGHT", r.specBtn, "LEFT", -(PAD), 0)
-        local app = sfui.config and sfui.config.appearance
-        local hi  = app and app.highlightColor or { 0.4, 0.0, 1.0 }
-        cb:SetBackdrop({
-            bgFile   = "Interface/Buttons/WHITE8X8",
-            edgeFile = "Interface/Buttons/WHITE8X8",
-            edgeSize = 1,
-        })
-        cb:SetBackdropColor(0.05, 0.05, 0.05, 1)
-        cb:SetBackdropBorderColor(0, 0, 0, 1)
-        cb:SetCheckedTexture("Interface/Buttons/WHITE8X8")
-        cb:GetCheckedTexture():SetVertexColor(hi[1], hi[2], hi[3], 1)
-        cb:GetCheckedTexture():SetPoint("TOPLEFT",     2, -2)
-        cb:GetCheckedTexture():SetPoint("BOTTOMRIGHT", -2, 2)
-        cb:SetHighlightTexture("Interface/Buttons/WHITE8X8")
-        cb:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.08)
-
-        -- Refresh reads from encID/mapID stored on the widget — no closure allocation.
-        cb.Refresh = function(self)
-            local val
-            if self.encID then
-                local entry = DB().bosses[self.encID]
-                val = type(entry) == "table" and entry.bonus == true
-            elseif self.mapID then
-                val = DB().bonusDungeons[self.mapID] == true
-            else
-                val = false
-            end
-            self:SetChecked(val)
-        end
-        cb:SetScript("OnClick", function(self)
-            local checked = self:GetChecked() == true
-            if self.encID then
-                local db    = DB()
-                local entry = db.bosses[self.encID]
-                if type(entry) ~= "table" then
-                    entry = { spec = (type(entry) == "number" and entry or 0), bonus = false }
-                    db.bosses[self.encID] = entry
-                end
-                entry.bonus = checked
-            elseif self.mapID then
-                DB().bonusDungeons[self.mapID] = checked
-            end
-        end)
-        cb:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText("use Nebulous Voidcore on this boss/dungeon")
-            GameTooltip:Show()
-        end)
-        cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        r.bonusCB = cb
-
         rowPool[rowCount] = r
     end
     r:SetParent(parent)
@@ -727,8 +567,12 @@ local function ReleaseRows()
             r.linkBtn.instanceID  = nil
             r:Hide()
             -- do NOT SetParent(nil) — keeps the frame in its pool correctly
-            if r.specBtn  then r.specBtn:Hide()  end
-            if r.bonusCB  then r.bonusCB:Hide()  end
+            if r.specBtn then
+                r.specBtn:Hide()
+                r.specBtn.keyID      = nil
+                r.specBtn.field      = nil
+                r.specBtn.storageKey = nil
+            end
         end
     end
     rowCount = 0
@@ -793,15 +637,9 @@ local function BuildRaidContent(content, width)
 
     local h2 = AcquireFontString(content.fsPool, content, "OVERLAY", "GameFontNormalSmall")
     h2:ClearAllPoints()
-    h2:SetPoint("TOPRIGHT", -(CB_COL_W + PAD * 2), y)
+    h2:SetPoint("TOPRIGHT", -PAD, y)
     h2:SetText("loot spec")
     h2:SetTextColor(0.45, 0.45, 0.45, 1)
-
-    local h3 = AcquireFontString(content.fsPool, content, "OVERLAY", "GameFontNormalSmall")
-    h3:ClearAllPoints()
-    h3:SetPoint("TOPRIGHT", -PAD, y)
-    h3:SetText("roll")
-    h3:SetTextColor(0.45, 0.45, 0.45, 1)
     y = y - 18
 
     if #raids == 0 then
@@ -827,11 +665,6 @@ local function BuildRaidContent(content, width)
     wbRow.specBtn.field = "spec"
     wbRow.specBtn:Refresh()
     wbRow.specBtn:Show()
-
-    wbRow.bonusCB.encID = "worldbosses"
-    wbRow.bonusCB.mapID = nil
-    wbRow.bonusCB:Refresh()
-    wbRow.bonusCB:Show()
 
     y = y - ROW_H - 16 -- Extra padding before the first raid section
 
@@ -870,12 +703,6 @@ local function BuildRaidContent(content, width)
             row.specBtn:Refresh()
             row.specBtn:Show()
 
-            -- P2: store encID on the widget; shared getter/setter reads it.
-            row.bonusCB.encID  = encID
-            row.bonusCB.mapID  = nil
-            row.bonusCB:Refresh()
-            row.bonusCB:Show()
-
             y = y - ROW_H
         end
         y = y - 8
@@ -903,15 +730,9 @@ local function BuildDungeonContent(content, width)
 
     local h2 = AcquireFontString(content.fsPool, content, "OVERLAY", "GameFontNormalSmall")
     h2:ClearAllPoints()
-    h2:SetPoint("TOPRIGHT", -(CB_COL_W + PAD * 2), y)
+    h2:SetPoint("TOPRIGHT", -PAD, y)
     h2:SetText("loot spec")
     h2:SetTextColor(0.45, 0.45, 0.45, 1)
-
-    local h3 = AcquireFontString(content.fsPool, content, "OVERLAY", "GameFontNormalSmall")
-    h3:ClearAllPoints()
-    h3:SetPoint("TOPRIGHT", -PAD, y)
-    h3:SetText("roll")
-    h3:SetTextColor(0.45, 0.45, 0.45, 1)
     y = y - 18
 
     if #dungeons == 0 then
@@ -930,7 +751,7 @@ local function BuildDungeonContent(content, width)
     delveRow.bg:SetColorTexture(0.05, 0.05, 0.05, 0.35)
     delveRow.icon:SetTexture(5286915) -- UI-Delves-Icon or similar
     delveRow.icon:Show()
-    delveRow.nameFS:SetText("All Delves")
+    delveRow.nameFS:SetText("All Scenarios (including Delves)")
     delveRow.nameFS:SetTextColor(1.0, 0.8, 0.0, 1)
 
     delveRow.specBtn.keyID = "delves"
@@ -938,11 +759,6 @@ local function BuildDungeonContent(content, width)
     delveRow.specBtn.field = nil
     delveRow.specBtn:Refresh()
     delveRow.specBtn:Show()
-
-    delveRow.bonusCB.encID = nil
-    delveRow.bonusCB.mapID = "delves"
-    delveRow.bonusCB:Refresh()
-    delveRow.bonusCB:Show()
 
     y = y - ROW_H - 16
 
@@ -966,12 +782,6 @@ local function BuildDungeonContent(content, width)
         row.specBtn.keyID      = mapID
         row.specBtn:Refresh()
         row.specBtn:Show()
-
-        -- P2: store mapID on the widget; shared getter/setter reads it.
-        row.bonusCB.encID = nil
-        row.bonusCB.mapID = mapID
-        row.bonusCB:Refresh()
-        row.bonusCB:Show()
 
         y = y - ROW_H
     end
@@ -1119,7 +929,7 @@ function sfui.lootspec.CreateFrame()
     -- footer hint
     local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     hint:SetPoint("BOTTOMLEFT", 10, 8)
-    hint:SetText("left-click to cycle  ·  right-click to clear  ·  loot spec | bonus roll (raid only)")
+    hint:SetText("left-click to cycle  ·  right-click to clear")
     hint:SetTextColor(0.28, 0.28, 0.28, 1)
 
     -- auto-size helper
