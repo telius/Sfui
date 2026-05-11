@@ -502,23 +502,23 @@ function sfui.create_options_panel()
         "toggles display of pet spell damage numbers.")
     pet_spell_cb:SetPoint("TOPLEFT", pet_melee_cb, "BOTTOMLEFT", 0, -5)
 
-    local avoid_cb = create_cvar_checkbox(sct_panel, "show dodge/parry/miss", "floatingCombatTextDodgeParryMiss",
+    local avoid_cb = create_cvar_checkbox(sct_panel, "show dodge/parry/miss", "floatingCombatTextDodgeParryMiss_v2",
         "toggles display of avoidances.")
     avoid_cb:SetPoint("TOPLEFT", pet_spell_cb, "BOTTOMLEFT", 0, -5)
 
-    local reduction_cb = create_cvar_checkbox(sct_panel, "show resist/block/absorb", "floatingCombatTextDamageReduction",
+    local reduction_cb = create_cvar_checkbox(sct_panel, "show resist/block/absorb", "floatingCombatTextDamageReduction_v2",
         "toggles display of damage reduction.")
     reduction_cb:SetPoint("TOPLEFT", avoid_cb, "BOTTOMLEFT", 0, -5)
 
-    local energy_cb = create_cvar_checkbox(sct_panel, "show energy gains/runes", "floatingCombatTextEnergyGains",
+    local energy_cb = create_cvar_checkbox(sct_panel, "show energy gains/runes", "floatingCombatTextEnergyGains_v2",
         "toggles display of energy gains and runes.")
     energy_cb:SetPoint("TOPLEFT", reduction_cb, "BOTTOMLEFT", 0, -5)
 
-    local auras_cb = create_cvar_checkbox(sct_panel, "show auras", "floatingCombatTextAuras",
+    local auras_cb = create_cvar_checkbox(sct_panel, "show auras", "floatingCombatTextAuras_v2",
         "toggles display of aura gains/losses.")
     auras_cb:SetPoint("TOPLEFT", energy_cb, "BOTTOMLEFT", 0, -5)
 
-    local state_cb = create_cvar_checkbox(sct_panel, "show combat state", "floatingCombatTextCombatState",
+    local state_cb = create_cvar_checkbox(sct_panel, "show combat state", "floatingCombatTextCombatState_v2",
         "toggles display of entering/leaving combat.")
     state_cb:SetPoint("TOPLEFT", auras_cb, "BOTTOMLEFT", 0, -5)
 
@@ -739,7 +739,12 @@ function sfui.create_options_panel()
         "prints the dungeon name and key level to chat when a mythic+ invite is accepted, and again when the group fills.")
     keystone_cb:SetPoint("TOPLEFT", auto_log_cb, "BOTTOMLEFT", 0, -10)
 
-    -- 7. Minimap Panel
+    if SfuiDB.ahCurrentExpansionFilter == nil then SfuiDB.ahCurrentExpansionFilter = true end
+    local ah_expansion_cb = create_checkbox(automation_panel, "AH: filter current expansion only", "ahCurrentExpansionFilter", nil,
+        "automatically enables the \"current expansion only\" filter every time you open the auction house.")
+    ah_expansion_cb:SetPoint("TOPLEFT", keystone_cb, "BOTTOMLEFT", 0, -10)
+
+
     local minimap_header = minimap_panel:CreateFontString(nil, "OVERLAY", g.font)
     minimap_header:SetPoint("TOPLEFT", 15, -15)
     minimap_header:SetTextColor(white[1], white[2], white[3])

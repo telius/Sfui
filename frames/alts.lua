@@ -28,6 +28,10 @@ local columnPool = {}
 local cellPool = {}
 local tablePool = {}
 
+-- Flag used by the ChatFrameUtil hook (installed in initialize()) to suppress
+-- the "Time played" chat message that RequestTimePlayed() would otherwise print.
+local sfuiTimePlayedRequesting = false
+
 local function AcquireTable()
     local t = table.remove(tablePool) or {}
     t.isDynamic = true
@@ -484,6 +488,13 @@ function sfui.alts.PerformSync(isLogout)
 
     data.lastUpdate = GetServerTime()
 
+    -- Gold
+    data.money = GetMoney()
+
+    -- Request time played; the hook above suppresses the chat message.
+    sfuiTimePlayedRequesting = true
+    RequestTimePlayed()
+
     -- Mythic+ Rating and Keystone
     local rating = C_ChallengeMode.GetOverallDungeonScore()
     data.rating = rating
@@ -495,8 +506,11 @@ function sfui.alts.PerformSync(isLogout)
             data.keystone = AcquireTable()
             data.keystone.isDynamic = nil
         end
-        data.keystone.mapID = mapID
-        data.keystone.level = keystoneLevel
+        data.keystone.mapID   = mapID
+        data.keystone.level   = keystoneLevel
+        -- Store the full item link for tooltip / chat linking
+        local keystoneLink = C_MythicPlus.GetOwnedKeystoneLink and C_MythicPlus.GetOwnedKeystoneLink()
+        data.keystone.link = keystoneLink or nil
     else
         if data.keystone then
             ReleaseTable(data.keystone)
@@ -975,6 +989,7 @@ function sfui.alts.CreateFrame()
         { text = "Name (A-Z)", value = "name" },
         { text = "Item Level", value = "ilvl" },
         { text = "M+ Rating",  value = "rating" },
+        { text = "Time Played", value = "timeplayed" },
     }
     local sortDropdown = sfui.common.create_dropdown(frame, 24, sortOptions, function(val)
         SfuiDB.altsSort = val
@@ -1142,6 +1157,15 @@ local function SortAlts(a, b)
         local aILvl, bILvl = a.data.iLvl or 0, b.data.iLvl or 0
         if aLevel ~= bLevel then return aLevel > bLevel end
         if aILvl ~= bILvl then return aILvl > bILvl end
+    elseif sortMethod == "timeplayed" then
+        local aTime, bTime = a.data.totalTimePlayed or 0, b.data.totalTimePlayed or 0
+        if aTime ~= bTime then return aTime > bTime end
+        
+        -- Tie-breaker: Level > iLvl
+        local aLevel, bLevel = a.data.level or 0, b.data.level or 0
+        local aILvl, bILvl = a.data.iLvl or 0, b.data.iLvl or 0
+        if aLevel ~= bLevel then return aLevel > bLevel end
+        if aILvl ~= bILvl then return aILvl > bILvl end
     end
     return (a.data.name or "") < (b.data.name or "")
 end
@@ -1209,6 +1233,37 @@ function sfui.alts.UpdateUI(force)
                     SfuiDB.altsCollapsed[cat.name] = not SfuiDB.altsCollapsed[cat.name]
                     sfui.alts.UpdateUI(true)
                 end)
+
+                if cat.name == "GENERAL" then
+                    -- Aggregate tooltip: total time played + total gold across all visible alts
+                    row:SetScript("OnEnter", function(self)
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        GameTooltip:AddLine("All Characters", 1, 0.82, 0)
+                        GameTooltip:AddLine(" ")
+
+                        local totalSecs  = 0
+                        local totalGold  = 0
+                        for _, entry in ipairs(altsList) do
+                            totalSecs = totalSecs + (entry.data.totalTimePlayed or 0)
+                            totalGold = totalGold + (entry.data.money or 0)
+                        end
+
+                        local totalHours = math.floor(totalSecs / 3600)
+                        GameTooltip:AddDoubleLine("Time played:", totalHours .. "h",
+                            NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, 1, 1, 1)
+
+                        if totalGold > 0 then
+                            GameTooltip:AddDoubleLine("Total gold:", GetMoneyString(totalGold, true),
+                                NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, 1, 0.82, 0)
+                        end
+
+                        GameTooltip:Show()
+                    end)
+                    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                else
+                    row:SetScript("OnEnter", nil)
+                    row:SetScript("OnLeave", nil)
+                end
             else
                 text:SetFontObject("GameFontHighlightSmall")
                 text:SetTextColor(unpack(sfui.config.colors.white))
@@ -1272,8 +1327,36 @@ function sfui.alts.UpdateUI(force)
                     text:SetTextColor(classColor.r, classColor.g, classColor.b)
 
                     if cell.del then cell.del:Hide() end
-                    cell:SetScript("OnEnter", nil)
-                    cell:SetScript("OnLeave", nil)
+
+                    -- Per-character tooltip: realm, gold, time played (hours)
+                    local altSnap = alt  -- capture for closure
+                    cell:EnableMouse(true)
+                    cell:SetScript("OnEnter", function(self)
+                        local d = altSnap.data
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        -- Name + class colour
+                        local cc = RAID_CLASS_COLORS[d.class] or NORMAL_FONT_COLOR
+                        GameTooltip:AddLine(string.format("|c%s%s|r", cc.colorStr, d.name or "?"), 1, 1, 1)
+                        -- Realm
+                        if d.realm then
+                            GameTooltip:AddLine(d.realm, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+                        end
+                        -- Gold
+                        if d.money and d.money > 0 then
+                            GameTooltip:AddLine(" ")
+                            GameTooltip:AddLine(GetMoneyString(d.money, true), 1, 0.82, 0)
+                        end
+                        -- Time played in hours
+                        if d.totalTimePlayed and d.totalTimePlayed > 0 then
+                            GameTooltip:AddLine(" ")
+                            local hours = math.floor(d.totalTimePlayed / 3600)
+                            GameTooltip:AddDoubleLine("Time played:", hours .. "h",
+                                NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, 1, 1, 1)
+                        end
+                        GameTooltip:Show()
+                    end)
+                    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
                 elseif cat.name == "VAULT_HEADER" and alt.data.vault and alt.data.vault.hasReward then
                     -- Show green "Loot!" inline text instead of golden glow on vault boxes
                     text:Show()
@@ -1303,7 +1386,9 @@ function sfui.alts.UpdateUI(force)
                 local val = alt.data[cat.key] or 0
                 if cat.key == "iLvl" and (alt.data.level or 0) < 90 then
                     text:SetText(alt.data.level or "-")
-                    text:SetTextColor(unpack(sfui.config.colors.white)) -- White for level
+                    text:SetTextColor(unpack(sfui.config.colors.white))
+                    cell:SetScript("OnEnter", nil)
+                    cell:SetScript("OnLeave", nil)
                 else
                     text:SetText(cat.format and string.format(cat.format, val) or val)
                     if cat.key == "rating" and val > 0 then
@@ -1311,41 +1396,118 @@ function sfui.alts.UpdateUI(force)
                         if color then
                             text:SetTextColor(color.r, color.g, color.b)
                         end
+                        -- Per-dungeon rating breakdown tooltip
+                        local altSnap2 = alt
+                        cell:EnableMouse(true)
+                        cell:SetScript("OnEnter", function(self)
+                            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                            GameTooltip:AddLine("Mythic+ Rating", 1, 1, 1)
+                            local rColor = C_ChallengeMode.GetDungeonScoreRarityColor(val)
+                            local rr, rg, rb = 1, 1, 1
+                            if rColor then rr, rg, rb = rColor.r, rColor.g, rColor.b end
+                            GameTooltip:AddDoubleLine("Overall:", tostring(val), 1,1,1, rr,rg,rb)
+                            GameTooltip:AddLine(" ")
+                            GameTooltip:AddLine("Best Keys This Season:", NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+                            local maps = C_ChallengeMode.GetMapTable() or {}
+                            for _, mID in ipairs(maps) do
+                                local mName = C_ChallengeMode.GetMapUIInfo(mID)
+                                local dData = altSnap2.data.dungeons and altSnap2.data.dungeons[mID]
+                                local lvl   = dData and dData.level or 0
+                                local timed = dData and dData.timed or 0
+                                local lvlStr, lr, lg, lb
+                                if lvl > 0 then
+                                    if lvl > timed then
+                                        lvlStr = "+" .. lvl .. "†"
+                                        lr, lg, lb = 0.5, 0.5, 0.5
+                                    else
+                                        lvlStr = "+" .. timed
+                                        local kc = C_ChallengeMode.GetKeystoneLevelRarityColor(timed)
+                                        if timed >= 12 then
+                                            lr, lg, lb = 1, 0.5, 0
+                                        elseif kc then
+                                            lr, lg, lb = kc.r, kc.g, kc.b
+                                        else
+                                            lr, lg, lb = 1, 1, 1
+                                        end
+                                    end
+                                else
+                                    lvlStr = "-"
+                                    lr, lg, lb = 0.4, 0.4, 0.4
+                                end
+                                GameTooltip:AddDoubleLine(mName or "?", lvlStr, 1,1,1, lr,lg,lb)
+                            end
+                            GameTooltip:Show()
+                        end)
+                        cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                    else
+                        cell:SetScript("OnEnter", nil)
+                        cell:SetScript("OnLeave", nil)
                     end
                 end
             elseif cat.type == "keystone" then
                 if alt.data.keystone then
-                    local name = sfui.common.get_short_map_name(alt.data.keystone.mapID)
+                    local ks    = alt.data.keystone
+                    local name  = sfui.common.get_short_map_name(ks.mapID)
                     if name then
-                        text:SetText(string.format("%s - %d", name, alt.data.keystone.level))
-
-                        local mapID = alt.data.keystone.mapID
-                        cell:SetScript("OnEnter", function(self)
-                            local fullName = C_ChallengeMode.GetMapUIInfo(mapID)
-                            if fullName then
-                                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                                GameTooltip:SetText(fullName)
-                                GameTooltip:Show()
-                            end
-                        end)
-                        cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                        text:SetText(string.format("%s +%d", name, ks.level))
                     else
-                        text:SetText(string.format("%d", alt.data.keystone.level))
+                        text:SetText(string.format("+%d", ks.level))
                     end
-                    local color = C_ChallengeMode.GetKeystoneLevelRarityColor(alt.data.keystone.level)
-                    if alt.data.keystone.level >= 12 then
-                        text:SetTextColor(1, 0.5, 0) -- Orange for 12+
+
+                    local color = C_ChallengeMode.GetKeystoneLevelRarityColor(ks.level)
+                    if ks.level >= 12 then
+                        text:SetTextColor(1, 0.5, 0)
                     elseif color then
                         text:SetTextColor(color.r, color.g, color.b)
                     else
                         text:SetTextColor(unpack(sfui.config.colors.white))
                     end
+
+                    -- Tooltip: real item tooltip if we have the link, otherwise text
+                    local ksSnap = ks
+                    cell:EnableMouse(true)
+                    cell:SetScript("OnEnter", function(self)
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        if ksSnap.link then
+                            GameTooltip:SetHyperlink(ksSnap.link)
+                            GameTooltip:AddLine(" ")
+                            GameTooltip:AddLine("<Shift-Click to Link>", GREEN_FONT_COLOR.r, GREEN_FONT_COLOR.g, GREEN_FONT_COLOR.b)
+                        else
+                            local fullName = C_ChallengeMode.GetMapUIInfo(ksSnap.mapID)
+                            GameTooltip:SetText(fullName or "Keystone")
+                            GameTooltip:AddLine("+" .. ksSnap.level, 1, 1, 1)
+                        end
+                        GameTooltip:Show()
+                    end)
+                    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                    cell:SetScript("OnMouseUp", function()
+                        if IsModifiedClick("CHATLINK") and ksSnap.link then
+                            if not ChatEdit_InsertLink(ksSnap.link) then
+                                ChatFrame_OpenChat(ksSnap.link)
+                            end
+                        end
+                    end)
                 else
                     text:SetText("-")
                     text:SetTextColor(0.5, 0.5, 0.5)
+                    cell:SetScript("OnEnter", nil)
+                    cell:SetScript("OnLeave", nil)
+                    cell:SetScript("OnMouseUp", nil)
                 end
             elseif cat.type == "dungeon" then
                 local best = alt.data.dungeons and alt.data.dungeons[cat.mapID]
+                local isTargeted = alt.data.voidcoreTargets and alt.data.voidcoreTargets[cat.mapID]
+                
+                if isTargeted then
+                    if not cell.diamondIcon then
+                        cell.diamondIcon = cell:CreateTexture(nil, "OVERLAY")
+                        cell.diamondIcon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_3")
+                        cell.diamondIcon:SetSize(12, 12)
+                        cell.diamondIcon:SetPoint("RIGHT", cell, "RIGHT", -4, 0)
+                    end
+                    cell.diamondIcon:Show()
+                end
+
                 if best and best.level > 0 then
                     local timed = best.timed or 0
                     local overall = best.level
@@ -1370,6 +1532,15 @@ function sfui.alts.UpdateUI(force)
 
                     -- Tooltip with timed vs overall breakdown
                     local mapID = cat.mapID
+                    local altSnap = alt
+                    cell:EnableMouse(true)
+                    cell:SetScript("OnMouseUp", function(self, button)
+                        if button == "LeftButton" then
+                            altSnap.data.voidcoreTargets = altSnap.data.voidcoreTargets or {}
+                            altSnap.data.voidcoreTargets[mapID] = not altSnap.data.voidcoreTargets[mapID]
+                            sfui.alts.UpdateUI(true)
+                        end
+                    end)
                     cell:SetScript("OnEnter", function(self)
                         local fullName = C_ChallengeMode.GetMapUIInfo(mapID)
                         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -1387,14 +1558,40 @@ function sfui.alts.UpdateUI(force)
                         if isDepleted then
                             GameTooltip:AddDoubleLine("Best (depleted):", "+" .. overall, 1, 1, 1, 0.5, 0.5, 0.5)
                         end
+                        GameTooltip:AddLine(" ")
+                        GameTooltip:AddLine("<Left-Click to toggle Bonus Roll Target>", GREEN_FONT_COLOR.r, GREEN_FONT_COLOR.g, GREEN_FONT_COLOR.b)
+                        if isTargeted then
+                            GameTooltip:AddLine("Targeted for Bonus Roll", 0.8, 0.4, 0.8)
+                        end
                         GameTooltip:Show()
                     end)
                     cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
                 else
                     text:SetText("-")
                     text:SetTextColor(0.5, 0.5, 0.5)
-                    cell:SetScript("OnEnter", nil)
-                    cell:SetScript("OnLeave", nil)
+                    local mapID = cat.mapID
+                    local altSnap = alt
+                    cell:EnableMouse(true)
+                    cell:SetScript("OnMouseUp", function(self, button)
+                        if button == "LeftButton" then
+                            altSnap.data.voidcoreTargets = altSnap.data.voidcoreTargets or {}
+                            altSnap.data.voidcoreTargets[mapID] = not altSnap.data.voidcoreTargets[mapID]
+                            sfui.alts.UpdateUI(true)
+                        end
+                    end)
+                    cell:SetScript("OnEnter", function(self)
+                        local fullName = C_ChallengeMode.GetMapUIInfo(mapID)
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        GameTooltip:SetText(fullName or "Dungeon")
+                        GameTooltip:AddLine("Not yet completed.", 0.5, 0.5, 0.5)
+                        GameTooltip:AddLine(" ")
+                        GameTooltip:AddLine("<Left-Click to toggle Bonus Roll Target>", GREEN_FONT_COLOR.r, GREEN_FONT_COLOR.g, GREEN_FONT_COLOR.b)
+                        if isTargeted then
+                            GameTooltip:AddLine("Targeted for Bonus Roll", 0.8, 0.4, 0.8)
+                        end
+                        GameTooltip:Show()
+                    end)
+                    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
                 end
             elseif cat.type == "currency" or cat.type == "currency_group" then
                 local isGroup = (cat.type == "currency_group")
@@ -2010,6 +2207,28 @@ function sfui.alts.initialize()
     sfui.alts.RefreshDynamicCategories()
     sfui.alts.SyncCurrentCharacter()
 
+    -- Suppress the chat message that RequestTimePlayed() would normally print.
+    -- Must be done here (post-login) because Blizzard_ChatFrameBase loads after addons.
+    -- Pattern from AllPlayed / Broker_PlayedTime.
+    if ChatFrameUtil and ChatFrameUtil.DisplayTimePlayed then
+        local _orig = ChatFrameUtil.DisplayTimePlayed
+        ChatFrameUtil.DisplayTimePlayed = function(chatFrame, totalTime, levelTime)
+            if sfuiTimePlayedRequesting then
+                sfuiTimePlayedRequesting = false
+                return
+            end
+            return _orig(chatFrame, totalTime, levelTime)
+        end
+    elseif _G.ChatFrame_DisplayTimePlayed then
+        local _orig = _G.ChatFrame_DisplayTimePlayed
+        _G.ChatFrame_DisplayTimePlayed = function(...)
+            if sfuiTimePlayedRequesting then
+                sfuiTimePlayedRequesting = false
+                return
+            end
+            return _orig(...)
+        end
+    end
     local eventFrame = CreateFrame("Frame")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     eventFrame:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
@@ -2025,6 +2244,7 @@ function sfui.alts.initialize()
     eventFrame:RegisterEvent("PLAYER_LEAVING_WORLD")
     eventFrame:RegisterEvent("CHALLENGE_MODE_MAPS_UPDATE")
     eventFrame:RegisterEvent("MYTHIC_PLUS_NEW_WEEKLY_RECORD")
+    eventFrame:RegisterEvent("TIME_PLAYED_MSG")
 
     eventFrame:SetScript("OnEvent", function(_, event, ...)
         if event == "PLAYER_ENTERING_WORLD" then
@@ -2035,11 +2255,38 @@ function sfui.alts.initialize()
             preyLogDirty = true
         end
 
+        if event == "TIME_PLAYED_MSG" then
+            -- Store total time played (seconds) for the current character.
+            -- The chat display is suppressed by our ChatFrameUtil hook above.
+            local totalTimePlayed = ...
+            local guid = GetCurrentCharacterGUID()
+            if guid and totalTimePlayed and SfuiDB.alts and SfuiDB.alts[guid] then
+                SfuiDB.alts[guid].totalTimePlayed = totalTimePlayed
+            end
+            return  -- do NOT trigger a full re-sync for this event
+        end
+
         if event == "CHALLENGE_MODE_COMPLETED" then
             -- Force the server to sync Vault and M+ run structures immediately
             if C_MythicPlus and C_MythicPlus.RequestMapInfo then C_MythicPlus.RequestMapInfo() end
             if C_MythicPlus and C_MythicPlus.RequestRewards then C_MythicPlus.RequestRewards() end
             if C_WeeklyRewards and C_WeeklyRewards.OnUIInteract then C_WeeklyRewards.OnUIInteract() end
+
+            -- Check if this dungeon is marked as a Nebulous Voidcore bonus roll target
+            local guid = GetCurrentCharacterGUID()
+            local altData = guid and SfuiDB.alts and SfuiDB.alts[guid]
+            if altData and altData.voidcoreTargets then
+                local info = C_ChallengeMode.GetChallengeCompletionInfo()
+                if info and info.mapChallengeModeID then
+                    if altData.voidcoreTargets[info.mapChallengeModeID] then
+                        local dungeonName = C_ChallengeMode.GetMapUIInfo(info.mapChallengeModeID) or "this dungeon"
+                        sfui.common.print(string.format(
+                            "|cffcc44ff◆ Bonus Roll Reminder:|r Use a |cffffcc00Nebulous Voidcore|r on %s!",
+                            dungeonName
+                        ))
+                    end
+                end
+            end
         end
 
         -- Track per-character completion of warband pool quests.

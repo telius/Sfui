@@ -601,4 +601,19 @@ sfui.events.RegisterEvent("ADDON_LOADED", function(event, addon)
     if addon == "Blizzard_ChallengesUI" then
         init_keystone_automation()
     end
+
+    if addon == "Blizzard_AuctionHouseUI" then
+        -- AuctionHouseSearchBarMixin:OnShow calls FilterButton:Reset() each time the
+        -- AH opens, which wipes all filters back to AUCTION_HOUSE_DEFAULT_FILTERS
+        -- (CurrentExpansionOnly = false). We hook Reset to re-assert the flag after
+        -- Blizzard's own reset runs, so the filter is always on by default.
+        local fb = AuctionHouseFrame and AuctionHouseFrame.SearchBar and AuctionHouseFrame.SearchBar.FilterButton
+        if fb then
+            hooksecurefunc(fb, "Reset", function(self)
+                if SfuiDB.ahCurrentExpansionFilter ~= false then
+                    self.filters[Enum.AuctionHouseFilter.CurrentExpansionOnly] = true
+                end
+            end)
+        end
+    end
 end)

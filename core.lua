@@ -125,6 +125,21 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
                 end
             end
 
+            -- Migrate legacy SCT CVars to _v2
+            local legacyCVars = {
+                "floatingCombatTextDodgeParryMiss",
+                "floatingCombatTextDamageReduction",
+                "floatingCombatTextEnergyGains",
+                "floatingCombatTextAuras",
+                "floatingCombatTextCombatState"
+            }
+            for _, legacy in ipairs(legacyCVars) do
+                if SfuiDB[legacy] ~= nil then
+                    SfuiDB[legacy .. "_v2"] = SfuiDB[legacy]
+                    SfuiDB[legacy] = nil
+                end
+            end
+
             -- Enforce Combat Text Settings from DB
             local combatTextCVars = {
                 "enableFloatingCombatText",
@@ -133,11 +148,11 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
                 "floatingCombatTextCombatHealing",
                 "floatingCombatTextPetMeleeDamage",
                 "floatingCombatTextPetSpellDamage",
-                "floatingCombatTextDodgeParryMiss",
-                "floatingCombatTextDamageReduction",
-                "floatingCombatTextEnergyGains",
-                "floatingCombatTextAuras",
-                "floatingCombatTextCombatState"
+                "floatingCombatTextDodgeParryMiss_v2",
+                "floatingCombatTextDamageReduction_v2",
+                "floatingCombatTextEnergyGains_v2",
+                "floatingCombatTextAuras_v2",
+                "floatingCombatTextCombatState_v2"
             }
             for _, cvar in ipairs(combatTextCVars) do
                 if SfuiDB[cvar] ~= nil then
@@ -183,6 +198,9 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
         end
         if sfui.lootspec and sfui.lootspec.initialize then
             sfui.lootspec.initialize()
+        end
+        if sfui.lfg and sfui.lfg.initialize then
+            sfui.lfg.initialize()
         end
 
 
