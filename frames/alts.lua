@@ -28,9 +28,10 @@ local columnPool = {}
 local cellPool = {}
 local tablePool = {}
 
--- Flag used by the ChatFrameUtil hook (installed in initialize()) to suppress
--- the "Time played" chat message that RequestTimePlayed() would otherwise print.
-local sfuiTimePlayedRequesting = false
+-- When true, TIME_PLAYED_MSG events are silently consumed by our
+-- customEventHandler on every chat frame, preventing the "Time played"
+-- lines from reaching SystemEventHandler → DisplayTimePlayed.
+local sfuiSuppressTimePlayed = false
 
 local function AcquireTable()
     local t = table.remove(tablePool) or {}
@@ -491,8 +492,9 @@ function sfui.alts.PerformSync(isLogout)
     -- Gold
     data.money = GetMoney()
 
-    -- Request time played; the hook above suppresses the chat message.
-    sfuiTimePlayedRequesting = true
+    -- Request time played; the customEventHandler installed in initialize()
+    -- will eat the TIME_PLAYED_MSG event on every chat frame while this is set.
+    sfuiSuppressTimePlayed = true
     RequestTimePlayed()
 
     -- Mythic+ Rating and Keystone
@@ -2208,25 +2210,30 @@ function sfui.alts.initialize()
     sfui.alts.SyncCurrentCharacter()
 
     -- Suppress the chat message that RequestTimePlayed() would normally print.
-    -- Must be done here (post-login) because Blizzard_ChatFrameBase loads after addons.
-    -- Pattern from AllPlayed / Broker_PlayedTime.
-    if ChatFrameUtil and ChatFrameUtil.DisplayTimePlayed then
-        local _orig = ChatFrameUtil.DisplayTimePlayed
-        ChatFrameUtil.DisplayTimePlayed = function(chatFrame, totalTime, levelTime)
-            if sfuiTimePlayedRequesting then
-                sfuiTimePlayedRequesting = false
-                return
-            end
-            return _orig(chatFrame, totalTime, levelTime)
+    -- TIME_PLAYED_MSG is in ChatTypeGroup["SYSTEM"], so EVERY chat frame with
+    -- the SYSTEM group calls ChatFrameUtil.DisplayTimePlayed independently.
+    -- Hooking DisplayTimePlayed only suppresses the first chat frame's call;
+    -- additional chat frames leak through. Instead, we install a
+    -- customEventHandler on each chat frame which fires BEFORE
+    -- SystemEventHandler, eating the event for all frames at once.
+    local function sfuiChatEventFilter(chatFrame, event, ...)
+        if event == "TIME_PLAYED_MSG" and sfuiSuppressTimePlayed then
+            return true  -- returning true from customEventHandler swallows the event
         end
-    elseif _G.ChatFrame_DisplayTimePlayed then
-        local _orig = _G.ChatFrame_DisplayTimePlayed
-        _G.ChatFrame_DisplayTimePlayed = function(...)
-            if sfuiTimePlayedRequesting then
-                sfuiTimePlayedRequesting = false
-                return
+    end
+    for i = 1, NUM_CHAT_WINDOWS do
+        local cf = _G["ChatFrame" .. i]
+        if cf then
+            local prev = cf.customEventHandler
+            if prev then
+                -- Chain with any existing handler (other addons)
+                cf.customEventHandler = function(frame, event, ...)
+                    if sfuiChatEventFilter(frame, event, ...) then return true end
+                    return prev(frame, event, ...)
+                end
+            else
+                cf.customEventHandler = sfuiChatEventFilter
             end
-            return _orig(...)
         end
     end
     local eventFrame = CreateFrame("Frame")
@@ -2257,8 +2264,10 @@ function sfui.alts.initialize()
 
         if event == "TIME_PLAYED_MSG" then
             -- Store total time played (seconds) for the current character.
-            -- The chat display is suppressed by our ChatFrameUtil hook above.
+            -- Chat display is suppressed by our customEventHandler above;
+            -- clear the flag now that we've captured the data.
             local totalTimePlayed = ...
+            sfuiSuppressTimePlayed = false
             local guid = GetCurrentCharacterGUID()
             if guid and totalTimePlayed and SfuiDB.alts and SfuiDB.alts[guid] then
                 SfuiDB.alts[guid].totalTimePlayed = totalTimePlayed
