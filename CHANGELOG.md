@@ -1,3 +1,8 @@
+## v0.7.2b (2026-05-12)
+
+### Bug Fixes
+- **Alts Tracker (Time Played Spam)**: Completely re-architected the "Time Played" chat message suppression engine. Previously, `ChatFrameUtil.DisplayTimePlayed` was hooked directly, which leaked messages if the player had multiple chat tabs with the "System" message group enabled, since the event dispatched independently per chat frame. Suppression is now handled robustly via a `customEventHandler` injected into every chat window, consuming the `TIME_PLAYED_MSG` payload before it reaches the Blizzard UI dispatch chain.
+
 ## v0.7.2a (2026-05-05)
 
 ### Features
