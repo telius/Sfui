@@ -28,10 +28,6 @@ local columnPool = {}
 local cellPool = {}
 local tablePool = {}
 
--- When true, TIME_PLAYED_MSG events are silently consumed by our
--- customEventHandler on every chat frame, preventing the "Time played"
--- lines from reaching SystemEventHandler → DisplayTimePlayed.
-local sfuiSuppressTimePlayed = false
 
 local function AcquireTable()
     local t = table.remove(tablePool) or {}
@@ -492,10 +488,6 @@ function sfui.alts.PerformSync(isLogout)
     -- Gold
     data.money = GetMoney()
 
-    -- Request time played; the customEventHandler installed in initialize()
-    -- will eat the TIME_PLAYED_MSG event on every chat frame while this is set.
-    sfuiSuppressTimePlayed = true
-    RequestTimePlayed()
 
     -- Mythic+ Rating and Keystone
     local rating = C_ChallengeMode.GetOverallDungeonScore()
@@ -1159,15 +1151,7 @@ local function SortAlts(a, b)
         local aILvl, bILvl = a.data.iLvl or 0, b.data.iLvl or 0
         if aLevel ~= bLevel then return aLevel > bLevel end
         if aILvl ~= bILvl then return aILvl > bILvl end
-    elseif sortMethod == "timeplayed" then
-        local aTime, bTime = a.data.totalTimePlayed or 0, b.data.totalTimePlayed or 0
-        if aTime ~= bTime then return aTime > bTime end
-        
-        -- Tie-breaker: Level > iLvl
-        local aLevel, bLevel = a.data.level or 0, b.data.level or 0
-        local aILvl, bILvl = a.data.iLvl or 0, b.data.iLvl or 0
-        if aLevel ~= bLevel then return aLevel > bLevel end
-        if aILvl ~= bILvl then return aILvl > bILvl end
+
     end
     return (a.data.name or "") < (b.data.name or "")
 end
@@ -1243,16 +1227,10 @@ function sfui.alts.UpdateUI(force)
                         GameTooltip:AddLine("All Characters", 1, 0.82, 0)
                         GameTooltip:AddLine(" ")
 
-                        local totalSecs  = 0
                         local totalGold  = 0
                         for _, entry in ipairs(altsList) do
-                            totalSecs = totalSecs + (entry.data.totalTimePlayed or 0)
                             totalGold = totalGold + (entry.data.money or 0)
                         end
-
-                        local totalHours = math.floor(totalSecs / 3600)
-                        GameTooltip:AddDoubleLine("Time played:", totalHours .. "h",
-                            NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, 1, 1, 1)
 
                         if totalGold > 0 then
                             GameTooltip:AddDoubleLine("Total gold:", GetMoneyString(totalGold, true),
@@ -1348,13 +1326,7 @@ function sfui.alts.UpdateUI(force)
                             GameTooltip:AddLine(" ")
                             GameTooltip:AddLine(GetMoneyString(d.money, true), 1, 0.82, 0)
                         end
-                        -- Time played in hours
-                        if d.totalTimePlayed and d.totalTimePlayed > 0 then
-                            GameTooltip:AddLine(" ")
-                            local hours = math.floor(d.totalTimePlayed / 3600)
-                            GameTooltip:AddDoubleLine("Time played:", hours .. "h",
-                                NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, 1, 1, 1)
-                        end
+
                         GameTooltip:Show()
                     end)
                     cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2209,33 +2181,6 @@ function sfui.alts.initialize()
     sfui.alts.RefreshDynamicCategories()
     sfui.alts.SyncCurrentCharacter()
 
-    -- Suppress the chat message that RequestTimePlayed() would normally print.
-    -- TIME_PLAYED_MSG is in ChatTypeGroup["SYSTEM"], so EVERY chat frame with
-    -- the SYSTEM group calls ChatFrameUtil.DisplayTimePlayed independently.
-    -- Hooking DisplayTimePlayed only suppresses the first chat frame's call;
-    -- additional chat frames leak through. Instead, we install a
-    -- customEventHandler on each chat frame which fires BEFORE
-    -- SystemEventHandler, eating the event for all frames at once.
-    local function sfuiChatEventFilter(chatFrame, event, ...)
-        if event == "TIME_PLAYED_MSG" and sfuiSuppressTimePlayed then
-            return true  -- returning true from customEventHandler swallows the event
-        end
-    end
-    for i = 1, NUM_CHAT_WINDOWS do
-        local cf = _G["ChatFrame" .. i]
-        if cf then
-            local prev = cf.customEventHandler
-            if prev then
-                -- Chain with any existing handler (other addons)
-                cf.customEventHandler = function(frame, event, ...)
-                    if sfuiChatEventFilter(frame, event, ...) then return true end
-                    return prev(frame, event, ...)
-                end
-            else
-                cf.customEventHandler = sfuiChatEventFilter
-            end
-        end
-    end
     local eventFrame = CreateFrame("Frame")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     eventFrame:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
@@ -2251,7 +2196,6 @@ function sfui.alts.initialize()
     eventFrame:RegisterEvent("PLAYER_LEAVING_WORLD")
     eventFrame:RegisterEvent("CHALLENGE_MODE_MAPS_UPDATE")
     eventFrame:RegisterEvent("MYTHIC_PLUS_NEW_WEEKLY_RECORD")
-    eventFrame:RegisterEvent("TIME_PLAYED_MSG")
 
     eventFrame:SetScript("OnEvent", function(_, event, ...)
         if event == "PLAYER_ENTERING_WORLD" then
@@ -2262,18 +2206,6 @@ function sfui.alts.initialize()
             preyLogDirty = true
         end
 
-        if event == "TIME_PLAYED_MSG" then
-            -- Store total time played (seconds) for the current character.
-            -- Chat display is suppressed by our customEventHandler above;
-            -- clear the flag now that we've captured the data.
-            local totalTimePlayed = ...
-            sfuiSuppressTimePlayed = false
-            local guid = GetCurrentCharacterGUID()
-            if guid and totalTimePlayed and SfuiDB.alts and SfuiDB.alts[guid] then
-                SfuiDB.alts[guid].totalTimePlayed = totalTimePlayed
-            end
-            return  -- do NOT trigger a full re-sync for this event
-        end
 
         if event == "CHALLENGE_MODE_COMPLETED" then
             -- Force the server to sync Vault and M+ run structures immediately

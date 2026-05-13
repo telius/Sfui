@@ -11,7 +11,7 @@ sfui_config.location   = sfui_config.location or {
 }
 
 -- -------------------------------------------------------
--- Module state – intentionally minimal, no heap churn
+-- Module state
 -- -------------------------------------------------------
 local pendingDungeon   = nil
 local pendingLeader    = nil
@@ -32,8 +32,8 @@ end
 
 local cyan    = sfui_config.colors.cyan
 local purple  = sfui_config.colors.purple
-local cc      = string.format("|cff%02x%02x%02xff", cyan[1] * 255, cyan[2] * 255, cyan[3] * 255)
-local pc      = string.format("|cff%02x%02x%02xff", purple[1] * 255, purple[2] * 255, purple[3] * 255)
+local cc      = string.format("|cff%02x%02x%02x", cyan[1] * 255, cyan[2] * 255, cyan[3] * 255)
+local pc      = string.format("|cff%02x%02x%02x", purple[1] * 255, purple[2] * 255, purple[3] * 255)
 local reset_c = "|r"
 
 -- -------------------------------------------------------
@@ -46,8 +46,8 @@ function sfui.location.on_roster_update()
         end
 
         sfui_common.print(
-            pc .. "★ GROUP FILLED" .. reset_c
-            .. " → " .. cc .. (pendingDungeon or "unknown dungeon") .. reset_c
+            pc .. "{rt3} GROUP FILLED" .. reset_c
+            .. " -> " .. cc .. (pendingDungeon or "unknown dungeon") .. reset_c
             .. " | leader: " .. tostring(pendingLeader)
         )
 
@@ -77,7 +77,7 @@ local function on_application_status(event, searchResultID, newStatus)
     if newStatus == "invited" then
         sfui_common.print(
             pc .. "Keystone invite received" .. reset_c
-            .. " → " .. cc .. pendingDgn .. reset_c
+            .. " -> " .. cc .. pendingDgn .. reset_c
             .. " | leader: " .. tostring(leader)
         )
         return
@@ -90,9 +90,9 @@ local function on_application_status(event, searchResultID, newStatus)
     if sfui_config.location.printOnInvite then
         sfui_common.print(
             pc .. "Keystone accepted" .. reset_c
-            .. " → " .. cc .. pendingDungeon .. reset_c
+            .. " -> " .. cc .. pendingDungeon .. reset_c
             .. " | leader: " .. tostring(pendingLeader)
-            .. " (waiting for group to fill…)"
+            .. " (waiting for group to fill...)"
         )
     end
 
