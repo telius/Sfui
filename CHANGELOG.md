@@ -1,3 +1,8 @@
+## v0.7.2c (2026-05-13)
+
+### Bug Fixes
+- **Location Reminder**: Fixed an issue where the trailing "ff" in color formatting codes caused literal "ff" characters to display in chat. Additionally, replaced unsupported Unicode symbols (★ and →) with standard text and WoW chat icons to prevent unprintable square boxes.
+
 ## v0.7.2b (2026-05-12)
 
 ### Bug Fixes
