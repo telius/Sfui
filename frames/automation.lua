@@ -62,7 +62,7 @@ local function auto_sell_greys()
     if not SfuiDB.autoSellGreys then return end
 
     local totalPrice = 0
-    for bag = 0, 4 do
+    for bag = 0, 5 do
         for slot = 1, C_Container.GetContainerNumSlots(bag) do
             local info = C_Container.GetContainerItemInfo(bag, slot)
             if info and info.hyperlink and info.quality == 0 then
@@ -503,7 +503,7 @@ sfui.events.RegisterEvent("MERCHANT_SHOW", function()
     auto_repair()
     update_hammer_popup()
 end)
-sfui.events.RegisterEvent("MERCHANT_CLOSED", function() end)
+
 
 local function on_hammer_cast_finished(unit, _, spellID)
     if unit == "player" and (spellID == 382404 or spellID == 382403) then
@@ -553,9 +553,8 @@ end)
 local function auto_slot_keystone()
     local ReagentClass, KeystoneClass = Enum.ItemClass.Reagent, Enum.ItemReagentSubclass.Keystone
     local GetContainerItemID, GetContainerNumSlots, GetItemInfo = C_Container.GetContainerItemID, C_Container.GetContainerNumSlots, C_Item.GetItemInfo
-    local NUM_BAG_FRAMES = NUM_BAG_FRAMES or 4
 
-    for bag = 0, NUM_BAG_FRAMES do
+    for bag = 0, 5 do
         for slot = 1, GetContainerNumSlots(bag) do
             local ID = GetContainerItemID(bag, slot)
             if ID then

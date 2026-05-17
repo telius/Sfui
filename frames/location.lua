@@ -113,8 +113,49 @@ local function on_party_leave()
     reset_state()
 end
 
+local function on_active_entry_update()
+    if not is_enabled() then return end
+
+    local hasActive = C_LFGList.HasActiveEntryInfo()
+    if not hasActive then
+        -- If entry is delisted before group is full, cancel the reminder
+        if watchingRoster and pendingLeader == UnitName("player") and GetNumGroupMembers() < 5 then
+            reset_state()
+        end
+        return
+    end
+
+    local entryInfo = C_LFGList.GetActiveEntryInfo()
+    if not entryInfo then return end
+
+    local activityInfo = C_LFGList.GetActivityInfoTable(entryInfo.activityID)
+    if not activityInfo or activityInfo.categoryID ~= 2 then return end
+
+    local dungeonName = activityInfo.fullName or "?"
+    local keyLevel    = entryInfo.name or ""
+    local leader      = UnitName("player")
+    local pendingDgn  = dungeonName .. " " .. tostring(keyLevel)
+
+    pendingDungeon = pendingDgn
+    pendingLeader  = leader
+
+    if not watchingRoster then
+        sfui_events.RegisterEvent("GROUP_ROSTER_UPDATE", sfui.location.on_roster_update)
+        watchingRoster = true
+        
+        if sfui_config.location.printOnInvite then
+            sfui_common.print(
+                pc .. "Keystone group listed" .. reset_c
+                .. " -> " .. cc .. pendingDungeon .. reset_c
+                .. " (waiting for group to fill...)"
+            )
+        end
+    end
+end
+
 -- -------------------------------------------------------
 -- Event wiring via sfui.events (shared multiplexer)
 -- -------------------------------------------------------
 sfui_events.RegisterEvent("LFG_LIST_APPLICATION_STATUS_UPDATED", on_application_status)
+sfui_events.RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATE", on_active_entry_update)
 sfui_events.RegisterEvent("GROUP_LEFT", on_party_leave)

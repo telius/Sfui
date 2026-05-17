@@ -28,15 +28,6 @@ local GetItemInfoInstant = _G.GetItemInfoInstant
 local IsShiftKeyDown = _G.IsShiftKeyDown
 
 
-local event_frame = CreateFrame("Frame")
-event_frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-event_frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-event_frame:RegisterEvent("PLAYER_FLAGS_CHANGED")
-event_frame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-event_frame:RegisterEvent("SPEC_INVOLUNTARILY_CHANGED") -- 12.0.5+: system-forced spec changes
-event_frame:RegisterEvent("BAG_UPDATE_DELAYED")
-event_frame:RegisterEvent("EQUIPMENT_SETS_CHANGED") -- P5: invalidate set options cache
-event_frame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED") -- 12.0.5+: immediate gear slot cache bust
 
 local gearEquipQueue = nil
 -- P1: debounce BAG_UPDATE_DELAYED so rapid bag changes don't fire full scans repeatedly
@@ -95,17 +86,21 @@ local function isGearSetEquipped()
     return isEquipped == true
 end
 
--- Per-character settings helper.
--- Returns (and auto-creates) SfuiDB.gear_char["Name-Realm"] for the logged-in character.
-local charDBCache = nil
-local function charDB()
-    if charDBCache then return charDBCache end
+-- Unified auto-equip enable check.
+-- Reads from the global SfuiDB.gear.auto_equip_highest toggle (set by both
+-- the gear manager "Enable" checkbox and the options panel checkbox).
+-- Defaults to true when nil (first-time users get auto-equip enabled).
+local function isAutoEquipEnabled()
+    if not SfuiDB or not SfuiDB.gear then return false end
+    local v = SfuiDB.gear.auto_equip_highest
+    if v == nil then return true end -- default: enabled
+    return v
+end
+
+local function setAutoEquipEnabled(val)
     SfuiDB = SfuiDB or {}
-    SfuiDB.gear_char = SfuiDB.gear_char or {}
-    local key = (_G.UnitName and _G.UnitName("player") or "?") .. "-" .. (_G.GetRealmName and _G.GetRealmName() or "?")
-    SfuiDB.gear_char[key] = SfuiDB.gear_char[key] or {}
-    charDBCache = SfuiDB.gear_char[key]
-    return charDBCache
+    SfuiDB.gear = SfuiDB.gear or {}
+    SfuiDB.gear.auto_equip_highest = val
 end
 
 local function TryEquipSet(setName)
@@ -115,8 +110,11 @@ local function TryEquipSet(setName)
         local name, icon, _, isEquipped = C_EquipmentSet.GetEquipmentSetInfo(setID)
         if isEquipped then return false end
         if InCombatLockdown() then
+            if not gearEquipQueue then
+                -- We only register this transiently when an equip is queued
+                sfui.events.RegisterEvent("PLAYER_REGEN_ENABLED", sfui.gear.handle_player_regen)
+            end
             gearEquipQueue = setID
-            event_frame:RegisterEvent("PLAYER_REGEN_ENABLED")
             return false
         end
         if UnitCastingInfo("player") or UnitChannelInfo("player") then
@@ -174,7 +172,7 @@ function sfui.gear.UpdateStatUI()
     if not SfuiGearManagerFrame or not SfuiGearManagerFrame:IsShown() then return end
 
     if SfuiGearManagerFrame.maxLvlChk then
-        SfuiGearManagerFrame.maxLvlChk:SetChecked(charDB().autoequip_enabled or false)
+        SfuiGearManagerFrame.maxLvlChk:SetChecked(isAutoEquipEnabled())
     end
 
     -- Status label: shows what gear mode is currently active
@@ -417,7 +415,7 @@ function sfui.gear.Update()
     if sfui.highest and sfui.highest.EquipHighestILvl
         and not InCombatLockdown()
         and not UnitIsDeadOrGhost("player") then
-        local shouldEquip = charDB().autoequip_enabled
+        local shouldEquip = isAutoEquipEnabled()
         if shouldEquip then
             sfui.highest.EquipHighestILvl(isPvP, true)
         end
@@ -428,121 +426,114 @@ end
 local equipSetOptionsCache = nil
 
 -- -------------------------------------------------------------------------
--- EVENT HANDLER
+-- EVENT HANDLERS
 -- -------------------------------------------------------------------------
-event_frame:SetScript("OnEvent", function(self, event, arg1, unit)
-    -- P5: invalidate set options cache when sets change
-    if event == "EQUIPMENT_SETS_CHANGED" then
-        equipSetOptionsCache = nil
-        return
-    end
+sfui.events.RegisterEvent("EQUIPMENT_SETS_CHANGED", function()
+    equipSetOptionsCache = nil
+end)
 
-    -- 12.0.5+: a gear slot changed — immediately invalidate the isGearSetEquipped cache
-    -- so the next auto-equip check sees the real state rather than stale data.
-    -- This closes the spec-swap gear lag (e.g. switching from Frost DK to Unholy while
-    -- 2H weapons are equipped: the cache now resets the moment slot 16/17 change).
-    if event == "PLAYER_EQUIPMENT_CHANGED" then
-        equipSetOptionsCache = nil
-        return
-    end
+sfui.events.RegisterEvent("PLAYER_EQUIPMENT_CHANGED", function()
+    equipSetOptionsCache = nil
+end)
 
-    if event == "PLAYER_REGEN_ENABLED" then
-        if gearEquipQueue then
-            if not UnitCastingInfo("player") and not UnitChannelInfo("player") and not UnitIsDeadOrGhost("player") then
-                local name = C_EquipmentSet.GetEquipmentSetInfo(gearEquipQueue)
-                C_EquipmentSet.UseEquipmentSet(gearEquipQueue)
-                if name and common and common.print then
-                    common.print("Equipped queued set: " .. name)
-                end
-                gearEquipQueue = nil
-                regenRetries = 0
-                event_frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
-            elseif regenRetries < 5 then
-                -- Still casting post-combat: retry up to 5 times (10 s total) then give up
-                regenRetries = regenRetries + 1
-                C_Timer.After(2, function()
-                    if gearEquipQueue and not InCombatLockdown() then
-                        event_frame:GetScript("OnEvent")(event_frame, "PLAYER_REGEN_ENABLED")
-                    end
-                end)
-            else
-                -- Give up: discard the queued set equip
-                gearEquipQueue = nil
-                regenRetries = 0
-                event_frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+function sfui.gear.handle_player_regen()
+    if gearEquipQueue then
+        if not UnitCastingInfo("player") and not UnitChannelInfo("player") and not UnitIsDeadOrGhost("player") then
+            local name = C_EquipmentSet.GetEquipmentSetInfo(gearEquipQueue)
+            C_EquipmentSet.UseEquipmentSet(gearEquipQueue)
+            if name and common and common.print then
+                common.print("Equipped queued set: " .. name)
             end
-        end
-        return
-    end
-
-    if event == "BAG_UPDATE_DELAYED" then
-        -- [BAG_UPDATE_DELAYED Throttle Lock]
-        -- Why lock for 2 seconds?
-        -- This event fires violently rapidly when moving items, looting multiple items, or sorting bags.
-        -- We lock (debounce) the auto-equip queue here for precisely 2 seconds so the inventory
-        -- state can fully settle. This strictly prevents the CPU from re-scanning all 144 bag slots
-        -- repeatedly every micro-second, and stops the UI from aggressively swapping gear while
-        -- you are actively trying to organize your inventory.
-        if not bagUpdatePending then
-            bagUpdatePending = true
+            gearEquipQueue = nil
+            regenRetries = 0
+            sfui.events.UnregisterEvent("PLAYER_REGEN_ENABLED", sfui.gear.handle_player_regen)
+        elseif regenRetries < 5 then
+            -- Still casting post-combat: retry up to 5 times (10 s total) then give up
+            regenRetries = regenRetries + 1
             C_Timer.After(2, function()
-                bagUpdatePending = false
-                -- Fix 1: respect manual-edit pause (CharacterFrame open / explicit pause)
-                if autoEquipPaused() then return end
-                -- Fix 2: if a gear set is configured AND equipped, don't override it
-                if isGearSetEquipped() then return end
-                
-                local shouldEquip = charDB().autoequip_enabled
-                if shouldEquip and sfui.highest and sfui.highest.EquipHighestILvl
-                    and not InCombatLockdown()
-                    and not UnitCastingInfo("player")
-                    and not UnitChannelInfo("player")
-                    and not UnitIsDeadOrGhost("player") then
-                    local isPvP = false
-                    local _, instanceType = GetInstanceInfo()
-                    if instanceType == "pvp" or instanceType == "arena" or (instanceType == "none" and C_PvP.IsWarModeDesired()) then
-                        isPvP = true
-                    end
-                    sfui.highest.EquipHighestILvl(isPvP, true)
+                if gearEquipQueue and not InCombatLockdown() then
+                    sfui.gear.handle_player_regen()
                 end
-                -- UpdateStatUI shifted securely into the debounce block
-                if sfui.gear.UpdateStatUI then sfui.gear.UpdateStatUI() end
             end)
+        else
+            -- Give up: discard the queued set equip
+            gearEquipQueue = nil
+            regenRetries = 0
+            sfui.events.UnregisterEvent("PLAYER_REGEN_ENABLED", sfui.gear.handle_player_regen)
         end
-        return
     end
+end
 
-    if event == "PLAYER_FLAGS_CHANGED" and arg1 ~= "player" then return end
-
-    if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "SPEC_INVOLUNTARILY_CHANGED" then
-        if arg1 ~= "player" and event == "PLAYER_SPECIALIZATION_CHANGED" then return end
-        
-        -- Force clear manual edit pause so gear updates immediately even if CharacterFrame was open
-        manualEditUntil = 0
-        
-        C_Timer.After(0.1, function() sfui.gear.Update() end)
-        if SfuiGearManagerFrame and SfuiGearManagerFrame.SelectSpecTab then
-            local specIdx = GetSpecialization()
-            local specId = specIdx and GetSpecializationInfo(specIdx)
-            if specId then SfuiGearManagerFrame:SelectSpecTab(specId) end
-        end
-        return
+sfui.events.RegisterEvent("BAG_UPDATE_DELAYED", function()
+    -- [BAG_UPDATE_DELAYED Throttle Lock]
+    -- Why lock for 2 seconds?
+    -- This event fires violently rapidly when moving items, looting multiple items, or sorting bags.
+    -- We lock (debounce) the auto-equip queue here for precisely 2 seconds so the inventory
+    -- state can fully settle. This strictly prevents the CPU from re-scanning all 144 bag slots
+    -- repeatedly every micro-second, and stops the UI from aggressively swapping gear while
+    -- you are actively trying to organize your inventory.
+    if not bagUpdatePending then
+        bagUpdatePending = true
+        C_Timer.After(2, function()
+            bagUpdatePending = false
+            -- Fix 1: respect manual-edit pause (CharacterFrame open / explicit pause)
+            if autoEquipPaused() then return end
+            -- Fix 2: if a gear set is configured AND equipped, don't override it
+            if isGearSetEquipped() then return end
+            
+            local shouldEquip = isAutoEquipEnabled()
+            if shouldEquip and sfui.highest and sfui.highest.EquipHighestILvl
+                and not InCombatLockdown()
+                and not UnitCastingInfo("player")
+                and not UnitChannelInfo("player")
+                and not UnitIsDeadOrGhost("player") then
+                local isPvP = false
+                local _, instanceType = GetInstanceInfo()
+                if instanceType == "pvp" or instanceType == "arena" or (instanceType == "none" and C_PvP.IsWarModeDesired()) then
+                    isPvP = true
+                end
+                sfui.highest.EquipHighestILvl(isPvP, true)
+            end
+            -- UpdateStatUI shifted securely into the debounce block
+            if sfui.gear.UpdateStatUI then sfui.gear.UpdateStatUI() end
+        end)
     end
+end)
 
-    if event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
-        if not zoneUpdateQueue then
-            zoneUpdateQueue = true
-            C_Timer.After(0.5, function() 
-                zoneUpdateQueue = false
-                sfui.gear.Update() 
-            end)
-        end
-        return
-    end
-
+sfui.events.RegisterEvent("PLAYER_FLAGS_CHANGED", function(event, unit)
+    if unit ~= "player" then return end
     local delay = (cfg and cfg.gear and cfg.gear.updateDelay) or 3
     C_Timer.After(delay, function() sfui.gear.Update() end)
 end)
+
+local function handle_spec_change(event, unit)
+    if event == "PLAYER_SPECIALIZATION_CHANGED" and unit ~= "player" then return end
+    
+    -- Force clear manual edit pause so gear updates immediately even if CharacterFrame was open
+    manualEditUntil = 0
+    
+    C_Timer.After(0.1, function() sfui.gear.Update() end)
+    if SfuiGearManagerFrame and SfuiGearManagerFrame.SelectSpecTab then
+        local specIdx = GetSpecialization()
+        local specId = specIdx and GetSpecializationInfo(specIdx)
+        if specId then SfuiGearManagerFrame:SelectSpecTab(specId) end
+    end
+end
+sfui.events.RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", handle_spec_change)
+sfui.events.RegisterEvent("SPEC_INVOLUNTARILY_CHANGED", handle_spec_change)
+
+local function handle_zone_change()
+    if not zoneUpdateQueue then
+        zoneUpdateQueue = true
+        C_Timer.After(0.5, function() 
+            zoneUpdateQueue = false
+            sfui.gear.Update() 
+        end)
+    end
+end
+sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", handle_zone_change)
+sfui.events.RegisterEvent("ZONE_CHANGED_NEW_AREA", handle_zone_change)
+
 -- B2: ADDON_LOADED registration removed (InitToggleHook called at login via PLAYER_LOGIN)
 
 -- -------------------------------------------------------------------------
@@ -682,9 +673,9 @@ gearFrame.statusLabel:SetShadowOffset(0, 0)
 gearFrame.statusLabel:SetText("")
 
 gearFrame.maxLvlChk = common.create_checkbox(gearFrame, "Enable",
-    function() return charDB().autoequip_enabled end,
+    function() return isAutoEquipEnabled() end,
     function(c)
-        charDB().autoequip_enabled = c
+        setAutoEquipEnabled(c)
         if c then sfui.gear.Update() end
     end)
 gearFrame.maxLvlChk:SetPoint("TOPLEFT", gearFrame, "TOPLEFT", 360, -9)
@@ -1339,9 +1330,7 @@ local function InitPaperDollTrinketHook()
     if t1 then t1:HookScript("OnClick", onTrinketClick) end
 end
 
-local f = CreateFrame("Frame")
-f:RegisterEvent("PLAYER_LOGIN")
-f:SetScript("OnEvent", function()
+sfui.events.RegisterEvent("PLAYER_LOGIN", function()
     -- Global single-pass legacy DB migration
     if SfuiDB and SfuiDB.gear then
         for specID, db in pairs(SfuiDB.gear) do
@@ -1353,6 +1342,18 @@ f:SetScript("OnEvent", function()
                     db.locked_items_pvp[k] = true
                 end
                 db.locked_items = nil
+            end
+        end
+    end
+    -- Migrate legacy per-character autoequip_enabled → unified SfuiDB.gear.auto_equip_highest
+    if SfuiDB and SfuiDB.gear_char and SfuiDB.gear then
+        if SfuiDB.gear.auto_equip_highest == nil then
+            -- Check if ANY character had autoequip_enabled = true; if so, carry it over
+            for _, charData in pairs(SfuiDB.gear_char) do
+                if charData.autoequip_enabled then
+                    SfuiDB.gear.auto_equip_highest = true
+                    break
+                end
             end
         end
     end

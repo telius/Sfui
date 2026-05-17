@@ -17,7 +17,6 @@ local GetSpecializationInfo = _G.GetSpecializationInfo
 local GetInventoryItemLink = _G.GetInventoryItemLink
 local C_Container = _G.C_Container
 local EquipItemByName = _G.EquipItemByName
-local NUM_BAG_SLOTS = tonumber(_G.NUM_BAG_SLOTS) or 4
 local tonumber = _G.tonumber
 local UnitLevel = _G.UnitLevel
 local pairs = _G.pairs
@@ -494,7 +493,7 @@ function sfui.highest.GetBestItems(isPvP)
     end
 
     -- 2. Scan bags
-    for bag = 0, NUM_BAG_SLOTS do
+    for bag = 0, 5 do
         for slot = 1, C_Container.GetContainerNumSlots(bag) do
             local link = C_Container.GetContainerItemLink(bag, slot)
             if link then evaluate(link, false, nil, bag, slot) end

@@ -652,8 +652,9 @@ function WQS:SetupMapHooks()
 
     -- Map Highlight Frame (Red Ring)
     if not self.MapHighlight then
-        local canvas = WorldMapFrame:GetCanvas() or WorldMapFrame.ScrollContainer.Child or WorldMapFrame
-        local hl = CreateFrame("Frame", "SfuiWQSMapHighlight", canvas)
+        -- Parent to WorldMapFrame (non-secure) instead of the canvas to avoid
+        -- tainting the canvas's protected child hierarchy (SetPassThroughButtons).
+        local hl = CreateFrame("Frame", "SfuiWQSMapHighlight", WorldMapFrame)
         hl:SetSize(128, 128)
         hl:SetFrameStrata("TOOLTIP")
         hl:Hide()
@@ -799,16 +800,15 @@ function WQS:CreateRow()
             end
             GameTooltip:Show()
 
-            -- Map Highlight
+            -- Map Highlight — anchor to canvas position without reparenting
             if WorldMapFrame and sfui.wqs.MapHighlight and s.posX and s.posY and WorldMapFrame:GetMapID() == s.mapID then
                 local canvas = WorldMapFrame:GetCanvas() or WorldMapFrame.ScrollContainer.Child
                 if canvas then
                     local mapWidth = canvas:GetWidth()
                     local mapHeight = canvas:GetHeight()
                     if mapWidth > 0 and mapHeight > 0 then
-                        sfui.wqs.MapHighlight:SetParent(canvas)
                         sfui.wqs.MapHighlight:ClearAllPoints()
-                        -- Explicitly anchor to TopLeft of canvas using physical pixel distances derived from percentage
+                        -- Anchor relative to canvas without becoming its child
                         sfui.wqs.MapHighlight:SetPoint("CENTER", canvas, "TOPLEFT", s.posX * mapWidth, -s.posY * mapHeight)
                         sfui.wqs.MapHighlight:Show()
                     end

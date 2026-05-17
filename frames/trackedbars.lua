@@ -254,6 +254,7 @@ local function CreateBar(cooldownID)
     bar:EnableMouse(true)
     bar:RegisterForDrag("LeftButton")
     bar:SetScript("OnDragStart", function(self)
+        if InCombatLockdown() then return end
         if self.spellID then
             if C_Spell and C_Spell.PickupSpell then
                 C_Spell.PickupSpell(self.spellID)

@@ -872,6 +872,13 @@ function sfui.create_options_panel()
         auto_equip_highest_cb:SetChecked(isAutoEquip)
         auto_equip_highest_cb:SetScript("OnClick", function(self)
             SfuiDB.gear.auto_equip_highest = self:GetChecked()
+            -- Sync gear manager frame checkbox if visible
+            if SfuiGearManagerFrame and SfuiGearManagerFrame.maxLvlChk then
+                SfuiGearManagerFrame.maxLvlChk:SetChecked(self:GetChecked())
+            end
+            if self:GetChecked() and sfui.gear and sfui.gear.Update then
+                sfui.gear.Update()
+            end
         end)
 
         local pveHeader = self:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")

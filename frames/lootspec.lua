@@ -13,6 +13,7 @@ local GetSpecializationInfoByID = GetSpecializationInfoByID
 local GetLootSpecialization     = GetLootSpecialization
 local SetLootSpecialization     = SetLootSpecialization
 local UnitClass                 = UnitClass
+local UnitGUID                  = UnitGUID
 local _, ENGLISH_CLASS          = UnitClass("player")
 local C_ChallengeMode           = C_ChallengeMode
 local table                     = table
@@ -33,7 +34,8 @@ local MIN_FRAME_H               = 160
 local MAX_FRAME_H               = 860
 -- Pre-computed name column width (constant since all terms are constants).
 -- width passed to builders is always FRAME_W-10.
-local NAME_COL_W = (FRAME_W - 10) - COL_W - PAD * 3 - ICON_SIZE
+local WARN_BTN_W = 22 -- 20px diamond button + 2px gap
+local NAME_COL_W = (FRAME_W - 10) - COL_W - PAD * 3 - ICON_SIZE - WARN_BTN_W
 
 -- ─── DB helpers ───────────────────────────────────────────────────────────────
 local dbCache                   = nil
@@ -226,7 +228,19 @@ sfui.events.RegisterEvent("ENCOUNTER_START", function(_, encounterID)
     end
 end)
 
-sfui.events.RegisterEvent("ENCOUNTER_END", function()
+sfui.events.RegisterEvent("ENCOUNTER_END", function(_, encounterID, _, _, _, success)
+    if success == 0 then return end -- wipe, don't warn
+    local db = DB()
+    local entry = db.bosses[encounterID]
+    if type(entry) == "table" and entry.warn then
+        local bossName
+        if EJ_GetEncounterInfo then
+            bossName = EJ_GetEncounterInfo(encounterID)
+        end
+        bossName = bossName or ("Boss " .. encounterID)
+        sfui.common.print(string.format(
+            "|cffcc44ff◆ Bonus Roll Reminder:|r %s — use your bonus roll item!", bossName))
+    end
 end)
 
 
@@ -551,6 +565,84 @@ local function AcquireRow(parent)
         -- loot spec picker (anchored right, single column)
         r.specBtn = MakeSpecButton(-PAD)
 
+        -- ── Warn/diamond button (bonus roll reminder toggle) ───────────────
+        local w = CreateFrame("Button", nil, r)
+        w:SetSize(20, ROW_H - 4)
+        w:SetPoint("RIGHT", r.specBtn, "LEFT", -2, 0)
+
+        w.icon = w:CreateTexture(nil, "ARTWORK")
+        w.icon:SetSize(14, 14)
+        w.icon:SetPoint("CENTER")
+        w.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_3")
+
+        local function IsWarned(btn)
+            if not btn.keyID then return false end
+            if btn.mode == "boss" then
+                local entry = DB().bosses[btn.keyID]
+                return type(entry) == "table" and entry.warn
+            elseif btn.mode == "dungeon" then
+                local guid = UnitGUID("player")
+                local altData = guid and SfuiDB.alts and SfuiDB.alts[guid]
+                return altData and altData.voidcoreTargets
+                    and altData.voidcoreTargets[btn.keyID]
+            end
+            return false
+        end
+
+        w.Refresh = function(self)
+            if not self.keyID then
+                self.icon:SetAlpha(0)
+                return
+            end
+            if IsWarned(self) then
+                self.icon:SetVertexColor(0.8, 0.4, 1.0, 1)
+                self.icon:SetAlpha(1.0)
+            else
+                self.icon:SetVertexColor(0.3, 0.3, 0.3, 1)
+                self.icon:SetAlpha(0.25)
+            end
+        end
+
+        w:SetScript("OnClick", function(self)
+            if not self.keyID then return end
+            if self.mode == "boss" then
+                local db = DB()
+                local entry = db.bosses[self.keyID]
+                if type(entry) ~= "table" then
+                    entry = { spec = (type(entry) == "number" and entry or 0) }
+                    db.bosses[self.keyID] = entry
+                end
+                entry.warn = not entry.warn
+            elseif self.mode == "dungeon" then
+                local guid = UnitGUID("player")
+                if not guid then return end
+                SfuiDB.alts = SfuiDB.alts or {}
+                SfuiDB.alts[guid] = SfuiDB.alts[guid] or {}
+                SfuiDB.alts[guid].voidcoreTargets = SfuiDB.alts[guid].voidcoreTargets or {}
+                local targets = SfuiDB.alts[guid].voidcoreTargets
+                targets[self.keyID] = not targets[self.keyID]
+                -- Sync alts panel if visible
+                if sfui.alts and sfui.alts.UpdateUI then sfui.alts.UpdateUI() end
+            end
+            self:Refresh()
+        end)
+
+        w:SetScript("OnEnter", function(self)
+            if not self.keyID then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            if IsWarned(self) then
+                GameTooltip:SetText("bonus roll reminder |cff00ff00enabled|r")
+                GameTooltip:AddLine("|cffaaaaaaleft-click|r to disable", 1, 1, 1)
+            else
+                GameTooltip:SetText("bonus roll reminder |cffff0000disabled|r")
+                GameTooltip:AddLine("|cffaaaaaaleft-click|r to enable", 1, 1, 1)
+            end
+            GameTooltip:Show()
+        end)
+        w:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+        r.warnBtn = w
+
         rowPool[rowCount] = r
     end
     r:SetParent(parent)
@@ -572,6 +664,11 @@ local function ReleaseRows()
                 r.specBtn.keyID      = nil
                 r.specBtn.field      = nil
                 r.specBtn.storageKey = nil
+            end
+            if r.warnBtn then
+                r.warnBtn:Hide()
+                r.warnBtn.keyID = nil
+                r.warnBtn.mode  = nil
             end
         end
     end
@@ -666,6 +763,8 @@ local function BuildRaidContent(content, width)
     wbRow.specBtn:Refresh()
     wbRow.specBtn:Show()
 
+    wbRow.warnBtn:Hide() -- no warning for world bosses
+
     y = y - ROW_H - 16 -- Extra padding before the first raid section
 
     for _, raid in ipairs(raids) do
@@ -702,6 +801,11 @@ local function BuildRaidContent(content, width)
             row.specBtn.keyID  = encID
             row.specBtn:Refresh()
             row.specBtn:Show()
+
+            row.warnBtn.mode  = "boss"
+            row.warnBtn.keyID = encID
+            row.warnBtn:Refresh()
+            row.warnBtn:Show()
 
             y = y - ROW_H
         end
@@ -760,6 +864,8 @@ local function BuildDungeonContent(content, width)
     delveRow.specBtn:Refresh()
     delveRow.specBtn:Show()
 
+    delveRow.warnBtn:Hide() -- no warning for delves
+
     y = y - ROW_H - 16
 
     for i, dung in ipairs(dungeons) do
@@ -782,6 +888,11 @@ local function BuildDungeonContent(content, width)
         row.specBtn.keyID      = mapID
         row.specBtn:Refresh()
         row.specBtn:Show()
+
+        row.warnBtn.mode  = "dungeon"
+        row.warnBtn.keyID = mapID
+        row.warnBtn:Refresh()
+        row.warnBtn:Show()
 
         y = y - ROW_H
     end
