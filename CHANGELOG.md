@@ -1,3 +1,13 @@
+## v0.7.3 (2026-05-17)
+
+### Features
+- **Location Reminder**: Added support for monitoring groups you create yourself in the LFD tool. The addon now seamlessly registers and watches your roster when you list a Mythic+ keystone group, triggering the same "GROUP FILLED" reminder.
+
+### Optimizations
+- **Event Multiplexer**: Modernized `gear.lua` to fully utilize the shared `sfui.events` multiplexer, removing monolithic event frames and improving modularity and performance.
+- **Bag Scanning**: Standardized bag iteration limits in `automation.lua` and `highest.lua` to scan up to index 5 (inclusive of the Reagent Bag) across the board, ensuring no valid gear or items are missed.
+- **Automation**: Pruned a dead-code `MERCHANT_CLOSED` event listener.
+
 ## v0.7.2c (2026-05-13)
 
 ### Bug Fixes
