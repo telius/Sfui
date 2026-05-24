@@ -49,7 +49,7 @@ sfui.gear.pauseAutoEquip = function(sec)
 end
 
 local function autoEquipPaused()
-    return GetTime() < manualEditUntil
+    return GetTime() < manualEditUntil or (CharacterFrame and CharacterFrame:IsShown() == true)
 end
 
 local function isCurrentlyPvP()
@@ -165,6 +165,108 @@ local PVE_COLOR  = { 0.45, 0.65, 1.0 }  -- blue
 local PVP_COLOR  = { 1.0,  0.4,  0.4 }  -- red
 local BOTH_COLOR = { 0.72, 0.52, 1.0 }  -- purple
 
+local claimedItemIDs = {}
+local columnOccupied = {}
+local pawnOrderScratch = {}
+local curOrderScratch = {}
+
+local function updateIconRow(icons, lockTbl, forPvP)
+    if not icons then return end
+
+    -- Initialize all icons to hidden and nil
+    for _, ico in ipairs(icons) do
+        ico.tex:SetTexture(nil)
+        ico.itemID = nil
+        ico:Hide()
+    end
+
+    if not lockTbl then return end
+
+    local slotOrder = { 13, 14, 11, 12, 2, 16, 17 }
+    _G.wipe(claimedItemIDs)
+    _G.wipe(columnOccupied)
+
+    -- Step 1: Populate currently equipped locked items in their respective columns
+    for colIdx, slotID in ipairs(slotOrder) do
+        local link = GetInventoryItemLink("player", slotID)
+        if link then
+            local itemID = GetItemInfoInstant(link)
+            if itemID and lockTbl[itemID] then
+                local ico = icons[colIdx]
+                if ico then
+                    local nativeIcon = select(5, GetItemInfoInstant(link))
+                    local tex = nativeIcon or
+                        ((_G.C_Item and _G.C_Item.GetItemIconByID) and _G.C_Item.GetItemIconByID(itemID)) or
+                        _G.GetItemIcon(itemID)
+                    ico.tex:SetTexture(tex)
+                    ico.itemID = itemID
+                    ico:Show()
+
+                    claimedItemIDs[itemID] = true
+                    columnOccupied[colIdx] = true
+                end
+            end
+        end
+    end
+
+    -- Step 2: Populate remaining locked items (in bags) to empty columns of the same category
+    local function getSlotCategory(slotID)
+        if slotID == 13 or slotID == 14 then return "TRINKET"
+        elseif slotID == 11 or slotID == 12 then return "FINGER"
+        elseif slotID == 2 then return "NECK"
+        elseif slotID == 16 then return "MAINHAND"
+        elseif slotID == 17 then return "OFFHAND"
+        end
+        return "UNKNOWN"
+    end
+
+    local function matchesSlotCategory(equipLoc, category)
+        if category == "TRINKET" then
+            return equipLoc == "INVTYPE_TRINKET"
+        elseif category == "FINGER" then
+            return equipLoc == "INVTYPE_FINGER"
+        elseif category == "NECK" then
+            return equipLoc == "INVTYPE_NECK"
+        elseif category == "MAINHAND" then
+            return equipLoc == "INVTYPE_WEAPON" or equipLoc == "INVTYPE_WEAPONMAINHAND" 
+                or equipLoc == "INVTYPE_2HWEAPON" or equipLoc == "INVTYPE_RANGED" or equipLoc == "INVTYPE_RANGEDRIGHT"
+        elseif category == "OFFHAND" then
+            return equipLoc == "INVTYPE_WEAPON" or equipLoc == "INVTYPE_WEAPONOFFHAND" 
+                or equipLoc == "INVTYPE_SHIELD" or equipLoc == "INVTYPE_HOLDABLE"
+        end
+        return false
+    end
+
+    for lockedID in pairs(lockTbl) do
+        if not claimedItemIDs[lockedID] then
+            local _, _, _, equipLoc, nativeIcon = GetItemInfoInstant(lockedID)
+            if equipLoc then
+                -- Find an empty column that matches this category
+                for colIdx, slotID in ipairs(slotOrder) do
+                    if not columnOccupied[colIdx] then
+                        local category = getSlotCategory(slotID)
+                        if matchesSlotCategory(equipLoc, category) then
+                            local ico = icons[colIdx]
+                            if ico then
+                                local tex = nativeIcon or
+                                    ((_G.C_Item and _G.C_Item.GetItemIconByID) and _G.C_Item.GetItemIconByID(lockedID)) or
+                                    _G.GetItemIcon(lockedID)
+                                ico.tex:SetTexture(tex)
+                                ico.itemID = lockedID
+                                ico:Show()
+
+                                claimedItemIDs[lockedID] = true
+                                columnOccupied[colIdx] = true
+                                break -- move to next locked item
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
 -- -------------------------------------------------------------------------
 -- UPDATE STAT UI
 -- -------------------------------------------------------------------------
@@ -225,30 +327,9 @@ function sfui.gear.UpdateStatUI()
 
             if ui.pawnEdit then ui.pawnEdit:SetText(db.pawn_string or "") end
 
-            -- locked item icons (per slot, in lockSlots column order: T1,T2,R1,R2,A,W1,W2)
-            if ui.lockIcons then
-                local ctxPvP = isCurrentlyPvP()
-                local lockTbl = ctxPvP and db.locked_items_pvp or db.locked_items_pve
-                local slotOrder = { 13, 14, 11, 12, 2, 16, 17 }
-                for k, ico in ipairs(ui.lockIcons) do
-                    ico.tex:SetTexture(nil); ico.itemID = nil; ico:Hide()
-                    local slotID = slotOrder[k]
-                    if slotID then
-                        local link = GetInventoryItemLink("player", slotID)
-                        if link and lockTbl then
-                            local itemID, _, _, _, nativeIcon = GetItemInfoInstant(link)
-                            if itemID and lockTbl[itemID] then
-                                local tex = nativeIcon or
-                                ((_G.C_Item and _G.C_Item.GetItemIconByID) and _G.C_Item.GetItemIconByID(itemID)) or
-                                _G.GetItemIcon(itemID)
-                                ico.tex:SetTexture(tex)
-                                ico.itemID = itemID
-                                ico:Show()
-                            end
-                        end
-                    end
-                end
-            end
+            -- locked item icons: PvE (above) and PvP (underneath), persisting even when unequipped
+            updateIconRow(ui.pveLockIcons, db.locked_items_pve, false)
+            updateIconRow(ui.pvpLockIcons, db.locked_items_pvp, true)
 
             -- update lock button tint + text color based on PvE/PvP lock state
             if ui.lockBtns then
@@ -332,9 +413,9 @@ function sfui.gear.UpdateStatUI()
                     end
                     for i = n + 1, #pawnScratchList do pawnScratchList[i] = nil end
                     table.sort(pawnScratchList, pawnSortDesc)
-                    pawnOrder = {}
-                    for j = 1, math.min(4, n) do table.insert(pawnOrder, pawnScratchList[j].stat) end
-                    if #pawnOrder == 0 then pawnOrder = nil end
+                    _G.wipe(pawnOrderScratch)
+                    for j = 1, math.min(4, n) do table.insert(pawnOrderScratch, pawnScratchList[j].stat) end
+                    pawnOrder = #pawnOrderScratch > 0 and pawnOrderScratch or nil
                 end
 
                 local order  = pawnOrder or targetDB.stat_order or db.stat_order or
@@ -432,8 +513,59 @@ sfui.events.RegisterEvent("EQUIPMENT_SETS_CHANGED", function()
     equipSetOptionsCache = nil
 end)
 
+local lastEquippedItems = {}
+
+local function scanEquippedForChanges()
+    if not SfuiDB or not SfuiDB.gear then return end
+
+    local spec = common and common.get_current_spec_id and common.get_current_spec_id()
+    if not spec or spec == 0 then return end
+
+    local db = SfuiDB.gear[spec]
+    if not db then return end
+
+    local isPaused = autoEquipPaused()
+
+    for slotID = 1, 17 do
+        if slotID ~= 4 then
+            local link = GetInventoryItemLink("player", slotID)
+            local currentID = link and GetItemInfoInstant(link)
+            local lastID = lastEquippedItems[slotID]
+
+            if lastID and lastID ~= currentID then
+                -- Item in slotID has changed!
+                if isPaused then
+                    -- The player manually changed this item (auto-equip is paused)
+                    -- If the old item was locked, remove it from the lock tables!
+                    local removedAny = false
+                    if db.locked_items_pve and db.locked_items_pve[lastID] then
+                        db.locked_items_pve[lastID] = nil
+                        removedAny = true
+                    end
+                    if db.locked_items_pvp and db.locked_items_pvp[lastID] then
+                        db.locked_items_pvp[lastID] = nil
+                        removedAny = true
+                    end
+
+                    if removedAny then
+                        if common and common.print then
+                            local itemName = _G.GetItemInfo(lastID) or ("Item " .. lastID)
+                            common.print(string.format("Unlocked %s (manually unequipped).", itemName))
+                        end
+                        if sfui.gear.UpdateStatUI then
+                            sfui.gear.UpdateStatUI()
+                        end
+                    end
+                end
+            end
+            lastEquippedItems[slotID] = currentID
+        end
+    end
+end
+
 sfui.events.RegisterEvent("PLAYER_EQUIPMENT_CHANGED", function()
     equipSetOptionsCache = nil
+    scanEquippedForChanges()
 end)
 
 function sfui.gear.handle_player_regen()
@@ -509,6 +641,11 @@ end)
 local function handle_spec_change(event, unit)
     if event == "PLAYER_SPECIALIZATION_CHANGED" and unit ~= "player" then return end
     
+    -- Clear validity cache on specialization change
+    if sfui.highest and sfui.highest.ClearCache then
+        sfui.highest.ClearCache()
+    end
+    
     -- Force clear manual edit pause so gear updates immediately even if CharacterFrame was open
     manualEditUntil = 0
     
@@ -521,6 +658,11 @@ local function handle_spec_change(event, unit)
 end
 sfui.events.RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", handle_spec_change)
 sfui.events.RegisterEvent("SPEC_INVOLUNTARILY_CHANGED", handle_spec_change)
+sfui.events.RegisterEvent("PLAYER_TALENT_UPDATE", function()
+    if sfui.highest and sfui.highest.ClearCache then
+        sfui.highest.ClearCache()
+    end
+end)
 
 local function handle_zone_change()
     if not zoneUpdateQueue then
@@ -718,7 +860,7 @@ gearFrame:SetScript("OnShow", function(self)
     if numSpecs == 0 then numSpecs = 1 end
 
     local HEADER_H = 42
-    local CARD_H   = 120
+    local CARD_H   = 142
     self.expandedHeight = HEADER_H + CARD_H
     
     if SfuiDB and SfuiDB.gear_collapsed ~= nil then
@@ -752,20 +894,28 @@ gearFrame:SetScript("OnShow", function(self)
         if sfui.gear.UpdateStatUI then sfui.gear.UpdateStatUI() end
     end
 
-    -- icon helper: clicking (left OR right) unlocks the slot
-    local function createTrinketIcon(parent, specId)
+    -- icon helper: clicking unlocks the slot in the respective context
+    local function createLockIcon(parent, specId, forPvP)
         local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
         btn:SetSize(22, 22)
         local tex = btn:CreateTexture(nil, "ARTWORK")
         tex:SetAllPoints(); btn.tex = tex
-        btn:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8" })
-        btn:SetBackdropColor(0.1, 0.1, 0.1, 0.7)
+        btn:SetBackdrop({
+            bgFile = "Interface/Buttons/WHITE8X8",
+            edgeFile = "Interface/Buttons/WHITE8X8",
+            edgeSize = 1,
+        })
+        if forPvP then
+            btn:SetBackdropBorderColor(PVP_COLOR[1], PVP_COLOR[2], PVP_COLOR[3], 0.7)
+        else
+            btn:SetBackdropBorderColor(PVE_COLOR[1], PVE_COLOR[2], PVE_COLOR[3], 0.7)
+        end
+        btn:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
         btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         btn:SetScript("OnClick", function(b)
             if b.itemID and SfuiDB.gear[specId] then
                 local sdb = SfuiDB.gear[specId]
-                local ctxPvP = isCurrentlyPvP()
-                local key = ctxPvP and "locked_items_pvp" or "locked_items_pve"
+                local key = forPvP and "locked_items_pvp" or "locked_items_pve"
                 if sdb[key] then
                     sdb[key][b.itemID] = nil
                 end
@@ -776,8 +926,7 @@ gearFrame:SetScript("OnShow", function(self)
             if b.itemID then
                 GameTooltip:SetOwner(b, "ANCHOR_RIGHT")
                 GameTooltip:SetItemByID(b.itemID)
-                local ctx = isCurrentlyPvP() and "PvP" or "PvE"
-                GameTooltip:AddLine("Click to unlock (" .. ctx .. ")", 0.6, 0.6, 0.6)
+                GameTooltip:AddLine("Click to unlock (" .. (forPvP and "PvP" or "PvE") .. ")", 0.6, 0.6, 0.6)
                 GameTooltip:Show()
             end
         end)
@@ -979,16 +1128,23 @@ gearFrame:SetScript("OnShow", function(self)
         end
 
         ui.lockBtns        = {}
-        ui.lockIcons       = {}
+        ui.pveLockIcons    = {}
+        ui.pvpLockIcons    = {}
         local LOCK_LABEL_W = 38 -- approximate width of "Lock:" label
         for k, def in ipairs(lockSlots) do
             local colX = LOCK_START + LOCK_LABEL_W + (k - 1) * LOCK_COL_W
 
-            -- Icon (sub-row A): shown when slot is locked, click to unlock
-            local ico = createTrinketIcon(card, id)
-            ico:SetPoint("TOPLEFT", card, "TOPLEFT", colX, ICON_ROW_Y)
-            ico:Hide()
-            table.insert(ui.lockIcons, ico)
+            -- PvE Icon (above the button, at ICON_ROW_Y = -35)
+            local pveIco = createLockIcon(card, id, false)
+            pveIco:SetPoint("TOPLEFT", card, "TOPLEFT", colX, -35)
+            pveIco:Hide()
+            table.insert(ui.pveLockIcons, pveIco)
+
+            -- PvP Icon (below the button, at -82)
+            local pvpIco = createLockIcon(card, id, true)
+            pvpIco:SetPoint("TOPLEFT", card, "TOPLEFT", colX, -82)
+            pvpIco:Hide()
+            table.insert(ui.pvpLockIcons, pvpIco)
 
             -- Button (sub-row B): directly below icon
             local btn = common.create_flat_button(card, def.label, 22, 18)
@@ -1068,8 +1224,8 @@ gearFrame:SetScript("OnShow", function(self)
         btn4S:SetScript("OnLeave", function() GameTooltip:Hide() end)
         ui.btn4S = btn4S
 
-        -- ROW 3 (y=-85): Stat priority (LEFT) | Pawn string (RIGHT)
-        local R3Y = -85
+        -- ROW 3 (y=-110): Stat priority (LEFT) | Pawn string (RIGHT)
+        local R3Y = -110
 
         -- Small reset button in front of Priority
         local resetBtn = common.create_flat_button(card, "R", 18, 18)
@@ -1123,9 +1279,9 @@ gearFrame:SetScript("OnShow", function(self)
                 end
                 for i = m + 1, #pawnScratchList do pawnScratchList[i] = nil end
                 table.sort(pawnScratchList, pawnSortDesc)
-                local cur = {}
-                for i = 1, 4 do cur[i] = pawnScratchList[i] and pawnScratchList[i].stat or statPool[i] end
-                return cur
+                _G.wipe(curOrderScratch)
+                for i = 1, 4 do curOrderScratch[i] = pawnScratchList[i] and pawnScratchList[i].stat or statPool[i] end
+                return curOrderScratch
             end
             return targetDB.stat_order
                 or db.stat_order
@@ -1293,13 +1449,13 @@ end
 if CharacterFrame then InitToggleHook() end
 
 -- -------------------------------------------------------------------------
--- PAPERDOLL TRINKET LOCK (Shift+Right-click)
+-- PAPERDOLL ITEM LOCK (Shift+Right-click)
 -- -------------------------------------------------------------------------
-local function InitPaperDollTrinketHook()
+local function InitPaperDollLockHook()
     if sfui.gear.paperdoll_hooked then return end
     sfui.gear.paperdoll_hooked = true
 
-    local function onTrinketClick(self, button)
+    local function onPaperDollClick(self, button)
         if button == "RightButton" and IsShiftKeyDown() then
             local slot = self:GetID()
             local link = GetInventoryItemLink("player", slot)
@@ -1311,12 +1467,25 @@ local function InitPaperDollTrinketHook()
                     local ctxPvP = isCurrentlyPvP()
                     local key = ctxPvP and "locked_items_pvp" or "locked_items_pve"
                     SfuiDB.gear[specID][key] = SfuiDB.gear[specID][key] or {}
+                    
+                    local slotName = "Item"
+                    if slot == 13 or slot == 14 then slotName = "Trinket"
+                    elseif slot == 11 or slot == 12 then slotName = "Ring"
+                    elseif slot == 2 then slotName = "Neck"
+                    elseif slot == 16 then slotName = "Main Hand"
+                    elseif slot == 17 then slotName = "Off Hand"
+                    end
+
                     if SfuiDB.gear[specID][key][itemID] then
                         SfuiDB.gear[specID][key][itemID] = nil
-                        if common and common.print then common.print("Trinket unlocked (" .. (ctxPvP and "PvP" or "PvE") .. "): " .. link) end
+                        if common and common.print then
+                            common.print(string.format("%s unlocked (%s): %s", slotName, ctxPvP and "PvP" or "PvE", link))
+                        end
                     else
                         SfuiDB.gear[specID][key][itemID] = true
-                        if common and common.print then common.print("Trinket locked (" .. (ctxPvP and "PvP" or "PvE") .. "): " .. link) end
+                        if common and common.print then
+                            common.print(string.format("%s locked (%s): %s", slotName, ctxPvP and "PvP" or "PvE", link))
+                        end
                     end
                     sfui.gear.UpdateStatUI()
                 end
@@ -1324,10 +1493,21 @@ local function InitPaperDollTrinketHook()
         end
     end
 
-    local t0 = _G.CharacterTrinket0Slot
-    local t1 = _G.CharacterTrinket1Slot
-    if t0 then t0:HookScript("OnClick", onTrinketClick) end
-    if t1 then t1:HookScript("OnClick", onTrinketClick) end
+    local slotsToHook = {
+        "CharacterTrinket0Slot",
+        "CharacterTrinket1Slot",
+        "CharacterFinger0Slot",
+        "CharacterFinger1Slot",
+        "CharacterNeckSlot",
+        "CharacterMainHandSlot",
+        "CharacterSecondaryHandSlot",
+    }
+    for _, slotName in ipairs(slotsToHook) do
+        local slotFrame = _G[slotName]
+        if slotFrame then
+            slotFrame:HookScript("OnClick", onPaperDollClick)
+        end
+    end
 end
 
 sfui.events.RegisterEvent("PLAYER_LOGIN", function()
@@ -1359,5 +1539,13 @@ sfui.events.RegisterEvent("PLAYER_LOGIN", function()
     end
     
     InitToggleHook()
-    InitPaperDollTrinketHook()
+    InitPaperDollLockHook()
+
+    -- Populate initial equipped items to track changes
+    for slotID = 1, 17 do
+        if slotID ~= 4 then
+            local link = GetInventoryItemLink("player", slotID)
+            lastEquippedItems[slotID] = link and GetItemInfoInstant(link)
+        end
+    end
 end)

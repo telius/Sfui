@@ -602,8 +602,7 @@ local function UpdateIconState(icon, panelConfig)
         -- 5b. Update Border Style (Force re-apply in case Masque overrode anchors)
         sfui.trackedicons.ApplyIconBorderStyle(icon, panelConfig)
 
-        -- 5c. Update Hotkey Text
-        sfui.trackedicons.UpdateIconHotkey(icon, panelConfig)
+
 
         -- 6. Update Glows
         UpdateIconGlow(icon, entrySettings, panelConfig, isReady)
@@ -720,40 +719,7 @@ function sfui.trackedicons.ApplyIconBorderStyle(icon, panelConfig)
     end
 end
 
--- Update hotkey text on an icon from the hotkey cache
-function sfui.trackedicons.UpdateIconHotkey(icon, panelConfig)
-    if not icon or not icon.hotkeyText then return end
 
-    local showHotkeys = GetIconValue(nil, panelConfig, "showHotkeys", false)
-    if not showHotkeys or not sfui.hotkeys then
-        icon.hotkeyText:Hide()
-        return
-    end
-
-    -- Update font/anchor in case config changed
-    local hkSize = GetIconValue(nil, panelConfig, "hotkeyFontSize", 12)
-    local hkOutline = GetIconValue(nil, panelConfig, "hotkeyOutline", "OUTLINE")
-    local hkAnchor = GetIconValue(nil, panelConfig, "hotkeyAnchor", "TOPLEFT")
-    icon.hotkeyText:SetFont("Fonts\\FRIZQT__.TTF", hkSize, hkOutline)
-    icon.hotkeyText:ClearAllPoints()
-    icon.hotkeyText:SetPoint(hkAnchor, icon, hkAnchor, 2, -2)
-
-    -- Lookup hotkey
-    local hotkey = nil
-    local activeID = icon._lastActiveID or icon.id
-    if icon.entry and icon.entry.type == "item" then
-        hotkey = sfui.hotkeys.get_for_item(activeID)
-    else
-        hotkey = sfui.hotkeys.get_for_spell(activeID)
-    end
-
-    if hotkey then
-        icon.hotkeyText:SetText(hotkey)
-        icon.hotkeyText:Show()
-    else
-        icon.hotkeyText:Hide()
-    end
-end
 
 -- Shared Helper for Masque Sync
 local function SyncIconMasque(icon)
@@ -812,15 +778,7 @@ local function CreateIconFrame(parent, id, entry, panelConfig)
 
     -- Main cooldown frames handle countdown numbers natively
 
-    -- Hotkey text (keybinding display)
-    f.hotkeyText = f:CreateFontString(nil, "OVERLAY")
-    local hkSize = GetIconValue(nil, panelConfig, "hotkeyFontSize", 12)
-    local hkOutline = GetIconValue(nil, panelConfig, "hotkeyOutline", "OUTLINE")
-    local hkAnchor = GetIconValue(nil, panelConfig, "hotkeyAnchor", "TOPLEFT")
-    f.hotkeyText:SetFont("Fonts\\FRIZQT__.TTF", hkSize, hkOutline)
-    f.hotkeyText:SetPoint(hkAnchor, f, hkAnchor, 2, -2)
-    f.hotkeyText:SetTextColor(1, 1, 1, 1)
-    f.hotkeyText:Hide()
+
 
     -- Border/Overlay (optional visual polish)
     f.PushedTexture = f:CreateTexture(nil, "OVERLAY")

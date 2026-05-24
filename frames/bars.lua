@@ -742,23 +742,7 @@ do
         update_bar_positions()
     end
 
-    local event_frame = CreateFrame("Frame")
-    event_frame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-    event_frame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
-    event_frame:RegisterEvent("UNIT_POWER_UPDATE")
-    event_frame:RegisterEvent("UNIT_HEALTH")
-    event_frame:RegisterEvent("UNIT_ABSORB_AMOUNT_CHANGED")
-    event_frame:RegisterEvent("PLAYER_CAN_GLIDE_CHANGED")
-    event_frame:RegisterEvent("PLAYER_IS_GLIDING_CHANGED")
-    event_frame:RegisterEvent("SPELL_UPDATE_CHARGES")
-    event_frame:RegisterEvent("PLAYER_REGEN_DISABLED")
-    event_frame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    event_frame:RegisterEvent("PLAYER_TARGET_CHANGED")
-    event_frame:RegisterEvent("RUNE_POWER_UPDATE")
-    event_frame:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
-    event_frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-
-    event_frame:SetScript("OnEvent", function(self, event, unit, ...)
+    local function on_event(event, unit, ...)
         if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "UPDATE_SHAPESHIFT_FORM" or event == "PLAYER_CAN_GLIDE_CHANGED" or event == "PLAYER_IS_GLIDING_CHANGED" or event == "PLAYER_MOUNT_DISPLAY_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
             invalidate_dragonflying_cache()
             sfui.bars:on_state_changed()
@@ -783,5 +767,20 @@ do
                 update_rune_bar()
             end
         end
-    end)
+    end
+
+    sfui.events.RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", on_event)
+    sfui.events.RegisterEvent("UPDATE_SHAPESHIFT_FORM", on_event)
+    sfui.events.RegisterEvent("UNIT_POWER_UPDATE", on_event)
+    sfui.events.RegisterEvent("UNIT_HEALTH", on_event)
+    sfui.events.RegisterEvent("UNIT_ABSORB_AMOUNT_CHANGED", on_event)
+    sfui.events.RegisterEvent("PLAYER_CAN_GLIDE_CHANGED", on_event)
+    sfui.events.RegisterEvent("PLAYER_IS_GLIDING_CHANGED", on_event)
+    sfui.events.RegisterEvent("SPELL_UPDATE_CHARGES", on_event)
+    sfui.events.RegisterEvent("PLAYER_REGEN_DISABLED", on_event)
+    sfui.events.RegisterEvent("PLAYER_REGEN_ENABLED", on_event)
+    sfui.events.RegisterEvent("PLAYER_TARGET_CHANGED", on_event)
+    sfui.events.RegisterEvent("RUNE_POWER_UPDATE", on_event)
+    sfui.events.RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED", on_event)
+    sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", on_event)
 end

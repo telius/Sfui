@@ -87,6 +87,193 @@ local OnIconDragStop
 local OnZoneReceiveDrag
 local HandleExternalDrop
 
+local function OnZoneIconDragStart(self)
+    if OnIconDragStart then
+        OnIconDragStart(self, self.isFromTrackedBars)
+    end
+end
+
+local function OnZoneIconClick(self)
+    local cdID = self.cdID
+    if self.isRightSidePool then
+        local entries = self.entries
+        local dataProvider = CooldownViewerSettings and CooldownViewerSettings.GetDataProvider and
+            CooldownViewerSettings:GetDataProvider()
+        local EnumCats = Enum and Enum.CooldownViewerCategory
+
+        if entries[cdID] then
+            entries[cdID] = nil
+            if dataProvider and EnumCats then
+                dataProvider:SetCooldownToCategory(cdID, EnumCats.HiddenAura or -2)
+            end
+        else
+            entries[cdID] = { id = cdID, type = "cooldown", cooldownID = cdID }
+            if dataProvider and EnumCats then
+                dataProvider:SetCooldownToCategory(cdID, 3)
+            end
+        end
+
+        -- Force save Blizzard CooldownViewer settings
+        local layoutManager = CooldownViewerSettings and CooldownViewerSettings.GetLayoutManager and
+            CooldownViewerSettings:GetLayoutManager()
+        if layoutManager and layoutManager.SaveLayouts then
+            layoutManager:SaveLayouts()
+        end
+        if ShowReloadPrompt then ShowReloadPrompt() end
+
+        if not next(entries) then SfuiDB.trackedBars = {} end
+        if sfui.trackedbars and sfui.trackedbars.UpdateVisibility then sfui.trackedbars.UpdateVisibility() end
+        if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
+        if RefreshZones then RefreshZones() end
+    else
+        -- Left-side zone click
+        local isTrackedBars = self.isTrackedBars
+        local entries = self.entries
+        if isTrackedBars then
+            local tBars = common.get_tracked_bars()
+            tBars[cdID] = nil
+            if not next(tBars) then
+                local specID = common.get_current_spec_id() or 0
+                SfuiDB.trackedBarsBySpec[specID] = {}
+            end
+            if sfui.trackedbars and sfui.trackedbars.UpdateVisibility then sfui.trackedbars.UpdateVisibility() end
+            if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
+        else
+            if entries then
+                for i, val in ipairs(entries) do
+                    local entryId = (type(val) == "table" and val.id) or val
+                    local targetId = (type(cdID) == "table" and cdID.id) or cdID
+                    if entryId == targetId then
+                        table.remove(entries, i)
+                        break
+                    end
+                end
+            end
+            -- Update Panels
+            if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
+        end
+        if sfui.cdm and sfui.cdm.RefreshLayout then sfui.cdm.RefreshLayout() end
+        if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
+        if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
+        if RefreshZones then RefreshZones() end
+    end
+end
+
+local function OnZoneIconEnter(self)
+    if not GameTooltip or not self.id then return end
+    pcall(function()
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if self.info then
+            if self.info.spellID then
+                GameTooltip:SetSpellByID(self.info.spellID)
+            elseif self.info.itemID then
+                GameTooltip:SetItemByID(self.info.itemID)
+            else
+                GameTooltip:SetText(self.info.name or "Unknown")
+            end
+
+            GameTooltip:AddLine(" ")
+            if self.cooldownID then
+                GameTooltip:AddDoubleLine("Cooldown ID:", "|cffffffff" .. self.cooldownID .. "|r")
+            end
+            if self.info.spellID then
+                GameTooltip:AddDoubleLine("Spell ID:", "|cffffffff" .. self.info.spellID .. "|r")
+            end
+            if self.info.itemID then
+                GameTooltip:AddDoubleLine("Item ID:", "|cffffffff" .. self.info.itemID .. "|r")
+            end
+        elseif self.isRightSidePool then
+            local cdInfo = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo(self.id)
+            if cdInfo and cdInfo.spellID then
+                GameTooltip:SetSpellByID(cdInfo.spellID)
+            elseif cdInfo and cdInfo.itemID then
+                GameTooltip:SetItemByID(cdInfo.itemID)
+            else
+                GameTooltip:SetText("Cooldown " .. self.id)
+            end
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddDoubleLine("Cooldown ID:", "|cffffffff" .. self.id .. "|r")
+            if cdInfo and cdInfo.spellID then
+                GameTooltip:AddDoubleLine("Spell ID:", "|cffffffff" .. cdInfo.spellID .. "|r")
+            elseif cdInfo and cdInfo.itemID then
+                GameTooltip:AddDoubleLine("Item ID:", "|cffffffff" .. cdInfo.itemID .. "|r")
+            end
+        else
+            if self.isTrackedBars then
+                local info = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo(self.id)
+                if info and info.itemID then
+                    GameTooltip:SetItemByID(info.itemID)
+                elseif info and info.spellID then
+                    GameTooltip:SetSpellByID(info.spellID)
+                else
+                    GameTooltip:SetSpellByID(self.id)
+                end
+            else
+                local entryType = self.type or "spell"
+                if entryType == "item" then
+                    GameTooltip:SetItemByID(self.id)
+                else
+                    GameTooltip:SetSpellByID(self.id)
+                end
+            end
+        end
+        GameTooltip:Show()
+    end)
+end
+
+local function OnZoneIconLeave()
+    if GameTooltip then GameTooltip:Hide() end
+end
+
+local function OnPreviewBarUpClick(self)
+    local bar = self:GetParent()
+    local id = bar.id
+    local i = bar.index
+    local activeList = bar.activeList
+    if not id or not i or not activeList then return end
+
+    local swapTarget = activeList[i - 1]
+    local pStore = common.ensure_tracked_bar_db(id)
+    local currentP = pStore.priority or 0
+    local prevPStore = common.ensure_tracked_bar_db(swapTarget)
+    local prevP = prevPStore.priority or 0
+
+    if currentP == prevP then
+        pStore.priority = currentP - 1
+        prevPStore.priority = currentP
+    else
+        pStore.priority = prevP
+        prevPStore.priority = currentP
+    end
+    if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
+    if RefreshZones then RefreshZones() end
+end
+
+local function OnPreviewBarDownClick(self)
+    local bar = self:GetParent()
+    local id = bar.id
+    local i = bar.index
+    local activeList = bar.activeList
+    if not id or not i or not activeList then return end
+
+    local swapTarget = activeList[i + 1]
+    local pStore = common.ensure_tracked_bar_db(id)
+    local currentP = pStore.priority or 0
+    local nextPStore = common.ensure_tracked_bar_db(swapTarget)
+    local nextP = nextPStore.priority or 0
+
+    if currentP == nextP then
+        pStore.priority = currentP + 1
+        nextPStore.priority = currentP
+    else
+        pStore.priority = nextP
+        nextPStore.priority = currentP
+    end
+
+    if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
+    if RefreshZones then RefreshZones() end
+end
+
 local function AcquirePreviewBar(parent)
     previewBarCount = previewBarCount + 1
     local bar = previewBarPool[previewBarCount]
@@ -122,6 +309,7 @@ local function AcquirePreviewBar(parent)
         if upBtn.GetNormalTexture and upBtn:GetNormalTexture() then
             upBtn:GetNormalTexture():SetTexCoord(0, 1, 0, 1)
         end
+        upBtn:SetScript("OnClick", OnPreviewBarUpClick)
         bar.upBtn = upBtn
 
         local dnBtn = CreateFrame("Button", nil, bar)
@@ -130,6 +318,7 @@ local function AcquirePreviewBar(parent)
         dnBtn:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up")
         dnBtn:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Highlight")
         dnBtn:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Down")
+        dnBtn:SetScript("OnClick", OnPreviewBarDownClick)
         bar.dnBtn = dnBtn
 
         previewBarPool[previewBarCount] = bar
@@ -159,7 +348,11 @@ local function AcquireZoneIcon(parent)
         icon.texture = tex
 
         icon:RegisterForDrag("LeftButton")
-        icon:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        icon:SetScript("OnDragStart", OnZoneIconDragStart)
+        icon:SetScript("OnDragStop", OnIconDragStop)
+        icon:SetScript("OnClick", OnZoneIconClick)
+        icon:SetScript("OnEnter", OnZoneIconEnter)
+        icon:SetScript("OnLeave", OnZoneIconLeave)
         zoneIconFrames[zoneIconCount] = icon
 
         -- Dedicated selection highlight border
@@ -310,9 +503,11 @@ local function RenderTrackedBarsRightSide(parent, width)
         icon.entry = { id = cdID, type = typeHint, cooldownID = cdID }
         icon.texture:SetTexture(GetSharedIconTexture(icon.entry))
 
-        icon:RegisterForDrag("LeftButton")
-        icon:SetScript("OnDragStart", function(self) OnIconDragStart(self, false) end)
-        icon:SetScript("OnDragStop", OnIconDragStop)
+        -- Set attributes for shared interaction handlers
+        icon.isFromTrackedBars = false
+        icon.isTrackedBars = true
+        icon.isRightSidePool = true
+        icon.entries = entries
 
         local cdInfo = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
         local iconName = GetCooldownName(cdID, typeHint)
@@ -349,58 +544,6 @@ local function RenderTrackedBarsRightSide(parent, width)
         end
 
         icon:RegisterForClicks("LeftButtonUp")
-        icon:SetScript("OnClick", function()
-            local dataProvider = CooldownViewerSettings and CooldownViewerSettings.GetDataProvider and
-                CooldownViewerSettings:GetDataProvider()
-            local EnumCats = Enum and Enum.CooldownViewerCategory
-
-            if entries[cdID] then
-                entries[cdID] = nil
-                if dataProvider and EnumCats then
-                    dataProvider:SetCooldownToCategory(cdID, EnumCats.HiddenAura or -2)
-                end
-            else
-                entries[cdID] = { id = cdID, type = "cooldown", cooldownID = cdID }
-                if dataProvider and EnumCats then
-                    dataProvider:SetCooldownToCategory(cdID, 3)
-                end
-            end
-
-            -- Force save Blizzard CooldownViewer settings
-            local layoutManager = CooldownViewerSettings and CooldownViewerSettings.GetLayoutManager and
-                CooldownViewerSettings:GetLayoutManager()
-            if layoutManager and layoutManager.SaveLayouts then
-                layoutManager:SaveLayouts()
-            end
-            ShowReloadPrompt()
-
-            if not next(entries) then SfuiDB.trackedBars = {} end
-            if sfui.trackedbars and sfui.trackedbars.UpdateVisibility then sfui.trackedbars.UpdateVisibility() end
-            if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
-            RefreshZones()
-        end)
-
-        icon:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            local cdInfo = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
-            if cdInfo and cdInfo.spellID then
-                GameTooltip:SetSpellByID(cdInfo.spellID)
-            elseif cdInfo and cdInfo.itemID then
-                GameTooltip:SetItemByID(cdInfo.itemID)
-            else
-                GameTooltip:SetText("Cooldown " .. cdID)
-            end
-            GameTooltip:AddLine(" ")
-            GameTooltip:AddDoubleLine("Cooldown ID:", "|cffffffff" .. cdID .. "|r")
-            if cdInfo and cdInfo.spellID then
-                GameTooltip:AddDoubleLine("Spell ID:", "|cffffffff" .. cdInfo.spellID .. "|r")
-            elseif cdInfo and cdInfo.itemID then
-                GameTooltip:AddDoubleLine("Item ID:", "|cffffffff" .. cdInfo.itemID .. "|r")
-            end
-            GameTooltip:Show()
-        end)
-        icon:SetScript("OnDragStart", function(self) OnIconDragStart(self, false) end)
-        icon:SetScript("OnDragStop", OnIconDragStop)
 
         if i == #list then
             yPos = y - row * (ICON_SIZE + spacing) - ICON_SIZE - 20
@@ -463,49 +606,18 @@ local function RenderTrackedBarsRightSide(parent, width)
         local name = GetCooldownName(id, typeHint)
         bar.label:SetText(name)
 
+        bar.id = id
+        bar.index = i
+        bar.activeList = activeList
+
         if i > 1 then
             bar.upBtn:Show()
-            bar.upBtn:SetScript("OnClick", function()
-                local swapTarget = activeList[i - 1]
-                local pStore = common.ensure_tracked_bar_db(id)
-                local currentP = pStore.priority or 0
-                local prevPStore = common.ensure_tracked_bar_db(swapTarget)
-                local prevP = prevPStore.priority or 0
-
-                if currentP == prevP then
-                    pStore.priority = currentP - 1
-                    prevPStore.priority = currentP
-                else
-                    pStore.priority = prevP
-                    prevPStore.priority = currentP
-                end
-                if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
-                RefreshZones()
-            end)
         else
             bar.upBtn:Hide()
         end
 
         if i < #activeList then
             bar.dnBtn:Show()
-            bar.dnBtn:SetScript("OnClick", function()
-                local swapTarget = activeList[i + 1]
-                local pStore = common.ensure_tracked_bar_db(id)
-                local currentP = pStore.priority or 0
-                local nextPStore = common.ensure_tracked_bar_db(swapTarget)
-                local nextP = nextPStore.priority or 0
-
-                if currentP == nextP then
-                    pStore.priority = currentP + 1
-                    nextPStore.priority = currentP
-                else
-                    pStore.priority = nextP
-                    nextPStore.priority = currentP
-                end
-
-                if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
-                RefreshZones()
-            end)
         else
             bar.dnBtn:Hide()
         end
@@ -721,12 +833,6 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
             if self.throttle < threshold then return end
             self.throttle = 0
 
-            local function hideIndicator()
-                self.dropLine:Hide()
-                self.dropInsertIndex = nil
-                self.dropTargetID = nil
-            end
-
             if draggedInfo and self:IsMouseOver() then
                 if not self._isHovered then
                     self:SetBackdropBorderColor(0, 1, 0, 1) -- Hover highlight
@@ -785,6 +891,7 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
                 else
                     -- Empty panel
                     self.dropLine:ClearAllPoints()
+                    self.dropPoint = self.content:GetPoint(1)
                     self.dropLine:SetPoint("TOPLEFT", self.content, "TOPLEFT", 2, -2)
                     self.dropLine:Show()
                 end
@@ -825,7 +932,9 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
                         self:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
                     end
                     if self.dropInsertIndex then
-                        hideIndicator()
+                        self.dropLine:Hide()
+                        self.dropInsertIndex = nil
+                        self.dropTargetID = nil
                         -- Revert layout to normal
                         local cx, cy = 0, 0
                         for i, icon in ipairs(self.content.icons) do
@@ -929,38 +1038,15 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
             if icon.borders then
                 for _, b in ipairs(icon.borders) do b:Hide() end
             end
-            icon:RegisterForDrag("LeftButton")
-            icon:SetScript("OnDragStart", function(self) OnIconDragStart(self, zone.isTrackedBars) end)
-            icon:SetScript("OnDragStop", OnIconDragStop)
+            -- Set attributes for the shared click/drag/tooltip handlers
+            icon.id = cdID
+            icon.type = (type(cdID) == "table" and cdID.type) or "spell"
+            icon.isTrackedBars = isTrackedBars
+            icon.isFromTrackedBars = zone.isTrackedBars
+            icon.isRightSidePool = false
+            icon.entries = entries
 
-            -- Right click to delete
             icon:RegisterForClicks("RightButtonUp")
-            icon:SetScript("OnClick", function()
-                if isTrackedBars then
-                    local tBars = common.get_tracked_bars()
-                    tBars[cdID] = nil
-                    if not next(tBars) then
-                        local specID = common.get_current_spec_id() or 0
-                        SfuiDB.trackedBarsBySpec[specID] = {}
-                    end
-                    -- Force update bars
-                    if sfui.trackedbars and sfui.trackedbars.UpdateVisibility then sfui.trackedbars.UpdateVisibility() end
-                    if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
-                else
-                    -- Remove from array
-                    for i, val in ipairs(entries) do
-                        local entryId = (type(val) == "table" and val.id) or val
-                        local targetId = (type(cdID) == "table" and cdID.id) or cdID
-                        if entryId == targetId then
-                            table.remove(entries, i)
-                            break
-                        end
-                    end
-                    -- Update Panels
-                    if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
-                end
-                RefreshZones() -- Redraw
-            end)
 
             table.insert(content.icons, icon)
 
@@ -997,31 +1083,7 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
                 name = iconName or ("Unknown (" .. iconId .. ")")
             }
 
-            -- Tooltip for existing icons
-            icon:SetScript("OnEnter", function(self)
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                if self.info then
-                    if self.info.spellID then
-                        GameTooltip:SetSpellByID(self.info.spellID)
-                    elseif self.info.itemID then
-                        GameTooltip:SetItemByID(self.info.itemID)
-                    else
-                        GameTooltip:SetText(self.info.name or "Unknown")
-                    end
 
-                    GameTooltip:AddLine(" ")
-                    if self.cooldownID then
-                        GameTooltip:AddDoubleLine("Cooldown ID:", "|cffffffff" .. self.cooldownID .. "|r")
-                    end
-                    if self.info.spellID then
-                        GameTooltip:AddDoubleLine("Spell ID:", "|cffffffff" .. self.info.spellID .. "|r")
-                    end
-                    if self.info.itemID then
-                        GameTooltip:AddDoubleLine("Item ID:", "|cffffffff" .. self.info.itemID .. "|r")
-                    end
-                end
-                GameTooltip:Show()
-            end)
 
             x = x + ICON_SIZE + 2
             if x > 300 then
@@ -1102,9 +1164,10 @@ local function RenderAssignmentsIconPool(parent, width, entries)
         icon.entry = { id = cdID, type = typeHint, cooldownID = cdID }
         icon.texture:SetTexture(GetSharedIconTexture(icon.entry))
 
-        icon:RegisterForDrag("LeftButton")
-        icon:SetScript("OnDragStart", function(self) OnIconDragStart(self, false) end)
-        icon:SetScript("OnDragStop", OnIconDragStop)
+        -- Set attributes for the shared click/drag/tooltip handlers
+        icon.isTrackedBars = true
+        icon.isFromTrackedBars = false
+        icon.isRightSidePool = true
 
         local iconName = GetCooldownName(cdID, typeHint)
         if not iconName and typeHint == "spell" then
@@ -1174,25 +1237,7 @@ local function RenderAssignmentsIconPool(parent, width, entries)
             if RefreshZones then RefreshZones() end
         end)
 
-        icon:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            local cdInfo = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
-            if cdInfo and cdInfo.spellID then
-                GameTooltip:SetSpellByID(cdInfo.spellID)
-            elseif cdInfo and cdInfo.itemID then
-                GameTooltip:SetItemByID(cdInfo.itemID)
-            else
-                GameTooltip:SetText("Cooldown " .. cdID)
-            end
-            GameTooltip:AddLine(" ")
-            GameTooltip:AddDoubleLine("Cooldown ID:", "|cffffffff" .. cdID .. "|r")
-            if cdInfo and cdInfo.spellID then
-                GameTooltip:AddDoubleLine("Spell ID:", "|cffffffff" .. cdInfo.spellID .. "|r")
-            elseif cdInfo and cdInfo.itemID then
-                GameTooltip:AddDoubleLine("Item ID:", "|cffffffff" .. cdInfo.itemID .. "|r")
-            end
-            GameTooltip:Show()
-        end)
+
 
         if i == #list then
             yPos = y - row * (ICON_SIZE + spacing) - ICON_SIZE - 20
@@ -1391,6 +1436,16 @@ OnIconDragStart = function(self, isFromTrackedBars)
         cursor:SetFrameStrata("TOOLTIP")
         cursor.texture = cursor:CreateTexture(nil, "OVERLAY")
         cursor.texture:SetAllPoints()
+        cursor:SetScript("OnUpdate", function(self, elapsed)
+            self.throttle = (self.throttle or 0) + elapsed
+            if self.throttle < 0.05 then return end
+            self.throttle = 0
+
+            if not self:IsShown() then return end
+            local x, y = GetCursorPosition()
+            local scale = UIParent:GetEffectiveScale()
+            self:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x / scale, y / scale)
+        end)
     end
 
     cursor.texture:SetTexture(self.texture:GetTexture())
@@ -1415,17 +1470,6 @@ OnIconDragStart = function(self, isFromTrackedBars)
         originalY = 0
     }
 
-    -- Creating a ghost cursor follows mouse
-    cursor:SetScript("OnUpdate", function(self, elapsed)
-        self.throttle = (self.throttle or 0) + elapsed
-        if self.throttle < 0.05 then return end
-        self.throttle = 0
-
-        if not self:IsShown() then return end
-        local x, y = GetCursorPosition()
-        local scale = UIParent:GetEffectiveScale()
-        self:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x / scale, y / scale)
-    end)
     cursor:Show()
 
     -- Hide original? Or dim it?

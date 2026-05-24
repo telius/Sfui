@@ -301,12 +301,20 @@ select_tab = function(frame, id)
 
             -- Render Global Settings
             if id == 2 and sfui.trackedoptions.GenerateGlobalSettingsControls and sfui.trackedoptions.globContent then
-                sfui.trackedoptions.GenerateGlobalSettingsControls(sfui.trackedoptions.globContent)
+                if not sfui.trackedoptions.globContent._generated then
+                    sfui.trackedoptions.GenerateGlobalSettingsControls(sfui.trackedoptions.globContent)
+                    sfui.trackedoptions.globContent._generated = true
+                end
             end
             if id == 3 and sfui.trackedoptions.RenderBarsTab and sfui.trackedoptions.barsContent then
-                local finalY = sfui.trackedoptions.RenderBarsTab(sfui.trackedoptions.barsContent)
-                if finalY then
-                    sfui.trackedoptions.barsContent:SetHeight(math.abs(finalY) + 40)
+                local currentSpec = common.get_current_spec_id() or 0
+                if not sfui.trackedoptions.barsContent._generated or sfui.trackedoptions.barsContent._lastSpec ~= currentSpec then
+                    local finalY = sfui.trackedoptions.RenderBarsTab(sfui.trackedoptions.barsContent)
+                    if finalY then
+                        sfui.trackedoptions.barsContent:SetHeight(math.abs(finalY) + 40)
+                    end
+                    sfui.trackedoptions.barsContent._generated = true
+                    sfui.trackedoptions.barsContent._lastSpec = currentSpec
                 end
             end
         else
@@ -433,6 +441,11 @@ function sfui.trackedoptions.initialize()
     resetGlobalBtn:SetPoint("TOPRIGHT", globContent, "TOPRIGHT", -10, -10)
     resetGlobalBtn:SetScript("OnClick", function()
         if SfuiDB.iconGlobalSettings then wipe(SfuiDB.iconGlobalSettings) end
+        if sfui.trackedoptions.globContent then sfui.trackedoptions.globContent._generated = nil end
+        if sfui.trackedoptions.barsContent then
+            sfui.trackedoptions.barsContent._generated = nil
+            sfui.trackedoptions.barsContent._lastSpec = nil
+        end
         sfui.trackedoptions.UpdateSettings() -- Re-init widgets
         if sfui.trackedicons and sfui.trackedicons.ForceRefreshGlows then sfui.trackedicons.ForceRefreshGlows() end
         if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
@@ -1172,46 +1185,11 @@ function sfui.trackedoptions.GenerateGlobalSettingsControls(parent)
     yPos = yPos - sec3:GetHeight() - 10
 
     -- ═══════════════════════════════════
-    -- SECTION 4: HOTKEYS & STYLE
+    -- SECTION 4: STYLE
     -- ═══════════════════════════════════
-    local sec4, s4c, h4 = sfui.trackedoptions.CreateSection(parent, "Hotkeys & Style",
-        "Keybinding display and icon shape.", yPos, SEC_W)
+    local sec4, s4c, h4 = sfui.trackedoptions.CreateSection(parent, "Style",
+        "Icon shape and borders.", yPos, SEC_W)
     local s4y = 0
-
-    MakeCheck(s4c, "Show Hotkeys", "showHotkeys", "Display keybinding text on icons.", 0, s4y)
-    s4y = s4y - 35
-    MakeSlider(s4c, "Hotkey Font Size", "hotkeyFontSize", 8, 24, 1, 0, s4y, 230)
-    s4y = s4y - 48
-
-    -- Hotkey Anchor & Outline dropdowns side by side
-    local lHA = s4c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    lHA:SetPoint("TOPLEFT", 0, s4y); lHA:SetText("Anchor:")
-    local anchorOpts = {
-        { text = "Top Left",     value = "TOPLEFT" },
-        { text = "Top Right",    value = "TOPRIGHT" },
-        { text = "Bottom Left",  value = "BOTTOMLEFT" },
-        { text = "Bottom Right", value = "BOTTOMRIGHT" },
-        { text = "Center",       value = "CENTER" },
-    }
-    local haDropDown = common.create_dropdown(s4c, 110, anchorOpts, function(val)
-        igs.hotkeyAnchor = val
-        if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
-    end)
-    haDropDown:SetPoint("LEFT", lHA, "RIGHT", 5, 0)
-
-    local lHO = s4c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    lHO:SetPoint("LEFT", haDropDown, "RIGHT", 15, 0); lHO:SetText("Outline:")
-    local outlineOpts = {
-        { text = "Outline",       value = "OUTLINE" },
-        { text = "Thick Outline", value = "THICKOUTLINE" },
-        { text = "None",          value = "" },
-    }
-    local hoDropDown = common.create_dropdown(s4c, 110, outlineOpts, function(val)
-        igs.hotkeyOutline = val
-        if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
-    end)
-    hoDropDown:SetPoint("LEFT", lHO, "RIGHT", 5, 0)
-    s4y = s4y - 35
 
     -- Icon Style checkboxes
     MakeCheck(s4c, "Square Icons", "squareIcons", "Crop round icon edges to make them square.", 0, s4y)
@@ -1697,3 +1675,5 @@ function sfui.trackedoptions.ReleaseSettingsWidgets(parent)
         region:Hide()
     end
 end
+
+sfui.trackedoptions.UpdateSettings = sfui.trackedoptions.UpdateEditor

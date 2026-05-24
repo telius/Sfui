@@ -205,14 +205,14 @@ function ButtonManager:collect_buttons()
         end
     end
 
-    for i = 1, Minimap:GetNumChildren() do
-        local child = select(i, Minimap:GetChildren())
+    local minimapChildren = { Minimap:GetChildren() }
+    for _, child in ipairs(minimapChildren) do
         if self:add_button(child) then foundNew = true end
     end
 
     if MinimapCluster then
-        for i = 1, MinimapCluster:GetNumChildren() do
-            local child = select(i, MinimapCluster:GetChildren())
+        local clusterChildren = { MinimapCluster:GetChildren() }
+        for _, child in ipairs(clusterChildren) do
             if self:add_button(child) then foundNew = true end
         end
     end

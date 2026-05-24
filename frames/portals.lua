@@ -497,8 +497,8 @@ local function make_legacy_dropdown(parent, group, yPos)
             menu:ClearAllPoints()
             menu:SetPoint("TOPRIGHT", self, "BOTTOMRIGHT", 0, -2)
             -- Refresh row states on open
-            for i = 1, menu:GetNumChildren() do
-                local child = select(i, menu:GetChildren())
+            local children = { menu:GetChildren() }
+            for _, child in ipairs(children) do
                 if child.refresh then child.refresh() end
             end
             menu:Show()

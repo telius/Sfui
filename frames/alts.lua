@@ -90,20 +90,17 @@ local function AcquireCell(parent)
             f.rightText:Hide()
         end
         -- Hide any extra textures, fonts, or buttons that might have been added
-        -- OPTIMIZATION: Avoid { f:GetRegions() } which creates a temporary table
-        local numRegions = f:GetNumRegions()
-        for i = 1, numRegions do
-            local r = select(i, f:GetRegions())
-            if r and r ~= f.text then
+        local regions = { f:GetRegions() }
+        for _, r in ipairs(regions) do
+            if r ~= f.text then
                 if r:IsObjectType("Texture") or r:IsObjectType("FontString") then
                     r:Hide()
                 end
             end
         end
-        local numChildren = f:GetNumChildren()
-        for i = 1, numChildren do
-            local c = select(i, f:GetChildren())
-            if c then c:Hide() end
+        local children = { f:GetChildren() }
+        for _, c in ipairs(children) do
+            c:Hide()
         end
     end
     return f
@@ -1204,10 +1201,9 @@ function sfui.alts.UpdateUI(force)
 
     -- Update sidebar
     if frame.sidebar then
-        -- OPTIMIZATION: Avoid { GetChildren() } and iterate backwards to safely orphan children
-        for i = frame.sidebar:GetNumChildren(), 1, -1 do
-            local cell = select(i, frame.sidebar:GetChildren())
-            if cell then ReleaseCell(cell) end
+        local children = { frame.sidebar:GetChildren() }
+        for _, cell in ipairs(children) do
+            ReleaseCell(cell)
         end
         local visY = 0
         for _, cat in ipairs(visibleCats) do
@@ -1271,16 +1267,13 @@ function sfui.alts.UpdateUI(force)
 
     -- Release existing content to pools
     if not frame.content then return end
-    -- OPTIMIZATION: Avoid temporary tables and iterate backwards to safely orphan children
-    for i = frame.content:GetNumChildren(), 1, -1 do
-        local col = select(i, frame.content:GetChildren())
-        if col then
-            for j = col:GetNumChildren(), 1, -1 do
-                local cell = select(j, col:GetChildren())
-                if cell then ReleaseCell(cell) end
-            end
-            ReleaseColumn(col)
+    local columns = { frame.content:GetChildren() }
+    for _, col in ipairs(columns) do
+        local cells = { col:GetChildren() }
+        for _, cell in ipairs(cells) do
+            ReleaseCell(cell)
         end
+        ReleaseColumn(col)
     end
 
     wipe(altsList)

@@ -124,11 +124,22 @@ end
 
 local f = CreateFrame("Frame", "SfuiTransferFrame", UIParent)
 f:RegisterEvent("BANKFRAME_OPENED")
+f:RegisterEvent("BANKFRAME_CLOSED")
 f:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_SHOW")
-f:SetScript("OnEvent", function(_, event, type)
-    if event == "BANKFRAME_OPENED" or (event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" and type == 1) then
+f:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
+f:SetScript("OnEvent", function(_, event, interactionType)
+    if event == "BANKFRAME_OPENED" or (event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" and interactionType == 1) then
         C_Timer.After(0.5, SetupUI)
         C_Timer.After(1.5, SetupUI)
         C_Timer.After(3.0, SetupUI)
+    elseif event == "BANKFRAME_CLOSED" or (event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" and interactionType == 1) then
+        if processingTicker then
+            processingTicker:Cancel()
+            processingTicker = nil
+        end
+        scanQueue = {}
+        if sfui.transferContainer then
+            sfui.transferContainer:Hide()
+        end
     end
 end)

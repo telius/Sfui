@@ -923,6 +923,14 @@ end)
 
 -- Register an event callback
 function sfui.events.RegisterEvent(event, callback)
+    if event == "PLAYER_LOGIN" and IsLoggedIn() then
+        local ok, err = pcall(callback, event)
+        if not ok then
+            print("|cff6600ffsfui|r: Event callback error (PLAYER_LOGIN immediate):", err)
+        end
+        return
+    end
+
     if not eventCallbacks[event] then
         eventCallbacks[event] = {}
         central_event_frame:RegisterEvent(event)

@@ -173,8 +173,14 @@ local function pvpCacheSet(link, val)
     pvpIlvlCache[link] = val
 end
 
+local validationCache = {}
+
+function sfui.highest.ClearCache()
+    _G.wipe(validationCache)
+end
+
 -- Returns true, itemLevel, statVal, itemEquipLoc if the item is valid for the spec rules
-function sfui.highest.IsItemValidForSpec(itemLink, specID)
+local function IsItemValidForSpec_Internal(itemLink, specID)
     local rule = sfui.highest.rules[specID]
     if not rule then return false end
 
@@ -230,6 +236,17 @@ function sfui.highest.IsItemValidForSpec(itemLink, specID)
 
     local statVal = GetPrimaryStatValue(itemLink, primaryStatName)
     return true, itemLevel, statVal, itemEquipLoc
+end
+
+function sfui.highest.IsItemValidForSpec(itemLink, specID)
+    local cacheKey = itemLink .. ":" .. tostring(specID)
+    if validationCache[cacheKey] ~= nil then
+        local c = validationCache[cacheKey]
+        return c[1], c[2], c[3], c[4]
+    end
+    local isValid, itemLevel, statVal, itemEquipLoc = IsItemValidForSpec_Internal(itemLink, specID)
+    validationCache[cacheKey] = { isValid, itemLevel, statVal, itemEquipLoc }
+    return isValid, itemLevel, statVal, itemEquipLoc
 end
 
 -- Returns: isUpgrade, isOffSpec

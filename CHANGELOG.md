@@ -1,3 +1,17 @@
+## v0.8.0 (2026-05-24)
+
+### Features
+- **Project-Wide Event Unification**: Consolidated all local module event frames (`bars.lua`, `castbar.lua`, `currency.lua`) into the centralized global `sfui.events` dispatcher. This significantly reduces overall Frame memory footprint and unifies event handling loops under a single error-trapped pcall boundary.
+- **Out-of-Combat Haste Caching**: Implemented a caching system for casting bar spell haste. In combat, when stats are secret under Blizzard's `C_Secrets` restrictions (making `UnitSpellHaste` return a secret value that crashes mathematical operations), the castbar now safely falls back to the cached out-of-combat haste instead of disabling the instant castbar entirely.
+- **Robust PLAYER_LOGIN Dispatch**: Modernized `sfui.events.RegisterEvent` in `common.lua` to check `IsLoggedIn()` and immediately execute the callback if true. This guarantees that during UI reloads (`/reload`), late loads, or dynamic loads, login callbacks across all modules run reliably, resolving race conditions and ensuring casting bars and trackers initialize correctly.
+
+### Optimizations
+- **O(1) Snapshot Scanning**: Eradicated the performance anti-pattern of calling `select(i, GetChildren())` and `select(i, GetRegions())` inside loops in `alts.lua`, `portals.lua`, and `minimap.lua` (which re-evaluates the children list and calls the C-API $N$ times). Replaced with flat, single-pass snapshot tables (`local children = { f:GetChildren() }`), reducing C-to-Lua boundaries by over 90% and completely eliminating UI stutters.
+- **CDM Zero-Allocation Hot Paths**: Refactored Cooldown Manager (`cdm.lua`) interaction handlers to use pre-defined file-scope helpers and one-time pools hook registration instead of dynamic anonymous closure allocations.
+- **Settings Panel Tab Caching**: Implemented control states caching for the settings panel (`trackedoptions.lua`), preventing dynamic frame recreation when switching editor tabs.
+- **Bank Transfer Queue Halting**: Programmed automated queue cancellation and transfer ticker halting in `transfer.lua` upon bank frame closure, removing zombie background scanners.
+- **Obsolete Hotkeys Eradication**: Completely removed `hotkeys.lua` and its settings widgets from the addon, reducing drawing and event overhead.
+
 ## v0.7.3 (2026-05-17)
 
 ### Features

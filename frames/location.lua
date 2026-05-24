@@ -62,7 +62,13 @@ local function on_application_status(event, searchResultID, newStatus)
     local resultData = C_LFGList.GetSearchResultInfo(searchResultID)
     if not resultData then return end
 
-    local activityInfo = C_LFGList.GetActivityInfoTable(resultData.activityIDs and resultData.activityIDs[1])
+    local activityID = resultData.activityIDs[1]
+    if not activityID then
+        if newStatus == "inviteaccepted" then reset_state() end
+        return
+    end
+
+    local activityInfo = C_LFGList.GetActivityInfoTable(activityID)
     if not activityInfo or activityInfo.categoryID ~= 2 then
         if newStatus == "inviteaccepted" then reset_state() end
         return
@@ -128,7 +134,10 @@ local function on_active_entry_update()
     local entryInfo = C_LFGList.GetActiveEntryInfo()
     if not entryInfo then return end
 
-    local activityInfo = C_LFGList.GetActivityInfoTable(entryInfo.activityID)
+    local activityID = entryInfo.activityIDs[1]
+    if not activityID then return end
+
+    local activityInfo = C_LFGList.GetActivityInfoTable(activityID)
     if not activityInfo or activityInfo.categoryID ~= 2 then return end
 
     local dungeonName = activityInfo.fullName or "?"

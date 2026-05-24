@@ -32,8 +32,15 @@ local DEFAULT_SHIELDED_COLOR = { 0.2, 0.2, 0.2 }
 -- ========================
 -- helpers for instant cast
 -- ========================
+local lastKnownHaste = 0
+
 local function apply_haste_to_gcd(base)
     local hasteprocent = UnitSpellHaste("player") or 0
+    if issecretvalue and issecretvalue(hasteprocent) then
+        hasteprocent = lastKnownHaste
+    else
+        lastKnownHaste = hasteprocent
+    end
     local haste = hasteprocent / 100
     local gcd = base / (1 + haste)
     if base >= 1.5 then
@@ -293,13 +300,8 @@ local function OnEvent(self, event, ...)
         local isInstant, name = is_instant_spell(spellID)
         if isInstant then
             -- 12.0.5: UnitSpellHaste is SecretWhenUnitStatsRestricted.
-            -- When stats are secret (M+ combat), we cannot compute the real
-            -- hasted GCD duration. Skip the instant cast bar entirely rather
-            -- than display a wrong duration.
-            local C_Secrets = _G.C_Secrets
-            if C_Secrets and C_Secrets.ShouldUnitStatsBeSecret and C_Secrets.ShouldUnitStatsBeSecret() then
-                return
-            end
+            -- When stats are secret (M+ combat), we use the cached out-of-combat
+            -- haste value to safely display the instant cast bar.
 
             local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
             local texture = info and info.iconID
@@ -475,8 +477,7 @@ local function OnEvent(self, event, ...)
     end
 end
 
-local event_frame = CreateFrame("Frame")
-event_frame:RegisterEvent("PLAYER_LOGIN")
+
 
 local function SetupBar(configName, unit)
     local bar = CreateCastBar(configName, unit)
@@ -703,21 +704,19 @@ function sfui.castbar.set_bar_texture(texturePath)
     end
 end
 
-event_frame:SetScript("OnEvent", function(self, event, ...)
-    if event == "PLAYER_LOGIN" then
-        SetupBar("castBar", "player")
-        SetupTargetBar("targetCastBar", "target")
+sfui.events.RegisterEvent("PLAYER_LOGIN", function()
+    SetupBar("castBar", "player")
+    SetupTargetBar("targetCastBar", "target")
 
-        if _G.PlayerCastingBarFrame then
-            _G.PlayerCastingBarFrame:SetAlpha(0)
-            _G.PlayerCastingBarFrame:UnregisterAllEvents()
-            _G.PlayerCastingBarFrame:Hide()
-        end
+    if _G.PlayerCastingBarFrame then
+        _G.PlayerCastingBarFrame:SetAlpha(0)
+        _G.PlayerCastingBarFrame:UnregisterAllEvents()
+        _G.PlayerCastingBarFrame:Hide()
+    end
 
-        if _G.OverlayPlayerCastingBarFrame then
-            _G.OverlayPlayerCastingBarFrame:SetAlpha(0)
-            _G.OverlayPlayerCastingBarFrame:UnregisterAllEvents()
-            _G.OverlayPlayerCastingBarFrame:Hide()
-        end
+    if _G.OverlayPlayerCastingBarFrame then
+        _G.OverlayPlayerCastingBarFrame:SetAlpha(0)
+        _G.OverlayPlayerCastingBarFrame:UnregisterAllEvents()
+        _G.OverlayPlayerCastingBarFrame:Hide()
     end
 end)

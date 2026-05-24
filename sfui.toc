@@ -1,7 +1,7 @@
 ## Interface: 120005
 ## Title: |cff6600ffsf|rui
 ## Author: teli
-## Version: 0.7.3
+## Version: 0.8.0
 ## Notes: modular and dynamic uistuffs for world of warcraft.
 ## X-Category: Interface
 ## X-Website: https://github.com/telius/sfui
@@ -40,7 +40,6 @@ frames/trackedoptions.lua
 frames/trackedbars.lua
 frames/cursor.lua
 frames/glows.lua
-frames/hotkeys.lua
 frames/trackedicons.lua
 frames/compare.lua
 frames/wqs.lua

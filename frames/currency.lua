@@ -57,9 +57,7 @@ do
         hooksecurefunc(CharacterFrame, "Show", update_visibility)
         hooksecurefunc(CharacterFrame, "Hide", update_visibility)
 
-        local event_frame = CreateFrame("Frame")
-        event_frame:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
-        event_frame:SetScript("OnEvent", function()
+        sfui.events.RegisterEvent("CURRENCY_DISPLAY_UPDATE", function()
             if widget_frame then
                 sfui.update_currency_display()
             end
@@ -143,9 +141,11 @@ do
         hooksecurefunc(CharacterFrame, "Show", update_visibility)
         hooksecurefunc(CharacterFrame, "Hide", update_visibility)
 
-        local event_frame = CreateFrame("Frame")
-        event_frame:RegisterEvent("BAG_UPDATE")
-        event_frame:SetScript("OnEvent", sfui.update_item_display)
+        sfui.events.RegisterEvent("BAG_UPDATE", function()
+            if widget_frame then
+                sfui.update_item_display()
+            end
+        end)
         update_visibility()
     end
 end
