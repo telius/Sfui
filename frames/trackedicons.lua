@@ -1362,35 +1362,36 @@ function sfui.trackedicons.Update()
     end
 end
 
--- Hook to hide specific categories from Blizzard's CooldownViewer
-local function ProcessBlizzardVisibilitySync()
-    if not BuffBarCooldownViewer or not BuffBarCooldownViewer.itemFramePool then return end
-
-    pcall(function()
-        for blizzFrame in BuffBarCooldownViewer.itemFramePool:EnumerateActive() do
-            if blizzFrame.cooldownID then
-                local shouldHide = false
-                -- Check category via C_CooldownViewer (if available)
-                if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(blizzFrame.cooldownID)
-                    if info then
-                        -- Category 0 = Essential, 1 = Utility
-                        -- Hide these as we track them with icons
-                        if info.category == 0 or info.category == 1 then
-                            shouldHide = true
-                        end
-                    end
-                end
-
-                if shouldHide then
-                    blizzFrame:SetAlpha(0)
-                    if blizzFrame.SetAlpha then -- Ensure interaction is disabled too?
-                        blizzFrame:EnableMouse(false)
+local function VisibilitySyncHelper()
+    for blizzFrame in BuffBarCooldownViewer.itemFramePool:EnumerateActive() do
+        if blizzFrame.cooldownID then
+            local shouldHide = false
+            -- Check category via C_CooldownViewer (if available)
+            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(blizzFrame.cooldownID)
+                if info then
+                    -- Category 0 = Essential, 1 = Utility
+                    -- Hide these as we track them with icons
+                    if info.category == 0 or info.category == 1 then
+                        shouldHide = true
                     end
                 end
             end
+
+            if shouldHide then
+                blizzFrame:SetAlpha(0)
+                if blizzFrame.SetAlpha then -- Ensure interaction is disabled too?
+                    blizzFrame:EnableMouse(false)
+                end
+            end
         end
-    end)
+    end
+end
+
+-- Hook to hide specific categories from Blizzard's CooldownViewer
+local function ProcessBlizzardVisibilitySync()
+    if not BuffBarCooldownViewer or not BuffBarCooldownViewer.itemFramePool then return end
+    pcall(VisibilitySyncHelper)
 end
 
 local function SyncBlizzardVisibility()

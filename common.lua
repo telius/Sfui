@@ -142,6 +142,25 @@ function sfui.common.GetCooldownDurationObj(spellID)
     return obj
 end
 
+local function _get_cooldown_duration(frame)
+    return frame:GetCooldownDuration()
+end
+
+local function _gt(v1, v2)
+    return v1 > v2
+end
+
+local function _lt(v1, v2)
+    return v1 < v2
+end
+
+local function _arithmetic(op, v1, v2)
+    if op == "+" then return v1 + v2 end
+    if op == "-" then return v1 - v2 end
+    if op == "*" then return v1 * v2 end
+    if op == "/" then return (v2 ~= 0) and (v1 / v2) or 0 end
+end
+
 -- Check if a cooldown frame is showing an active cooldown
 -- Uses frame methods that work with secret values
 function sfui.common.IsCooldownFrameActive(cooldownFrame)
@@ -149,7 +168,7 @@ function sfui.common.IsCooldownFrameActive(cooldownFrame)
 
     -- GetCooldownDuration returns duration in milliseconds
     -- Can be secret, but we can pass it to comparison via pcall
-    local ok, duration = pcall(function() return cooldownFrame:GetCooldownDuration() end)
+    local ok, duration = pcall(_get_cooldown_duration, cooldownFrame)
 
     if not ok then return false end
 
@@ -178,25 +197,21 @@ end
 -- Safe comparison helpers (Crash-proof against Secret Values in M+)
 function sfui.common.SafeGT(val, target)
     if val == nil or target == nil then return false end
-    local ok, result = pcall(function() return val > target end)
+    local ok, result = pcall(_gt, val, target)
     return ok and result or false
 end
 
+-- Safe comparison helpers (Crash-proof against Secret Values in M+)
 function sfui.common.SafeLT(val, target)
     if val == nil or target == nil then return false end
-    local ok, result = pcall(function() return val < target end)
+    local ok, result = pcall(_lt, val, target)
     return ok and result or false
 end
 
 -- Safe arithmetic to bypass "arithmetic on secret number" errors when tainted.
 function sfui.common.SafeArithmetic(op, v1, v2)
     if v1 == nil or v2 == nil then return 0 end
-    local ok, res = pcall(function()
-        if op == "+" then return v1 + v2 end
-        if op == "-" then return v1 - v2 end
-        if op == "*" then return v1 * v2 end
-        if op == "/" then return (v2 ~= 0) and (v1 / v2) or 0 end
-    end)
+    local ok, res = pcall(_arithmetic, op, v1, v2)
     return ok and res or 0
 end
 
