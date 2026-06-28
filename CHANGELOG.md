@@ -1,3 +1,8 @@
+## v0.8.0a (2026-06-28)
+
+### Bug Fixes
+- **Aura Stacks (Patch 12.0.7 Compatibility)**: Refactored `GetPlayerAuraBySpellID` check on tracked bars, tracked icons, and resource bars to safely accept and handle memory-protected **secret values** returned by the client during combat. This restores functional Bone Shield stack tracking and prevents Lua arithmetic/comparison errors from crashing the UI.
+
 ## v0.8.0 (2026-05-24)
 
 ### Features

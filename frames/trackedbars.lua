@@ -670,7 +670,7 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
     -- integer securely, avoiding any C++ Secret Value pointer quirks during rendering.
     if myBar.spellID and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
         local auraData = C_UnitAuras.GetPlayerAuraBySpellID(myBar.spellID)
-        if auraData and type(auraData.applications) == "number" then
+        if auraData and (type(auraData.applications) == "number" or issecretvalue(auraData.applications)) then
             currentStacks = auraData.applications
             if auraData.name then myBar.name:SetText(auraData.name) end
         end

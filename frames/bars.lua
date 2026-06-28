@@ -643,7 +643,7 @@ do
         end
 
         local scAura = C_UnitAuras.GetPlayerAuraBySpellID(418590)
-        if scAura and scAura.applications > 0 then
+        if scAura and (issecretvalue(scAura.applications) or (type(scAura.applications) == "number" and scAura.applications > 0)) then
             bar.staticChargeIcon:Show(); bar.staticChargeIcon.countText:SetText(scAura.applications)
         else
             bar.staticChargeIcon:Hide()

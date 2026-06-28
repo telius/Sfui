@@ -584,10 +584,10 @@ local function UpdateIconState(icon, panelConfig)
                 end
             end
 
-            if aura and aura.applications and aura.applications > 1 then
-                -- Aura applications: always a safe integer (NeverSecret). Show instead
-                -- of the spell display count so that buff stacks (e.g. Maelstrom Weapon)
-                -- display correctly on tracked icons, matching CooldownViewer behavior.
+            if aura and aura.applications and (issecretvalue(aura.applications) or (type(aura.applications) == "number" and aura.applications > 1)) then
+                -- Aura applications: Show instead of the spell display count so that
+                -- buff stacks (e.g. Maelstrom Weapon) display correctly on tracked icons,
+                -- matching CooldownViewer behavior. Handles secret values safely in combat.
                 displayCount = aura.applications
             end
         end
