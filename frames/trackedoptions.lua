@@ -357,7 +357,7 @@ function sfui.trackedoptions.initialize()
     if not SfuiDB.trackedBars then SfuiDB.trackedBars = {} end
 
     -- Load Saved Size
-    if SfuiDB.trackedOptionsWindow then
+    if SfuiDB.trackedOptionsWindow and SfuiDB.trackedOptionsWindow.width and SfuiDB.trackedOptionsWindow.height then
         frame:SetSize(SfuiDB.trackedOptionsWindow.width, SfuiDB.trackedOptionsWindow.height)
     end
 

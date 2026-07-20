@@ -456,6 +456,8 @@ function sfui.automation.match_mount()
     if InCombatLockdown() then return end
 
     local target = "target"
+    local C_Secrets = _G.C_Secrets
+    if C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret() then return end
     if UnitExists(target) then
         for i = 1, 40 do
             local aura = C_UnitAuras.GetAuraDataByIndex(target, i, "HELPFUL")

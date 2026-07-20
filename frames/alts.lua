@@ -187,7 +187,6 @@ local BASE_CATEGORIES = {
 
     { name = "QUESTS_HEADER", label = "Weekly Quests", type = "header" },
     { name = "QUESTS_GRID",   label = "Quests",        type = "quests_grid" },
-    { name = "PREY",          label = "Hunt Progress", type = "prey" },
 
     { name = "VAULT_HEADER",  label = "Great Vault",   type = "header" },
     { name = "VAULT_RAID",    label = "Raid",          type = "vault_row",  group = "raid" },
@@ -373,8 +372,6 @@ function sfui.alts.SyncCurrentCharacter()
     end)
 end
 
-local preyLogDirty = true
-
 local ejInstanceCache = nil
 local function GetEJInstanceCache()
     if ejInstanceCache then return ejInstanceCache end
@@ -390,7 +387,6 @@ local function GetEJInstanceCache()
     return ejInstanceCache
 end
 
-
 function sfui.alts.CheckWeeklyResets()
     local now = GetServerTime()
     local thirtyDaysSecs = 30 * 24 * 60 * 60
@@ -403,7 +399,6 @@ function sfui.alts.CheckWeeklyResets()
             SfuiDB.alts[g] = nil
         elseif d.nextWeeklyReset and now > d.nextWeeklyReset then
             if d.quests then wipe(d.quests) end
-            if d.prey then wipe(d.prey) end
             if d.profKP then
                 for _, pData in pairs(d.profKP) do
                     if type(pData) == "table" then
@@ -789,65 +784,6 @@ function sfui.alts.PerformSync(isLogout)
     end
 
     q.lastUpdate = GetServerTime()
-
-    -- Prey tracking (Midnight expansion)
-    data.prey = data.prey or {}
-    local p = data.prey
-
-    -- Season 1 Progress (ID 2764 from HomeworkTracker)
-    local progInfo = C_MajorFactions.GetMajorFactionData(cfg.expansion and cfg.expansion.preyFactionID or 2764)
-    if progInfo then
-        p.rank = progInfo.renownLevel
-        if progInfo.renownLevelThreshold and progInfo.renownLevelThreshold > 0 then
-            p.rankProgress = math.floor((progInfo.renownReputationEarned or 0) / progInfo.renownLevelThreshold * 100)
-        else
-            p.rankProgress = 0
-        end
-    end
-
-    -- Weekly Hunts (x/4) using specific completion quest IDs for Midnight Prey
-    local huntNormal = {
-        91098, 91099, 91096, 91104, 91105, 91106, 91107, 91108, 91109, 91110,
-        91111, 91112, 91113, 91114, 91115, 91116, 91117, 91118, 91119, 91120,
-        91121, 91122, 91123, 91124, 91095, 91097, 91100, 91101, 91102, 91103
-    }
-    local huntHard = {
-        91210, 91212, 91214, 91216, 91218, 91220, 91222, 91224, 91226, 91228,
-        91230, 91232, 91234, 91236, 91238, 91240, 91242, 91243, 91244, 91245,
-        91246, 91247, 91248, 91249, 91250, 91251, 91252, 91253, 91254, 91255
-    }
-    local huntMythic = {
-        91211, 91213, 91215, 91217, 91219, 91221, 91223, 91225, 91227, 91229,
-        91231, 91233, 91235, 91237, 91239, 91241, 91256, 91257, 91258, 91259,
-        91260, 91261, 91262, 91263, 91264, 91265, 91266, 91267, 91268, 91269
-    }
-
-    p.normal = 0
-    p.hard = 0
-    p.mythic = 0
-    for _, qID in ipairs(huntNormal) do
-        if C_QuestLog.IsQuestFlaggedCompleted(qID) then p.normal = p.normal + 1 end
-    end
-    for _, qID in ipairs(huntHard) do
-        if C_QuestLog.IsQuestFlaggedCompleted(qID) then p.hard = p.hard + 1 end
-    end
-    for _, qID in ipairs(huntMythic) do
-        if C_QuestLog.IsQuestFlaggedCompleted(qID) then p.mythic = p.mythic + 1 end
-    end
-    p.weekly = p.normal + p.hard + p.mythic
-
-    -- Active Hunt Quests
-    p.isQuestActive = false
-    if C_QuestLog.GetActivePreyQuest then
-        local questID = C_QuestLog.GetActivePreyQuest()
-        if questID then
-            p.title = C_QuestLog.GetTitleForQuestID(questID)
-            p.activeHuntProgress = C_TaskQuest.GetQuestProgressBarInfo(questID) or 0
-            p.isQuestActive = true
-        end
-    end
-
-    p.lastUpdate = GetServerTime()
 
     -- Professions Knowledge Points
     data.profKP = data.profKP or {}
@@ -1876,70 +1812,7 @@ function sfui.alts.UpdateUI(force)
                     end)
                     cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
                 end
-            elseif cat.type == "prey" then
-                local isMaxLevel = true
-                if alt.data.level and _G.GetMaxPlayerLevel and alt.data.level < _G.GetMaxPlayerLevel() then
-                    isMaxLevel = false
-                end
 
-                if not isMaxLevel then
-                    text:Show()
-                    text:SetText("-")
-                    text:SetTextColor(0.4, 0.4, 0.4)
-                    cell:SetScript("OnEnter", nil)
-                    cell:SetScript("OnLeave", nil)
-                else
-                    if alt.data.prey then
-                        local p = alt.data.prey
-                        local sColors = cfg.statusColors
-                        local normal = p.normal or 0
-                        local hard = p.hard or 0
-                        local mythic = p.mythic or 0
-                        text:SetText(string.format("%d/%d/%d", normal, hard, mythic))
-                        -- Completed ONLY if a specific category is 4
-                        local isCompleted = (p.normal and p.normal >= 4) or (p.hard and p.hard >= 4) or
-                            (p.mythic and p.mythic >= 4)
-                        if isCompleted then
-                            text:SetTextColor(unpack(sColors and sColors.completed or { 0, 1, 1 }))
-                        elseif p.weekly and p.weekly > 0 then
-                            text:SetTextColor(unpack(sColors and sColors.inProgress or { 0, 0.2, 0.2 }))
-                        else
-                            text:SetTextColor(unpack(sColors and sColors.available or { 0, 0, 0 }))
-                        end
-                    else
-                        text:SetText("0 / 4")
-                        text:SetTextColor(0.5, 0.5, 0.5)
-                    end
-
-                    cell:SetScript("OnEnter", function(self)
-                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                        GameTooltip:SetText("Hunt Progress (Weekly)")
-                        if alt.data.prey then
-                            GameTooltip:AddDoubleLine("Progress:", string.format("%d / 4", alt.data.prey.weekly or 0), 1,
-                                1,
-                                1, 1,
-                                1, 1)
-                            if alt.data.prey.isQuestActive then
-                                GameTooltip:AddLine(" ")
-                                GameTooltip:AddLine("Active: " .. (alt.data.prey.title or "Unknown"), 1, 0.82, 0)
-                                GameTooltip:AddDoubleLine("Quest Progress:",
-                                    (alt.data.prey.activeHuntProgress or 0) .. "%",
-                                    1, 1,
-                                    1, 1, 1, 1)
-                            end
-                            if alt.data.prey.rank then
-                                GameTooltip:AddLine(" ")
-                                GameTooltip:AddDoubleLine("Renown Rank:", alt.data.prey.rank, 1, 1, 1, 1, 1, 1)
-                                GameTooltip:AddDoubleLine("Rank Progress:", (alt.data.prey.rankProgress or 0) .. "%", 1,
-                                    1, 1,
-                                    1, 1,
-                                    1)
-                            end
-                        end
-                        GameTooltip:Show()
-                    end)
-                    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
-                end
             elseif cat.type == "prof_slot" then
                 local pData
                 local profs = {}
@@ -2206,7 +2079,6 @@ function sfui.alts.initialize()
     eventFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
     eventFrame:RegisterEvent("WEEKLY_REWARDS_UPDATE")
     eventFrame:RegisterEvent("QUEST_TURNED_IN")
-    eventFrame:RegisterEvent("QUEST_LOG_UPDATE")
     eventFrame:RegisterEvent("PLAYER_LEVEL_UP")
     eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
     eventFrame:RegisterEvent("SKILL_LINES_CHANGED")
@@ -2219,10 +2091,6 @@ function sfui.alts.initialize()
     eventFrame:SetScript("OnEvent", function(_, event, ...)
         if event == "PLAYER_ENTERING_WORLD" then
             leavingWorld = false
-        end
-
-        if event == "QUEST_LOG_UPDATE" then
-            preyLogDirty = true
         end
 
 
@@ -2280,7 +2148,6 @@ function sfui.alts.initialize()
         if msg == "resetweeklies" then
             for _, d in pairs(SfuiDB.alts or {}) do
                 if d.quests then wipe(d.quests) end
-                if d.prey then wipe(d.prey) end
                 if d.profKP then
                     for _, pData in pairs(d.profKP) do
                         if type(pData) == "table" then

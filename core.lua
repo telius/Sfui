@@ -26,8 +26,8 @@ _G["BINDING_NAME_SFUI_MATCHMOUNT"] = "match target mount"
 _G["BINDING_NAME_SFUI_PORTALS"] = "portals"
 
 
-local SLASH_SFUI1 = "/sfui"
-local SLASH_RL1 = "/rl"
+SLASH_SFUI1 = "/sfui"
+SLASH_RL1 = "/rl"
 
 local function update_pixel_scale()
     local resolution = GetCVar("gxWindowedResolution")
