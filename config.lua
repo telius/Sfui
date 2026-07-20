@@ -49,7 +49,7 @@ sfui.config = {
         errorColor = { 1, 0.2, 0.2, 1 },
         goldColor = { 1, 0.82, 0, 1 },
         dimTextColor = { 0.6, 0.6, 0.6, 1 },
-        addonIcon = "Interface/Icons/Spell_shadow_deathcoil",
+        addonIcon = "Interface/AddOns/sfui/icon.png",
     },
 
     -- shared settings for icon bars
