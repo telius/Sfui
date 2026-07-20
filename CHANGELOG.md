@@ -1,12 +1,9 @@
-## v12.1.0-1 (2026-07-20)
-
-### Compatibility
-- **WoW 12.1.0 PTR**: Bumped TOC interface version to `120100`.
-- **Slash Command Fix**: `/sfui` and `/rl` were registered as Lua locals (`local SLASH_SFUI1`) which the WoW engine never reads. Changed to globals so both commands now work correctly.
-- **Minimap Icon Fix**: Replaced the `Interface/Icons/Spell_shadow_deathcoil` icon path (unreliable in 12.x) with the addon's bundled `icon.png`, restoring the LibDBIcon minimap button.
+## v12.0.7-4 (2026-07-20)
 
 ### Bug Fixes
-- **Tracked Options Window**: Fixed a crash on load (`bad argument #1 to 'SetSize'`) caused by Blizzard tightening argument validation in 12.1. `SfuiDB.trackedOptionsWindow` was pre-initialized as `{}` by the database setup, making the existence check always truthy while `width`/`height` were still `nil`. Added explicit nil-guards for both values before calling `SetSize`.
+- **Slash Command Fix**: `/sfui` and `/rl` were registered as Lua locals (`local SLASH_SFUI1`) which the WoW engine never reads. Changed to globals so both commands now work correctly.
+- **Minimap Icon Fix**: Replaced the `Interface/Icons/Spell_shadow_deathcoil` icon path (unreliable in 12.x) with the addon's bundled `icon.png`, restoring the LibDBIcon minimap button.
+- **Tracked Options Window**: Fixed a crash on load (`bad argument #1 to 'SetSize'`) caused by Blizzard tightening argument validation. `SfuiDB.trackedOptionsWindow` was pre-initialized as `{}` by the database setup, making the existence check always truthy while `width`/`height` were still `nil`. Added explicit nil-guards for both values before calling `SetSize`.
 - **Match Mount**: Added a `C_Secrets.ShouldAurasBeSecret()` early-exit guard to `match_mount` in `automation.lua` so the target aura scan is skipped when aura data is restricted (e.g. in arena).
 
 ## v12.0.7-3 (2026-06-28)
