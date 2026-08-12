@@ -329,6 +329,10 @@ select_tab = function(frame, id)
 end
 
 function sfui.trackedoptions.toggle_viewer()
+    if SfuiDB.enableTrackingManager == false then
+        common.print("Tracking Manager is disabled in options.")
+        return
+    end
     local isShown = frame:IsShown()
     if not isShown then
         frame:SetScript("OnShow", function()

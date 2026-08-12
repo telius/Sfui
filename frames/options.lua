@@ -241,6 +241,24 @@ function sfui.create_options_panel()
         end
     end)
 
+    local enable_tracking_manager_cb = create_checkbox(main_panel, "enable tracking manager", function()
+        if SfuiDB.enableTrackingManager ~= nil then return SfuiDB.enableTrackingManager end
+        return true
+    end, function(checked)
+        SfuiDB.enableTrackingManager = checked
+        if open_cv_main then
+            if checked then open_cv_main:Enable() else open_cv_main:Disable() end
+        end
+        if not checked and SfuiCooldownsViewer and SfuiCooldownsViewer:IsShown() then
+            SfuiCooldownsViewer:Hide()
+        end
+    end, "Enables or disables the tracking manager module.")
+    enable_tracking_manager_cb:SetPoint("LEFT", open_cv_main, "RIGHT", 15, 0)
+
+    if SfuiDB.enableTrackingManager == false then
+        open_cv_main:Disable()
+    end
+
     local hide_minimap_icon_cb = create_checkbox(main_panel, "hide minimap icon", "minimap_icon.hide", function(checked)
         local icon = LibStub:GetLibrary("LibDBIcon-1.0", true)
         if icon then

@@ -583,16 +583,28 @@ function sfui.trackedbars.RemoveBar(cooldownID, suppressLayout)
     end
 end
 
--- Helper: Determine if bar should be visible based on settings
-local function ShouldBarBeVisible(config, blizzFrame, isStackModeWithStacks, hideInactive)
+-- Helper: Determine if bar should be visible based on settings.
+-- EUI pattern: IsActive() = plain Lua bool from self.isActive, never secret.
+-- In M+, Blizzard's IsExpired() crashes on expirationTime<=GetTime() which flips
+-- isActive to false. EUI's fix: if IsActive() is false, fall back to
+-- GetPlayerAuraBySpellID to confirm the aura is genuinely still present.
+local function ShouldBarBeVisible(config, blizzFrame, isStackModeWithStacks, hideInactive, spellID)
     if isStackModeWithStacks then
-        -- Always show stack mode bars with active stacks
         return true
     elseif hideInactive then
-        -- Only show if Blizzard shows it (it's active)
-        return blizzFrame:IsShown()
+        -- IsActive() reads self.isActive: plain Lua bool, never secret.
+        if blizzFrame.IsActive and blizzFrame:IsActive() then
+            return true
+        end
+        -- Fallback: Blizzard's isActive may have been flipped to false by the
+        -- IsExpired() secret crash in M+. Confirm via GetPlayerAuraBySpellID
+        -- (works for player's own spells even in restricted combat).
+        if spellID and spellID > 0 and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+            local fbAura = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
+            if fbAura then return true end
+        end
+        return false
     else
-        -- Show all bars regardless of active state
         return true
     end
 end
@@ -614,25 +626,34 @@ local function _pcall_get_duration_text(blizzFrame)
 end
 
 local function _pcall_sync_bar_values(blizzFrame, status, timeString, config, currentStacks)
-    local min, max = blizzFrame.Bar:GetMinMaxValues()
-    local val = blizzFrame.Bar:GetValue()
-    status:SetMinMaxValues(min, max)
-    common.SafeSetValue(status, val)
+    -- KEY: pass GetMinMaxValues() and GetValue() return values DIRECTLY as widget-setter
+    -- arguments, never storing them in local variables. Secret values crash the moment
+    -- Lua code stores or touches them (even just assignment to a local triggers the guard);
+    -- passing them directly as args to C SetMinMaxValues / SetValue is safe: the engine
+    -- handles them natively without Lua ever seeing the raw number.
+    -- (This is exactly what EllesmereUI does: sb:SetMinMaxValues(blizzBar:GetMinMaxValues()))
+    status:SetMinMaxValues(blizzFrame.Bar:GetMinMaxValues())
+    status:SetValue(blizzFrame.Bar:GetValue())
 
-    local barText = _pcall_get_duration_text(blizzFrame)
+    -- Timer text: GetText() returns a secret string in M+, but SetText accepts secrets.
+    -- Never compare, format, or length-check the string.
     local db = SfuiDB and SfuiDB.trackedBars or {}
     local showDur = not (db.showDuration == false or (config and config.showDuration == false))
     local wantCenteredStacks = (config and config.stackMode) or (config and config.showStacksText)
     local isTimerAndStacks = wantCenteredStacks and showDur
 
     if config and config.showStacksText and not isTimerAndStacks then
-        if type(currentStacks) == "number" or (not issecretvalue(currentStacks)) then
-            barText = tostring(currentStacks)
+        -- Stack text override: pass the currentStacks value directly to SetText.
+        -- issecretvalue check to avoid forbidden type() on a secret.
+        if not (issecretvalue and issecretvalue(currentStacks)) then
+            timeString:SetText(tostring(currentStacks))
         else
-            barText = currentStacks
+            timeString:SetText(currentStacks)  -- secret: pass through directly
         end
+    elseif blizzFrame.Bar and blizzFrame.Bar.Duration then
+        -- Pass Duration:GetText() directly to SetText — never store in a local.
+        timeString:SetText(blizzFrame.Bar.Duration:GetText())
     end
-    timeString:SetText(barText)
 end
 
 -- Helper: Sync bar data from Blizzard frame
@@ -648,6 +669,33 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
         end
     end
 
+
+
+    -- Seed the cast-mirror duration cache from a clean cooldown read.
+    -- This runs every SyncBarData tick so the mirror stays accurate with haste/CDR changes.
+    -- When reads are secret (M+ combat), the probe pcall fails and we preserve the last good value.
+    if myBar.spellID then
+        local cdMirrorCache = sfui.trackedbars._cdDurCache
+        if cdMirrorCache then
+            local ok, cd = pcall(C_Spell.GetSpellCooldown, myBar.spellID)
+            if ok and cd and cd.duration then
+                local probe = pcall(function() return cd.duration + 0 end)
+                if probe then
+                    cdMirrorCache[myBar.spellID] = cd.duration
+                end
+            else
+                -- Fall back to charge recharge duration (charge-based spells).
+                local ok2, ci = pcall(C_Spell.GetSpellCharges, myBar.spellID)
+                if ok2 and ci and ci.cooldownDuration then
+                    local probe2 = pcall(function() return ci.cooldownDuration + 0 end)
+                    if probe2 and ci.cooldownDuration > 0 then
+                        cdMirrorCache[myBar.spellID] = ci.cooldownDuration
+                    end
+                end
+            end
+        end
+    end
+
     -- Mirror Icon and Desaturation
     if blizzFrame.Icon and blizzFrame.Icon.Icon then
         myBar.icon:SetTexture(blizzFrame.Icon.Icon:GetTexture())
@@ -660,36 +708,49 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
         end
     end
 
-    -- Stack data gathering
+    -- Stack data gathering (EllesmereUI ReadStackApplications pattern)
     local currentStacks = nil
     local maxStacks = GetMaxStacksForBar(id, config, myBar.spellID)
 
-    -- 0. DIRECT UNRESTRICTED PLAYER AURA (Strongest Architecture for Player Buffs like Bone Shield)
-    -- This totally bypasses the CooldownViewer encryption pipeline. By natively asking
-    -- the UnitAuras API for our *own* buff, it hands us a completely unrestricted pure Lua
-    -- integer securely, avoiding any C++ Secret Value pointer quirks during rendering.
-    if myBar.spellID and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+    -- 0. Read cached aura data directly off the Blizzard frame (EUI primary source)
+    -- blizzFrame.auraDataCached reads cleanly without API calls or erroring; applications is plain on live/secret in 12.1.
+    local ad = blizzFrame.auraDataCached
+    if ad and ad.applications then
+        currentStacks = ad.applications
+        if ad.name then myBar.name:SetText(ad.name) end
+    end
+
+    -- 1. Direct Unrestricted Player Aura fallback
+    if not currentStacks and myBar.spellID and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
         local auraData = C_UnitAuras.GetPlayerAuraBySpellID(myBar.spellID)
-        if auraData and (type(auraData.applications) == "number" or issecretvalue(auraData.applications)) then
+        if auraData and auraData.applications then
             currentStacks = auraData.applications
             if auraData.name then myBar.name:SetText(auraData.name) end
         end
     end
 
-    -- 1. Try Aura Data via Instance ID (If not resolved by Tier 0)
-    if not currentStacks and common.HasAuraInstanceID(blizzFrame.auraInstanceID) then
+    -- 2. Try Aura Data via Instance ID fallback (EUI secondary fallback)
+    if not currentStacks and common.HasAuraInstanceID(blizzFrame.auraInstanceID)
+       and not (issecretvalue and issecretvalue(blizzFrame.auraInstanceID)) then
         local unit = blizzFrame.auraDataUnit or "player"
-        local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, blizzFrame.auraInstanceID)
-        if auraData then
-            -- Accept both plain numbers and Secret Values natively. A Secret Value here
-            -- is a memory-encrypted number that is safe to pass directly to SetValue().
-            if type(auraData.applications) == "number" or issecretvalue(auraData.applications) then
-                currentStacks = auraData.applications
-            end
-            -- Update name safely
+        local ok, auraData = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, unit, blizzFrame.auraInstanceID)
+        if ok and auraData and auraData.applications then
+            currentStacks = auraData.applications
             if auraData.name then myBar.name:SetText(auraData.name) end
         end
     end
+
+    -- EUI Floor rule: If the aura is active but applications reads nil/0 (e.g. 1-stack aura where Blizzard omits count), floor clean numbers at 1.
+    if currentStacks then
+        if not (issecretvalue and issecretvalue(currentStacks)) then
+            local n = tonumber(currentStacks)
+            if n and n < 1 then currentStacks = 1 end
+        end
+    elseif blizzFrame.IsActive and blizzFrame:IsActive() then
+        -- Frame is active but no application count was reported (e.g., 1-stack buff): floor at 1
+        currentStacks = 1
+    end
+
 
     -- 2. Try Spell Charges (for abilities with charges, mostly missing auraInstanceID)
     if not currentStacks and myBar.spellID then
@@ -703,17 +764,8 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
         end
     end
 
-    -- 3. Fallback to Text (Blizzard's Display) - UNRESTRICTED
-    if not currentStacks then
-        local ok, text = pcall(_pcall_get_app_text, blizzFrame)
-        if ok and text then
-            if issecretvalue(text) then
-                currentStacks = text
-            elseif text ~= "" then
-                currentStacks = text
-            end
-        end
-    end
+    -- 3. Fallback to Text (Blizzard's Display) - text is for text display, NOT for SetValue
+    -- (do not store string text into currentStacks because SetValue(currentStacks) expects a number or secret value)
 
     -- 4. Apply Cache Debounce to prevent 1-frame combat flicker
     -- When abilities like Bone Shield refresh, the Aura API can briefly report nil stacks.
@@ -827,19 +879,18 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
         local maxVal = type(maxStacks) == "number" and maxStacks or 10
         myBar.status:SetMinMaxValues(0, maxVal)
 
-        local currentVal = currentStacks
-        if not issecretvalue(currentStacks) and type(currentStacks) ~= "number" then
-            currentVal = tonumber(currentStacks) or 0
-        end
-
         if not skipSetValue then
-            myBar.status:SetValue(currentVal)
+            if currentStacks == nil then
+                myBar.status:SetValue(0)
+            else
+                myBar.status:SetValue(currentStacks)
+            end
         end
 
-        if type(currentStacks) == "number" or not issecretvalue(currentStacks) then
-            myBar.count:SetText(tostring(currentStacks)) -- Hidden but used for visibility logic
-        else
+        if issecretvalue and issecretvalue(currentStacks) then
             myBar.count:SetText(currentStacks)
+        else
+            myBar.count:SetText(currentStacks and tostring(currentStacks) or "0")
         end
 
         -- FORCE HIDE BLIZZ BAR COMPONENTS if strict
@@ -847,72 +898,55 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
 
         -- Sync Time Text
         if blizzFrame.Bar then
-            local ok, txt = pcall(_pcall_get_duration_text, blizzFrame)
-            if ok and txt then barText = txt end
+            local txt = _pcall_get_duration_text(blizzFrame)
+            if txt then barText = txt end
 
             if config and config.showStacksText and not isTimerAndStacks then
-                barText = tostring(currentStacks)
+                if issecretvalue and issecretvalue(currentStacks) then
+                    barText = currentStacks
+                else
+                    barText = currentStacks and tostring(currentStacks) or ""
+                end
             end
             myBar.time:SetText(barText)
         end
 
         -- Stack+Timer mode: override bar.name text to show stack count in center
-        -- (runs after aura-name assignments above so stacks always win)
         if isTimerAndStacks then
-            if issecretvalue(currentStacks) then
-                common.SafeSetText(myBar.name, currentStacks)
-            elseif type(currentStacks) == "number" then
-                myBar.name:SetText(currentStacks > 0 and tostring(currentStacks) or "")
+            if issecretvalue and issecretvalue(currentStacks) then
+                myBar.name:SetText(currentStacks)
             else
-                local numStacks = tonumber(currentStacks)
-                if numStacks and numStacks <= 0 then
-                    myBar.name:SetText("")
-                else
-                    myBar.name:SetText(tostring(currentStacks))
-                end
+                myBar.name:SetText(currentStacks and tostring(currentStacks) or "")
             end
         end
     else
         -- NORMAL MODE: Bar represents Duration
         if blizzFrame.Bar then
-            pcall(_pcall_sync_bar_values, blizzFrame, myBar.status, myBar.time, config, currentStacks)
+            _pcall_sync_bar_values(blizzFrame, myBar.status, myBar.time, config, currentStacks)
         end
         
         -- Override bar.name if we want centered stacks and timer
         if isTimerAndStacks then
-            if issecretvalue(currentStacks) then
-                common.SafeSetText(myBar.name, currentStacks)
-            elseif type(currentStacks) == "number" then
-                myBar.name:SetText(currentStacks > 0 and tostring(currentStacks) or "")
+            if issecretvalue and issecretvalue(currentStacks) then
+                myBar.name:SetText(currentStacks)
             else
-                local numStacks = tonumber(currentStacks)
-                if numStacks and numStacks <= 0 then
-                    myBar.name:SetText("")
-                else
-                    myBar.name:SetText(tostring(currentStacks))
-                end
+                myBar.name:SetText(currentStacks and tostring(currentStacks) or "")
             end
             
-            -- Also ensure myBar.time is showing the actual duration, since _pcall_sync_bar_values 
-            -- might have wrongly overridden it with stacks based on showStacksText alone
             if blizzFrame.Bar then
-                local ok, txt = pcall(_pcall_get_duration_text, blizzFrame)
-                if ok and txt then 
+                local txt = _pcall_get_duration_text(blizzFrame)
+                if txt then 
                     myBar.time:SetText(txt) 
                 end
             end
         end
 
-        if common.IsNumericAndPositive(currentStacks) then
+        if issecretvalue and issecretvalue(currentStacks) then
+            myBar.count:SetText(currentStacks)
+        elseif currentStacks then
             myBar.count:SetText(tostring(currentStacks))
         else
-            if issecretvalue(currentStacks) then
-                myBar.count:SetText(currentStacks)
-            elseif currentStacks ~= 0 and currentStacks ~= "0" and currentStacks ~= "" then
-                myBar.count:SetText(currentStacks)
-            else
-                myBar.count:SetText("")
-            end
+            myBar.count:SetText("")
         end
     end
 
@@ -1053,6 +1087,9 @@ local function ProcessBlizzardSync()
         for blizzFrame in BuffBarCooldownViewer.itemFramePool:EnumerateActive() do
             if blizzFrame.cooldownID then
                 blizzFrame:SetAlpha(0) -- Hide Blizzard frame regardless
+                -- Mark as active in the pool so ShouldBarBeVisible can trust it for
+                -- cooldown bars that have no auraInstanceID.
+                blizzFrame._sfui_active = true
 
                 local id = blizzFrame.cooldownID
                 local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(id)
@@ -1140,7 +1177,7 @@ local function ProcessBlizzardSync()
                             end
                         end
 
-                        local shouldShow = ShouldBarBeVisible(config, blizzFrame, isStackModeWithStacks, hideInactive)
+                        local shouldShow = ShouldBarBeVisible(config, blizzFrame, isStackModeWithStacks, hideInactive, myBar.spellID)
 
                         if shouldShow then
                             if not myBar:IsShown() then
@@ -1158,7 +1195,7 @@ local function ProcessBlizzardSync()
             end
         end
     end
-    pcall(processBlizzardFramesInternal)
+    processBlizzardFramesInternal()
 
     -- Cleanup with 0.25s graceful death to absorb Blizzard UI frame recreation blinking
     for id, bar in pairs(bars) do
@@ -1212,49 +1249,29 @@ function sfui.trackedbars.ForceLayoutUpdate()
 end
 
 -- Static update loop for bars (Eliminates OnUpdate closure churn)
+-- EUI pattern: raw API passthrough. issecretvalue-gate the arithmetic
+-- (exp - GetTime()) so we never touch a secret with an operator.
+-- Secret dur/exp → full bar SetValue(1), no crash, no pcall hiding.
 local function UpdateBarsState()
     if not BuffBarCooldownViewer or not BuffBarCooldownViewer.itemFramePool then return end
 
     for blizzFrame in BuffBarCooldownViewer.itemFramePool:EnumerateActive() do
         if blizzFrame.cooldownID then
-            -- Persistent Hide
             if blizzFrame.SetAlpha then blizzFrame:SetAlpha(0) end
 
             local myBar = bars[blizzFrame.cooldownID]
-            -- Only update if bar exists AND is shown (performance optimization)
             if myBar and myBar:IsShown() and blizzFrame.Bar then
-                -- Check Stack Mode
                 local config = GetTrackedBarConfig(blizzFrame.cooldownID)
                 local isStackMode = config and config.stackMode or false
 
-                -- Only copy bar animation values if NOT in stack mode
                 if not isStackMode then
-                    local val = blizzFrame.Bar:GetValue()
-                    common.SafeSetValue(myBar.status, val)
-                end
+                    -- Direct mirror from Blizzard's StatusBar (EllesmereUI lines 4576-4581).
+                    -- Passes values directly into widget setters without storing or modifying them in Lua context.
+                    myBar.status:SetMinMaxValues(blizzFrame.Bar:GetMinMaxValues())
+                    myBar.status:SetValue(blizzFrame.Bar:GetValue())
 
-                -- Update duration/name text
-                if blizzFrame.Bar.Duration then
-                    local text = blizzFrame.Bar.Duration:GetText() or ""
-                    local db = SfuiDB and SfuiDB.trackedBars or {}
-                    local showDur = not (db.showDuration == false or (config and config.showDuration == false))
-                    local wantCenteredStacks = (config and config.stackMode) or (config and config.showStacksText)
-                    local isTimerAndStacks = wantCenteredStacks and showDur
-
-                    if config and config.showStacksText and not isTimerAndStacks then
-                        if myBar.currentStacks then
-                            if type(myBar.currentStacks) == "number" or not issecretvalue(myBar.currentStacks) then
-                                text = tostring(myBar.currentStacks)
-                            else
-                                text = myBar.currentStacks
-                            end
-                        end
-                    end
-
-                    if issecretvalue(text) then
-                        myBar.time:SetText(text)
-                    else
-                        common.SafeSetText(myBar.time, text)
+                    if blizzFrame.Bar.Duration then
+                        myBar.time:SetText(blizzFrame.Bar.Duration:GetText() or "")
                     end
                 end
             end
@@ -1300,24 +1317,22 @@ function sfui.trackedbars.initialize()
     end)
 
     -- 12.0.5+: fires when Blizzard switches the aura data provider to/from obfuscated
-    -- mode (e.g. M+ key starts). When useRealDataProvider=false, all bars referencing
-    -- aura data will have stale/secret values. Hide everything immediately and flag for
-    -- a full rebuild. When returning to real data, flag for rebuild so bars reappear.
+    -- mode (e.g. M+ key starts / ends). When useRealDataProvider=false the aura fields
+    -- are secret, but bars should REMAIN VISIBLE — they just use safe sinks and the cast
+    -- mirror. We no longer hide everything on switch; we simply flag for a structural
+    -- re-evaluation so the tick loop re-validates frame bindings with secret-safe logic.
     sfui.events.RegisterEvent("AURA_DATA_PROVIDER_SWITCH", function(useRealDataProvider)
         if not useRealDataProvider then
-            -- Entering fake/secret aura mode — hide all active bars immediately.
+            -- Entering secret-aura mode: clear per-bar caches that relied on clean reads.
+            -- Do NOT hide bars — they must remain visible during M+ combat.
             for id, bar in pairs(bars) do
-                if bar:IsShown() then bar:Hide() end
-                -- Clear any cached stack/pandemic data so the next real UNIT_AURA
-                -- starts from a clean state rather than sustaining stale values.
-                bar._auraStackCache = nil
+                bar._auraStackCache = nil  -- clear stale clean-read cache
                 bar._auraStackTimer = nil
-                bar._stackPeakVal   = nil
-                bar._stackPeakTimer = nil
-                bar._inPandemic     = false
-                bar._cachedMaxDur   = nil
+                -- Keep _stackPeakVal alive: the peak-sustain guard still protects against
+                -- the transient-zero blip that happens as the mode switches.
+                bar._inPandemic = false
+                bar._cachedMaxDur = nil
             end
-            wipe(activeCooldownIDs)
         end
         -- Force a full structure sync on both entry and exit from obfuscated mode.
         sfui.trackedbars.isDirty = true
@@ -1356,6 +1371,54 @@ function sfui.trackedbars.initialize()
     end
 
     -- Register UNIT_AURA event for instant stack updates (12.0.1.65867+)
+
+    ---------------------------------------------------------------------------
+    -- Cast mirror for cooldown-tracking bars.
+    --
+    -- In M+/PvP combat C_Spell.GetSpellCooldown() returns startTime/duration as
+    -- Secret Values — we cannot subtract them from GetTime() without crashing.
+    -- However, UNIT_SPELLCAST_SUCCEEDED fires with a plain (never-secret) spellID
+    -- and we already know the spell's duration from the last clean read. Storing
+    -- { start=GetTime(), dur=<last-clean-dur> } lets us dead-reckon remaining time
+    -- during combat without ever touching a secret number arithmetically.
+    --
+    -- The mirror is keyed by spellID and is populated from two sources:
+    --   1. UNIT_SPELLCAST_SUCCEEDED — arms the mirror on each player cast edge.
+    --   2. Clean API reads in SyncBarData — keeps the duration estimate accurate
+    --      (CDR and haste adjustments happen between events).
+    ---------------------------------------------------------------------------
+    local _cdMirror   = {}   -- [spellID] = { start=number, dur=number }
+    local _cdDurCache = {}   -- [spellID] = last clean cooldown duration seen
+    sfui.trackedbars._cdMirror   = _cdMirror
+    sfui.trackedbars._cdDurCache = _cdDurCache
+
+    local cdMirrorFrame = CreateFrame("Frame")
+    cdMirrorFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    cdMirrorFrame:SetScript("OnEvent", function(_, event, _, _, castSid)
+        if event ~= "UNIT_SPELLCAST_SUCCEEDED" or not castSid then return end
+        -- spellID arg is always plain — safe to use directly.
+        local dur = _cdDurCache[castSid]
+        if not dur then
+            -- Try base cooldown as seed if we have no cached duration yet.
+            local ok, ms
+            if C_Spell and C_Spell.GetSpellBaseCooldown then
+                ok, ms = pcall(C_Spell.GetSpellBaseCooldown, castSid)
+            end
+            if ok and ms and not (issecretvalue and issecretvalue(ms)) and ms > 0 then
+                dur = ms / 1000
+            end
+        end
+        if dur and dur > 0 then
+            local m = _cdMirror[castSid]
+            if not m then m = {}; _cdMirror[castSid] = m end
+            -- Only arm if not already unexpired (charged spells: don't restart timer mid-recharge).
+            local now = GetTime()
+            if not m.start or (m.start + (m.dur or 0)) <= now then
+                m.start = now
+                m.dur   = dur
+            end
+        end
+    end)
 
 
     -- Hide Blizzard Frame
