@@ -712,7 +712,7 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
     local currentStacks = nil
     local maxStacks = GetMaxStacksForBar(id, config, myBar.spellID)
 
-    -- 0. Read cached aura data directly off the Blizzard frame (EUI primary source)
+    -- Primary: Read cached aura data directly off the Blizzard frame (EUI primary source)
     -- blizzFrame.auraDataCached reads cleanly without API calls or erroring; applications is plain on live/secret in 12.1.
     local ad = blizzFrame.auraDataCached
     if ad and ad.applications then
@@ -720,7 +720,7 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
         if ad.name then myBar.name:SetText(ad.name) end
     end
 
-    -- 1. Direct Unrestricted Player Aura fallback
+    -- Fallback 1: Direct Unrestricted Player Aura query
     if not currentStacks and myBar.spellID and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
         local auraData = C_UnitAuras.GetPlayerAuraBySpellID(myBar.spellID)
         if auraData and auraData.applications then
@@ -729,7 +729,7 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
         end
     end
 
-    -- 2. Try Aura Data via Instance ID fallback (EUI secondary fallback)
+    -- Fallback 2: Try Aura Data via Instance ID
     if not currentStacks and common.HasAuraInstanceID(blizzFrame.auraInstanceID)
        and not (issecretvalue and issecretvalue(blizzFrame.auraInstanceID)) then
         local unit = blizzFrame.auraDataUnit or "player"
@@ -740,23 +740,20 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
         end
     end
 
-    -- EUI Floor rule: If the aura is active but applications reads nil/0 (e.g. 1-stack aura where Blizzard omits count), floor clean numbers at 1.
+    -- EUI Floor rule: If active but applications reads nil/0 (1-stack buff where count is omitted), floor clean numbers at 1
     if currentStacks then
         if not (issecretvalue and issecretvalue(currentStacks)) then
             local n = tonumber(currentStacks)
             if n and n < 1 then currentStacks = 1 end
         end
     elseif blizzFrame.IsActive and blizzFrame:IsActive() then
-        -- Frame is active but no application count was reported (e.g., 1-stack buff): floor at 1
         currentStacks = 1
     end
 
-
-    -- 2. Try Spell Charges (for abilities with charges, mostly missing auraInstanceID)
+    -- Fallback 3: Try Spell Charges (for charge-based spells missing auraInstanceID)
     if not currentStacks and myBar.spellID then
         local ok, chargeInfo = pcall(C_Spell.GetSpellCharges, myBar.spellID)
         if ok and chargeInfo and chargeInfo.currentCharges and common.SafeGT(chargeInfo.maxCharges, 1) then
-            -- Accept secret numeric charges too
             local cc = chargeInfo.currentCharges
             if type(cc) == "number" or issecretvalue(cc) then
                 currentStacks = cc
@@ -764,19 +761,15 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
         end
     end
 
-    -- 3. Fallback to Text (Blizzard's Display) - text is for text display, NOT for SetValue
-    -- (do not store string text into currentStacks because SetValue(currentStacks) expects a number or secret value)
-
-    -- 4. Apply Cache Debounce to prevent 1-frame combat flicker
-    -- When abilities like Bone Shield refresh, the Aura API can briefly report nil stacks.
+    -- Debounce: prevent 1-frame combat flicker during aura refresh
     if currentStacks then
         myBar._auraStackCache = currentStacks
         myBar._auraStackTimer = GetTime()
     elseif myBar._auraStackCache and myBar._auraStackTimer then
         if GetTime() - myBar._auraStackTimer < 0.2 then
-            currentStacks = myBar._auraStackCache -- Sustain previous stack count momentarily
+            currentStacks = myBar._auraStackCache
         else
-            myBar._auraStackCache = nil           -- Expire cache
+            myBar._auraStackCache = nil
         end
     end
 
