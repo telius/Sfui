@@ -1,3 +1,14 @@
+## v12.1.0-2 (2026-08-13)
+
+### Bug Fixes
+- **Tracked Bars (Patch 12.1 Mythic+ Combat)**: Implemented direct statusbar min/max/value mirroring from Blizzard's `BuffBarCooldownViewer` to safely pass through secret values.
+- **Tracked Bars (Secret Aura Data Provider)**: Ensured tracked bars remain visible during Mythic+ combat when `AURA_DATA_PROVIDER_SWITCH` fires by switching to safe sink handlers.
+- **Tracked Bars (Cooldown Cast Mirror)**: Added spellcast dead-reckoning mirror for tracked cooldown bars listening to `UNIT_SPELLCAST_SUCCEEDED` to handle secret duration values in Mythic+.
+- **Tracked Options**: Added guard check in `toggle_viewer()` when `SfuiDB.enableTrackingManager` is disabled.
+
+### Infrastructure
+- **CI Release Automation**: Configured GitHub Actions workflow to automatically prune previous GitHub releases on new tag releases.
+
 ## v12.1.0-1 (2026-07-20)
 
 ### Compatibility
