@@ -25,6 +25,7 @@ local unpack = unpack
 
 -- Reusable tables (performance optimization)
 local standardBars = {}
+local attachedBars = {}
 local activeCooldownIDs = {}
 
 -- Helper to get tracking config for a specific ID
@@ -132,6 +133,8 @@ function sfui.trackedbars.InvalidateConfigCache()
         configPool[#configPool + 1] = v
     end
     wipe(configCache)
+    if sfui.trackedbars._cdMirror then wipe(sfui.trackedbars._cdMirror) end
+    if sfui.trackedbars._cdDurCache then wipe(sfui.trackedbars._cdDurCache) end
 end
 
 -- Helper to determine max stacks for a bar
@@ -424,11 +427,42 @@ local function ApplyBarStyling(bar, yOffset, config, cfg, globalDB)
 end
 
 
+-- Normal Sort (Normal Index > Name)
+local function NormalSort(a, b)
+    local cA = GetTrackedBarConfig(a.cooldownID)
+    local cB = GetTrackedBarConfig(b.cooldownID)
+
+    -- Default to 100 or legacy priority if unassigned, so they sit below manually bumped bars.
+    local nA = (cA and cA.normalIndex) or (cA and cA.priority) or 100
+    local nB = (cB and cB.normalIndex) or (cB and cB.priority) or 100
+
+    if nA ~= nB then return nA < nB end
+
+    local nA_name = C_Spell.GetSpellName(a.cooldownID) or ""
+    local nB_name = C_Spell.GetSpellName(b.cooldownID) or ""
+    return nA_name < nB_name
+end
+
+-- Attached Sort (Attached Index > Name)
+local function AttachedSort(a, b)
+    local cA = GetTrackedBarConfig(a.cooldownID)
+    local cB = GetTrackedBarConfig(b.cooldownID)
+
+    local aA = (cA and cA.attachedIndex) or (cA and cA.priority) or 100
+    local aB = (cB and cB.attachedIndex) or (cB and cB.priority) or 100
+
+    if aA ~= aB then return aA < aB end
+
+    local nA_name = C_Spell.GetSpellName(a.cooldownID) or ""
+    local nB_name = C_Spell.GetSpellName(b.cooldownID) or ""
+    return nA_name < nB_name
+end
+
 local function UpdateLayout()
     local cfg = sfui.config.trackedBars
     local globalDB = SfuiDB and SfuiDB.trackedBars or {}
     wipe(standardBars)
-    local attachedBars = {}
+    wipe(attachedBars)
 
     for _, bar in pairs(bars) do
         if bar:IsShown() then
@@ -446,37 +480,6 @@ local function UpdateLayout()
 
     -- Update container/child icon sizes if changed globally
     local iconSize = globalDB.iconSize or cfg.icon_size or 20
-
-    -- Normal Sort (Normal Index > Name)
-    local function NormalSort(a, b)
-        local cA = GetTrackedBarConfig(a.cooldownID)
-        local cB = GetTrackedBarConfig(b.cooldownID)
-        
-        -- Default to 100 or legacy priority if unassigned, so they sit below manually bumped bars.
-        local nA = (cA and cA.normalIndex) or (cA and cA.priority) or 100
-        local nB = (cB and cB.normalIndex) or (cB and cB.priority) or 100
-
-        if nA ~= nB then return nA < nB end
-
-        local nA_name = C_Spell.GetSpellName(a.cooldownID) or ""
-        local nB_name = C_Spell.GetSpellName(b.cooldownID) or ""
-        return nA_name < nB_name
-    end
-
-    -- Attached Sort (Attached Index > Name)
-    local function AttachedSort(a, b)
-        local cA = GetTrackedBarConfig(a.cooldownID)
-        local cB = GetTrackedBarConfig(b.cooldownID)
-        
-        local aA = (cA and cA.attachedIndex) or (cA and cA.priority) or 100
-        local aB = (cB and cB.attachedIndex) or (cB and cB.priority) or 100
-
-        if aA ~= aB then return aA < aB end
-
-        local nA_name = C_Spell.GetSpellName(a.cooldownID) or ""
-        local nB_name = C_Spell.GetSpellName(b.cooldownID) or ""
-        return nA_name < nB_name
-    end
 
     -- 1. Standard Layout
     table.sort(standardBars, NormalSort)
@@ -1101,9 +1104,7 @@ local function ProcessBlizzardSync()
                     isValidTrackedBar = true
                 end
 
-                if not isValidTrackedBar then
-                    -- Skip anything else entirely
-                else
+                if isValidTrackedBar then
                     local isSpecRestricted = false
 
                     if info and info.isKnown == false then
@@ -1134,13 +1135,6 @@ local function ProcessBlizzardSync()
                         end
 
                         local myBar = bars[id]
-                        -- Retroactive global name assignment for existing bars
-                        if not myBar:GetName() then
-                            local globalName = "sfui_bar" .. tostring(id) .. "_Backdrop"
-                            if id == 1 or id == -1 or id == 0 then
-                                _G[globalName] = myBar
-                            end
-                        end
 
                         local config = GetTrackedBarConfig(id) -- Cache config lookup once
                         local isStackMode = config and config.stackMode or false
