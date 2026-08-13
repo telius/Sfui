@@ -5,25 +5,40 @@ sfui.vehicle = {}
 -- SFUI Vehicle Bar
 --
 -- Displays up to 6 action buttons for the current vehicle/override/possess bar,
--- anchored to the CENTER icon panel (SfuiIconPanel_1) so it sits in the same
--- region as the player's tracked cooldown icons.
+-- positioned cleanly relative to UIParent using the exact screen coordinates
+-- of SfuiIconPanel_1 / player health & power bars.
 --
--- DESIGN PRINCIPLES (combat / M+ safe):
+-- DESIGN PRINCIPLES (combat / M+ safe & zero-allocation):
 --   * Visibility driven ONLY via RegisterStateDriver — no Lua Hide/Show from
---     event callbacks (would trigger ADDON_ACTION_BLOCKED on protected frames).
---   * Secure attributes set during ADDON_LOADED / PLAYER_REGEN_ENABLED (OOC).
---   * Cooldown/usable/icon updates run from a non-secure OnUpdate ticker.
---   * No EnableMouse() calls on any Blizzard protected frame.
+--     event callbacks (prevents ADDON_ACTION_BLOCKED on protected frames).
+--   * Zero-allocation 20Hz OnUpdate ticker: uses stored button references
+--     (no string concatenations or table instantiations in hot path).
+--   * Secure attributes set out-of-combat / deferred via pendingUpdate.
+--   * No EnableMouse() or Show()/Hide() calls on any Blizzard protected frame.
 -- ============================================================================
 
 local common = sfui.common
 local g      = sfui.config
 
--- NOTE: IsActionUsable / IsActionInRange must NOT be localized at file-load
--- time — they are nil until the game API is ready. Call them as globals.
-local GetActionCooldown = GetActionCooldown
-local GetActionInfo     = GetActionInfo
-local GetBindingKey     = GetBindingKey
+-- Upvalue localization for hot path performance
+local GetActionCooldown     = GetActionCooldown
+local GetActionInfo         = GetActionInfo
+local GetBindingKey         = GetBindingKey
+local HasAction             = HasAction
+local IsUsableAction        = C_ActionBar and C_ActionBar.IsUsableAction
+local IsActionInRange       = C_ActionBar and C_ActionBar.IsActionInRange
+local GetActionTexture      = C_ActionBar and C_ActionBar.GetActionTexture
+local issecretvalue         = common.issecretvalue
+
+-- Pre-allocated binding string lookup (prevents string allocation per refresh)
+local BINDING_NAMES = {
+    "ACTIONBUTTON1",
+    "ACTIONBUTTON2",
+    "ACTIONBUTTON3",
+    "ACTIONBUTTON4",
+    "ACTIONBUTTON5",
+    "ACTIONBUTTON6",
+}
 
 -- ─── Constants ───────────────────────────────────────────────────────────────
 local BTN_SIZE    = 54   -- 1.5× the trackedicons default of 36
@@ -111,13 +126,14 @@ for i = 1, MAX_BUTTONS do
         btn:SetPoint("LEFT", buttons[i - 1], "RIGHT", BTN_GAP, 0)
     end
 
-    -- Masque
-    sfui.common.sync_masque(btn, { Icon = btn.icon, Cooldown = cd })
+    -- Pre-allocated Masque sub-elements table (zero allocation on refresh)
+    btn.masqueSubElements = { Icon = btn.icon, Cooldown = cd }
+    sfui.common.sync_masque(btn, btn.masqueSubElements)
     if btn._isMasqued and btn.borderBackdrop then btn.borderBackdrop:Hide() end
 
     btn:SetScript("OnEnter", function(self)
         local action = self:GetAttribute("action")
-        if action then
+        if action and HasAction(action) then
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             GameTooltip:SetAction(action)
             GameTooltip:Show()
@@ -200,7 +216,7 @@ local function UpdateBar()
         local actionID = (barIndex - 1) * 12 + i
         btn:SetAttribute("action", actionID)
 
-        local tex = C_ActionBar.GetActionTexture(actionID)
+        local tex = GetActionTexture and GetActionTexture(actionID)
         if tex then
             btn.icon:SetTexture(tex)
             btn:SetAlpha(1)
@@ -210,15 +226,14 @@ local function UpdateBar()
         end
 
         -- Keybind label
-        local key = GetBindingKey("ACTIONBUTTON" .. i)
+        local key = GetBindingKey(BINDING_NAMES[i])
         if key then
             key = key:gsub("SHIFT%-","S-"):gsub("CTRL%-","C-"):gsub("ALT%-","A-"):gsub("NUMPAD","N")
         end
         btn.kb:SetText(key or "")
 
         -- Masque re-sync
-        local cd = _G[btn:GetName() .. "Cooldown"] or btn.cooldown
-        sfui.common.sync_masque(btn, { Icon = btn.icon, Cooldown = cd })
+        sfui.common.sync_masque(btn, btn.masqueSubElements)
         if btn._isMasqued and btn.borderBackdrop then btn.borderBackdrop:Hide() end
     end
 
@@ -237,10 +252,10 @@ local function UpdateCooldowns()
         if btn:GetAlpha() > 0 then
             local actionID = btn:GetAttribute("action")
             if actionID then
-                local cd = _G[btn:GetName() .. "Cooldown"] or btn.cooldown
+                local cd = btn.cooldown
                 if cd then
                     _start, _duration, _enable = GetActionCooldown(actionID)
-                    local isSecret = common.issecretvalue(_start) or common.issecretvalue(_duration)
+                    local isSecret = issecretvalue(_start) or issecretvalue(_duration)
                     if isSecret then
                         local ok = pcall(cd.SetCooldown, cd, _start, _duration)
                         if not ok then
@@ -279,9 +294,9 @@ local function UpdateUsable()
         if btn:GetAlpha() > 0 then
             local actionID = btn:GetAttribute("action")
             if actionID then
-                local usable, noMana = C_ActionBar.IsUsableAction(actionID)
-                local inRange = C_ActionBar.IsActionInRange and C_ActionBar.IsActionInRange(actionID)
-                if common.issecretvalue(usable) then
+                local usable, noMana = IsUsableAction and IsUsableAction(actionID)
+                local inRange = IsActionInRange and IsActionInRange(actionID)
+                if issecretvalue(usable) then
                     btn.icon:SetVertexColor(1, 1, 1)
                 elseif not usable then
                     if noMana then
