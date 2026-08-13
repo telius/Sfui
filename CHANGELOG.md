@@ -1,3 +1,11 @@
+## v12.1.0-4 (2026-08-14)
+
+### Features & Updates
+- **Research Trees (Patch 12.1 & Midnight)**: Added research and generic trait tree definitions for **Altar of Corrosion** (1191), **Omnium Folio** (1186), **Valeera Delve Season 2** (1177/1151), **Valeera Delve Season 1** (1168), **Zul'Aman Loa Blessing** (1166), **Coiled Isle System** (1192), **Atal'Utek Vaults** (1190), **Delve Companion Perks/Abilities/Specs** (1185, 1176, 1175, 1173), and **Void Research**.
+- **Alt Tracker Currencies (12.1 PTR / Midnight)**: Updated currency tracking in `alts.lua` with 12.1 PTR IDs: **Mistcrests** (Hero 3445, Myth 3446), **Spark of Tides** (Item 274476), **Venomblight Manaflux Catalyst** (3465), and **Corrosive Coin** (3110).
+- **Alt Tracker Weekly Quests**: Expanded weekly quest grid with Midnight World Bosses (`worldBoss`), Special Assignments (`specialAssignment`), Void Assaults (`voidAssaults`), and Prey Bounties (`prey`).
+- **Profession KP Tracking**: Added Midnight expansion skillLine ID mappings (`2903`–`2913`) to `PROF_KP_SOURCES` for seamless profession knowledge tracking across parent and expansion skill line APIs.
+
 ## v12.1.0-3 (2026-08-13)
 
 ### Features & Refactoring

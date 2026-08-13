@@ -137,6 +137,18 @@ local PROF_KP_SOURCES = {
     [393] = { treatise = { 95136 }, quest = { 93710, 93711, 93712, 93713, 93714 }, treasures = { { 88534, 88549, 88536, 88537, 88530 }, { 88529 } }, catchup = 3191 },         -- Skinning
     [197] = { treatise = { 95137 }, quest = { 93696 }, treasures = { { 93542 }, { 93543 } }, catchup = 3190 },                                                                 -- Tailoring
 }
+-- Midnight expansion skillLine ID mappings
+PROF_KP_SOURCES[2906] = PROF_KP_SOURCES[171] -- Alchemy
+PROF_KP_SOURCES[2907] = PROF_KP_SOURCES[164] -- Blacksmithing
+PROF_KP_SOURCES[2909] = PROF_KP_SOURCES[333] -- Enchanting
+PROF_KP_SOURCES[2908] = PROF_KP_SOURCES[202] -- Engineering
+PROF_KP_SOURCES[2905] = PROF_KP_SOURCES[182] -- Herbalism
+PROF_KP_SOURCES[2911] = PROF_KP_SOURCES[773] -- Inscription
+PROF_KP_SOURCES[2910] = PROF_KP_SOURCES[755] -- Jewelcrafting
+PROF_KP_SOURCES[2912] = PROF_KP_SOURCES[165] -- Leatherworking
+PROF_KP_SOURCES[2904] = PROF_KP_SOURCES[186] -- Mining
+PROF_KP_SOURCES[2903] = PROF_KP_SOURCES[393] -- Skinning
+PROF_KP_SOURCES[2913] = PROF_KP_SOURCES[197] -- Tailoring
 
 -- Configuration & Data Tables
 local CATEGORIES = {}
@@ -144,14 +156,15 @@ local CATEGORIES = {}
 local CURRENCIES = {
     {
         isGroup = true,
-        label = "Crests",
+        label = "Mistcrests",
         items = {
-            { id = 3345, icon = 7639521 }, -- Hero Dawncrest
-            { id = 3347, icon = 7639523 }, -- Gilded Dawncrest
+            { id = 3445, icon = 0 }, -- Hero Mistcrest
+            { id = 3446, icon = 0 }, -- Myth Mistcrest
         }
     },
-    { id = 3212, label = "Spark",    icon = 7551418, displayItem = 232875 }, -- Spark of Fortune / Spark of Radiance (item: usable count)
-    { id = 3378, label = "Catalyst", icon = 4622294 },                       -- Catalyst Charges
+    { id = 274476, label = "Spark",     icon = 0, isItem = true }, -- Spark of Tides
+    { id = 3465,   label = "Catalyst",  icon = 0 },                -- Venomblight Manaflux
+    { id = 3110,   label = "Corrosive Coin", icon = 136016 },      -- Corrosive Coin
     {
         isGroup = true,
         label = "Keys",
@@ -160,7 +173,7 @@ local CURRENCIES = {
             { id = 3310, icon = 133016 },  -- Coffer Key Shard
         }
     },
-    -- 12.0.5 Currencies and Items
+    -- 12.0.5 / 12.1 Currencies and Items
     {
         isGroup = true,
         label = "VoidCore",
@@ -625,12 +638,24 @@ function sfui.alts.PerformSync(isLogout)
             data.currencies[cDef.id] = count
         else
             local info = C_CurrencyInfo.GetCurrencyInfo(cDef.id)
+            if not info and cDef.fallbackIDs then
+                for _, fallbackID in ipairs(cDef.fallbackIDs) do
+                    info = C_CurrencyInfo.GetCurrencyInfo(fallbackID)
+                    if info then break end
+                end
+            end
             if info then
                 data.currencies[cDef.id] = data.currencies[cDef.id] or {}
                 local c = data.currencies[cDef.id]
-                -- If the currency has a linked displayItem, show item bag count instead of currency quantity.
-                -- e.g. Spark of Fortune accumulates as total earned; the spendable Spark of Radiance is an item.
-                if cDef.displayItem then
+                -- If the currency has a linked displayItem / displayItems, show item bag count instead of currency quantity.
+                -- e.g. Spark of Radiance (item 238047) / Spark of Fortune (item 232875) / Spark of Omens (item 211296).
+                if cDef.displayItems then
+                    local totalUsable = 0
+                    for _, itemID in ipairs(cDef.displayItems) do
+                        totalUsable = totalUsable + (C_Item.GetItemCount(itemID, false) or 0)
+                    end
+                    c.val = totalUsable
+                elseif cDef.displayItem then
                     c.val = C_Item.GetItemCount(cDef.displayItem, false) or 0
                 else
                     c.val = info.quantity
@@ -753,6 +778,22 @@ function sfui.alts.PerformSync(isLogout)
 
     -- Stormarion
     q.stormarion = GetQuestStatus(90962)
+
+    -- World Boss
+    local worldBossPool = { 92123, 92560, 92636, 92034 }
+    q.worldBoss = GetQuestStatus(nil, worldBossPool)
+
+    -- Special Assignment
+    local saPool = { 92145, 92063, 93013, 93438, 93244, 91390, 91796, 92139 }
+    q.specialAssignment = GetQuestStatus(nil, saPool)
+
+    -- Void Assaults
+    local voidAssaultsPool = { 94386, 94385 }
+    q.voidAssaults = GetQuestStatus(nil, voidAssaultsPool)
+
+    -- Prey Bounty
+    local preyPool = { 94446, 91277 }
+    q.prey = GetQuestStatus(nil, preyPool)
 
     -- Trovehunter's Bounty
     q.bounty = GetQuestStatus(86371)
@@ -1669,14 +1710,18 @@ function sfui.alts.UpdateUI(force)
                     -- Block definitions: core group (purple) then bonus group (amber)
                     local BLOCKS      = {
                         -- Core Pinnacle weeklies
-                        { key = "abundance",   label = "Abundance",  group = "core" },
-                        { key = "legends",     label = "Legends",    group = "core" },
-                        { key = "runestones",  label = "Runestones", group = "core" },
-                        { key = "stormarion",  label = "Stormarion", group = "core" },
+                        { key = "abundance",         label = "Abundance",   group = "core" },
+                        { key = "legends",           label = "Legends",     group = "core" },
+                        { key = "runestones",        label = "Runestones",  group = "core" },
+                        { key = "stormarion",        label = "Stormarion",  group = "core" },
+                        { key = "worldBoss",         label = "World Boss",  group = "core" },
                         -- Bonus / event weeklies
-                        { key = "bounty",      label = "Bounty",     group = "bonus" },
-                        { key = "gildedStash", label = "Stash",      group = "bonus", isCount = true },
-                        { key = "twRaid",      label = "TW Raid",    group = "bonus" },
+                        { key = "specialAssignment", label = "Special",     group = "bonus" },
+                        { key = "voidAssaults",      label = "Void",        group = "bonus" },
+                        { key = "prey",              label = "Prey",        group = "bonus" },
+                        { key = "bounty",            label = "Bounty",      group = "bonus" },
+                        { key = "gildedStash",       label = "Stash",       group = "bonus", isCount = true },
+                        { key = "twRaid",            label = "TW Raid",     group = "bonus" },
                     }
                     -- Colours: completed / inProgress / available — per group
                     local CORE_DONE   = { 0.40, 0.00, 1.00, 0.85 } -- #6600ff vivid purple
@@ -1688,9 +1733,10 @@ function sfui.alts.UpdateUI(force)
                     local CORE_TEXT   = "|cffaa66ff"               -- light purple for tooltip
                     local BONUS_TEXT  = "|cffffaa44"               -- light amber for tooltip
 
-                    local GAP         = 7                          -- px gap between group 1 and group 2
+                    local numBlocks   = #BLOCKS
+                    local GAP         = 6                          -- px gap between group 1 and group 2
                     local totalW      = cfg.columnWidth - 10
-                    local blockW      = (totalW - GAP) / 7
+                    local blockW      = (totalW - GAP) / numBlocks
 
                     for bIdx, block in ipairs(BLOCKS) do
                         local rect = cell["qRect" .. bIdx] or cell:CreateTexture(nil, "ARTWORK")
@@ -1698,8 +1744,8 @@ function sfui.alts.UpdateUI(force)
                         rect:Show()
                         rect:SetSize(blockW - 2, cfg.rowHeight - 12)
 
-                        -- Offset: blocks 5-7 get extra GAP nudge
-                        local xOff = (bIdx - 1) * blockW + 5 + (bIdx >= 5 and GAP or 0)
+                        -- Offset: blocks 6-11 (bonus) get extra GAP nudge
+                        local xOff = (bIdx - 1) * blockW + 5 + (bIdx >= 6 and GAP or 0)
                         rect:SetPoint("LEFT", xOff, 0)
 
                         local status   = q and q[block.key]
