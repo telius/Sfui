@@ -435,16 +435,6 @@ sfui.config = {
         spacing = 1,
     },
 
-    vehicle = {
-        enabled = true,
-        width = 300,
-        height = 60,
-        anchor = { point = "BOTTOM", x = 0, y = 50 },
-        button_size = 40,
-        button_spacing = 5,
-        leave_button_size = 30,
-    },
-
     merchant = {
         -- Grid layout
         grid = {

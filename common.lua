@@ -1877,13 +1877,6 @@ function sfui.common.create_styled_button(parent, text, width, height)
     return btn
 end
 
--- Vehicle action bar keybind text map
-sfui.common.VEHICLE_KEYBIND_MAP = {
-    [10] = "0",
-    [11] = "-",
-    [12] = "="
-}
-
 -- Moved from config.lua to clean up that file
 function sfui.initialize_database()
     if type(SfuiDB) ~= "table" then SfuiDB = {} end
@@ -1915,7 +1908,6 @@ function sfui.initialize_database()
     if SfuiDB.enableMasterHammer == nil then SfuiDB.enableMasterHammer = true end
     if SfuiDB.enableMerchant == nil then SfuiDB.enableMerchant = true end
     if SfuiDB.enableDecor == nil then SfuiDB.enableDecor = false end -- Opt-in feature
-    if SfuiDB.enableVehicle == nil then SfuiDB.enableVehicle = true end
     if SfuiDB.repairIconColor == nil then SfuiDB.repairIconColor = sfui.config.masterHammer.defaultColor end
     if SfuiDB.enableCursorRing == nil then SfuiDB.enableCursorRing = true end
     if SfuiDB.cursorRingScale == nil then SfuiDB.cursorRingScale = 1.0 end

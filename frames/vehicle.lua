@@ -1,359 +1,337 @@
 local addonName, addon = ...
 sfui.vehicle = {}
 
+-- ============================================================================
+-- SFUI Vehicle Bar
+--
+-- Displays up to 6 action buttons for the current vehicle/override/possess bar,
+-- anchored to the CENTER icon panel (SfuiIconPanel_1) so it sits in the same
+-- region as the player's tracked cooldown icons.
+--
+-- DESIGN PRINCIPLES (combat / M+ safe):
+--   * Visibility driven ONLY via RegisterStateDriver — no Lua Hide/Show from
+--     event callbacks (would trigger ADDON_ACTION_BLOCKED on protected frames).
+--   * Secure attributes set during ADDON_LOADED / PLAYER_REGEN_ENABLED (OOC).
+--   * Cooldown/usable/icon updates run from a non-secure OnUpdate ticker.
+--   * No EnableMouse() calls on any Blizzard protected frame.
+-- ============================================================================
+
+local common = sfui.common
+local g      = sfui.config
+
+-- NOTE: IsActionUsable / IsActionInRange must NOT be localized at file-load
+-- time — they are nil until the game API is ready. Call them as globals.
+local GetActionCooldown = GetActionCooldown
+local GetActionInfo     = GetActionInfo
+local GetBindingKey     = GetBindingKey
+
+-- ─── Constants ───────────────────────────────────────────────────────────────
+local BTN_SIZE    = 54   -- 1.5× the trackedicons default of 36
+local BTN_GAP     = 4
+local MAX_BUTTONS = 6   -- OverrideActionBar uses SpellButton1..6
+local TICK_RATE   = 0.05
+
+-- ─── Locals (zero-allocation tick) ───────────────────────────────────────────
+local _start, _duration, _enable
+
+-- ─── Secure container ────────────────────────────────────────────────────────
 local frame = CreateFrame("Frame", "SfuiVehicleBar", UIParent, "SecureHandlerStateTemplate")
+frame:SetFrameStrata("MEDIUM")
+frame:SetSize(MAX_BUTTONS * BTN_SIZE + (MAX_BUTTONS - 1) * BTN_GAP, BTN_SIZE)
+frame:SetPoint("BOTTOM", UIParent, "CENTER", 0, -200) -- overwritten by UpdateAnchor
 sfui.vehicle.frame = frame
 
-local GetActionCooldown = GetActionCooldown
-local GetActionCount = GetActionCount
-local GetActionCharges = GetActionCharges
-
-local cfg = sfui.config.vehicle
-local g = sfui.config
-local mult = sfui.pixelScale or 1
-
-frame:SetSize(cfg.width, cfg.height)
-frame:SetPoint(cfg.anchor.point, cfg.anchor.x, cfg.anchor.y)
-
--- Reuse locals
-local _v_start, _v_duration, _v_enable, _v_count, _v_charges, _v_maxCharges, _v_chargeStart, _v_chargeDuration, _v_displayCount, _v_isSecret, _v_actionID, _v_icon, _v_barIndex
-
--- Secret Value detached caches (prevents button frame taint while preventing memory loops)
-local _secretCacheStart = {}
-local _secretCacheDuration = {}
-
-local debounceFrame = CreateFrame("Frame")
-debounceFrame:Hide()
-debounceFrame:SetScript("OnUpdate", function(self)
-    self:Hide()
-    sfui.vehicle.UpdateActionButtons()
-end)
-
-local function RequestUpdate()
-    debounceFrame:Show()
+-- State driver: same conditions Blizzard uses for OverrideActionBar.
+-- Petbattle / skyriding stay hidden; quest vehicles, follower-dungeon
+-- controllers, possess bars, bonus bar 5 all show.
+local visString =
+    "[petbattle] hide; " ..
+    "[mounted,bonusbar:5] hide; " ..
+    "[vehicleui][possessbar][overridebar][bonusbar:5] show; " ..
+    "hide"
+if common.get_player_class() == "DRUID" then
+    visString = "[form:3,bonusbar:5] hide; [form:4,bonusbar:5] hide; " .. visString
 end
+RegisterStateDriver(frame, "visibility", visString)
 
-local function OnEnter(self)
-    local action = self:GetAttribute("action")
-    if action then
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetAction(action)
-        GameTooltip:Show()
-    end
-end
-
-local function OnLeave() GameTooltip:Hide() end
-
-local function LeaveOnEnter(self)
-    GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:SetText(LEAVE_VEHICLE)
-    GameTooltip:Show()
-end
-
--- Background
-frame.bg = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-frame.bg:SetAllPoints()
-frame.bg:SetBackdrop({
-    bgFile = g.textures.white,
-    edgeFile = g.textures.white,
-    edgeSize = mult,
-})
-frame.bg:SetBackdropColor(0, 0, 0, 0.5)
-frame.bg:SetBackdropBorderColor(g.colors.gray[1], g.colors.gray[2], g.colors.gray[3], 1)
-
--- Buttons
+-- ─── Buttons ─────────────────────────────────────────────────────────────────
 local buttons = {}
-for i = 1, 12 do
-    local btn = CreateFrame("CheckButton", "SfuiVehicleButton" .. i, frame,
-        "SecureActionButtonTemplate, ActionButtonTemplate")
-    btn:SetSize(cfg.button_size, cfg.button_size)
+
+for i = 1, MAX_BUTTONS do
+    local btn = CreateFrame(
+        "CheckButton",
+        "SfuiVehicleBtn" .. i,
+        frame,
+        "SecureActionButtonTemplate"
+    )
+    btn:SetSize(BTN_SIZE, BTN_SIZE)
     btn:SetID(i)
+    btn:SetAttribute("type",   "action")
+    btn:SetAttribute("action", i) -- initial; real value set in UpdateBar()
 
-    -- Style
-    if _G[btn:GetName() .. "Icon"] then _G[btn:GetName() .. "Icon"]:SetAlpha(0) end
-    if btn.Flash then btn.Flash:SetAlpha(0) end
-    if btn.NewActionTexture then btn.NewActionTexture:SetAlpha(0) end
-    if btn.Border then btn.Border:SetAlpha(0) end
-    if btn.HotKey then btn.HotKey:SetAlpha(0) end
+    -- Black border: plain BACKGROUND texture (matches trackedicons CreateIconFrame)
+    btn.borderBackdrop = btn:CreateTexture(nil, "BACKGROUND")
+    btn.borderBackdrop:SetAllPoints()
+    btn.borderBackdrop:SetColorTexture(0, 0, 0, 1)
 
-    if btn.Count then
-        btn.Count:ClearAllPoints()
-        btn.Count:SetPoint("BOTTOMRIGHT", -2, 2)
-        btn.Count:SetFontObject("GameFontHighlight")
-        btn.Count:SetJustifyH("RIGHT")
-        btn.Count:SetAlpha(1)
-    end
-
-    btn:SetNormalTexture("")
-    btn:SetPushedTexture("")
-    btn:SetHighlightTexture("")
-    btn:SetCheckedTexture("")
-
+    -- Custom square icon — same layer approach as trackedicons.lua
     btn.icon = btn:CreateTexture(nil, "ARTWORK")
-    btn.icon:SetAllPoints()
+    btn.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    btn.icon:SetPoint("TOPLEFT",     btn, "TOPLEFT",      2, -2)
+    btn.icon:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -2,  2)
 
-    sfui.common.apply_square_icon_style(btn, btn.icon)
+    -- Cooldown (anchored to inset icon)
+    local cd = CreateFrame("Cooldown", "SfuiVehicleBtn" .. i .. "Cooldown", btn, "CooldownFrameTemplate")
+    cd:SetPoint("TOPLEFT",     btn.icon, "TOPLEFT",     0, 0)
+    cd:SetPoint("BOTTOMRIGHT", btn.icon, "BOTTOMRIGHT", 0, 0)
+    cd:SetDrawEdge(true)
+    cd:SetHideCountdownNumbers(false)
+    cd:SetFrameLevel(btn:GetFrameLevel() + 2)
+    btn.cooldown = cd
 
-    local cd = _G[btn:GetName() .. "Cooldown"] or btn.cooldown
-    if cd then
-        cd:SetDrawEdge(true)
-        cd:SetHideCountdownNumbers(false)
-    end
-
-    local shadow = CreateFrame("Cooldown", "$parentShadowCD", btn, "CooldownFrameTemplate")
-    shadow:SetAllPoints(btn.icon)
-    shadow:SetDrawSwipe(false)
-    shadow:SetDrawEdge(false)
-    shadow:SetDrawBling(false)
-    shadow:SetHideCountdownNumbers(true)
-    shadow:SetAlpha(0)
-    btn.shadowCooldown = shadow
-
-    -- Keybind
+    -- Keybind label
     btn.kb = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     btn.kb:SetPoint("TOPRIGHT", -2, -2)
-    local kbText = sfui.common.VEHICLE_KEYBIND_MAP[i] or tostring(i)
-    btn.kb:SetText(kbText)
 
+    -- Highlight & Pushed textures (matching trackedicons style)
+    btn.HighlightTexture = btn:CreateTexture(nil, "HIGHLIGHT")
+    btn.HighlightTexture:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
+    btn.HighlightTexture:SetAllPoints()
+    btn:SetHighlightTexture(btn.HighlightTexture)
+
+    btn.PushedTexture = btn:CreateTexture(nil, "OVERLAY")
+    btn.PushedTexture:SetTexture("Interface\\Buttons\\UI-Quickslot-Depress")
+    btn.PushedTexture:SetAllPoints()
+    btn:SetPushedTexture(btn.PushedTexture)
+
+    -- Position
     if i == 1 then
-        btn:SetPoint("LEFT", cfg.button_spacing, 0)
+        btn:SetPoint("LEFT", frame, "LEFT", 0, 0)
     else
-        btn:SetPoint("LEFT", buttons[i - 1], "RIGHT", cfg.button_spacing, 0)
+        btn:SetPoint("LEFT", buttons[i - 1], "RIGHT", BTN_GAP, 0)
     end
 
-    sfui.common.sync_masque(btn)
+    -- Masque
+    sfui.common.sync_masque(btn, { Icon = btn.icon, Cooldown = cd })
+    if btn._isMasqued and btn.borderBackdrop then btn.borderBackdrop:Hide() end
 
-    btn:SetScript("OnEnter", OnEnter)
-    btn:SetScript("OnLeave", OnLeave)
+    btn:SetScript("OnEnter", function(self)
+        local action = self:GetAttribute("action")
+        if action then
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetAction(action)
+            GameTooltip:Show()
+        end
+    end)
+    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     buttons[i] = btn
 end
+sfui.vehicle.buttons = buttons
 
--- Leave Button
-local leaveBtn = CreateFrame("Button", "SfuiVehicleLeaveButton", frame, "SecureActionButtonTemplate")
-leaveBtn:SetSize(cfg.button_size, cfg.button_size) -- Match size for consistency
-leaveBtn:SetPoint("LEFT", buttons[12], "RIGHT", cfg.button_spacing * 2, 0)
-leaveBtn:RegisterForClicks("AnyUp")
+-- ─── Anchor ──────────────────────────────────────────────────────────────────
+-- Calculates the exact screen position of SfuiIconPanel_1 (or Power/Health bar)
+-- and anchors SfuiVehicleBar directly to UIParent. Anchoring directly to UIParent
+-- with absolute coordinates prevents any layout dependency or taint issues.
+local function UpdateAnchor()
+    frame:ClearAllPoints()
 
-local leaveIcon = leaveBtn:CreateTexture(nil, "ARTWORK")
-leaveIcon:SetAllPoints()
--- Use the standard modern Atlas for vehicle exit
-if not leaveIcon:SetAtlas("actionbar-vehicle-exit") then
-    leaveIcon:SetTexture("Interface\\Buttons\\UI-Panel-ExitButton-Up")
-end
-leaveBtn.Icon = leaveIcon
-leaveBtn.icon = leaveIcon -- For internal script compatibility if needed
-
-sfui.common.apply_square_icon_style(leaveBtn, leaveBtn.icon)
-
--- Keybind for Leave
-leaveBtn.kb = leaveBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-leaveBtn.kb:SetPoint("TOPRIGHT", -2, -2)
-leaveBtn.kb:SetText("=")
-
-sfui.common.sync_masque(leaveBtn)
-
-leaveBtn:SetScript("OnEnter", LeaveOnEnter)
-leaveBtn:SetScript("OnLeave", OnLeave)
-
-leaveBtn:SetScript("OnClick", function()
-    if UnitOnTaxi("player") then
-        TaxiRequestEarlyLanding()
+    -- Find reference frame to position beneath
+    local target = nil
+    local centerPanel = _G["SfuiIconPanel_1"]
+    if centerPanel and centerPanel:IsShown() then
+        target = centerPanel
     else
-        VehicleExit()
+        local powerBar = _G["sfui_bar-1_Backdrop"] or _G["sfui_bar_minus_1_Backdrop"]
+        if powerBar and powerBar:IsShown() then
+            target = powerBar
+        else
+            local hpBar = _G["sfui_bar0_Backdrop"]
+            if hpBar and hpBar:IsShown() then
+                target = hpBar
+            end
+        end
+    end
+
+    if target then
+        local cx, _ = target:GetCenter()
+        local b     = target:GetBottom()
+        if cx and b then
+            local scale = (target:GetEffectiveScale() or 1) / (UIParent:GetEffectiveScale() or 1)
+            cx = cx * scale
+            b  = b  * scale
+            frame:SetPoint("TOP", UIParent, "BOTTOMLEFT", cx, b - 4)
+            return
+        end
+    end
+
+    -- Fallback: center of screen above bottom action bars
+    frame:SetPoint("BOTTOM", UIParent, "CENTER", 0, -180)
+end
+
+-- ─── Bar-page resolver ───────────────────────────────────────────────────────
+local function GetVehicleBarIndex()
+    if C_ActionBar.HasVehicleActionBar()        then return C_ActionBar.GetVehicleBarIndex()          end
+    if C_ActionBar.HasOverrideActionBar()       then return C_ActionBar.GetOverrideBarIndex()          end
+    if C_ActionBar.HasTempShapeshiftActionBar() then return C_ActionBar.GetTempShapeshiftBarIndex()    end
+    if C_ActionBar.HasBonusActionBar()          then return C_ActionBar.GetBonusBarIndex()             end
+    return nil
+end
+
+-- ─── UpdateBar — sets secure attributes (must be out-of-combat) ──────────────
+local pendingUpdate = false
+
+local function UpdateBar()
+    if InCombatLockdown() then
+        pendingUpdate = true
+        return
+    end
+    pendingUpdate = false
+
+    local barIndex = GetVehicleBarIndex()
+    if not barIndex or barIndex == 0 then
+        for i = 1, MAX_BUTTONS do buttons[i]:SetAlpha(0) end
+        return
+    end
+
+    local lastVisible = 0
+    for i = 1, MAX_BUTTONS do
+        local btn = buttons[i]
+        local actionID = (barIndex - 1) * 12 + i
+        btn:SetAttribute("action", actionID)
+
+        local tex = C_ActionBar.GetActionTexture(actionID)
+        if tex then
+            btn.icon:SetTexture(tex)
+            btn:SetAlpha(1)
+            lastVisible = i
+        else
+            btn:SetAlpha(0)
+        end
+
+        -- Keybind label
+        local key = GetBindingKey("ACTIONBUTTON" .. i)
+        if key then
+            key = key:gsub("SHIFT%-","S-"):gsub("CTRL%-","C-"):gsub("ALT%-","A-"):gsub("NUMPAD","N")
+        end
+        btn.kb:SetText(key or "")
+
+        -- Masque re-sync
+        local cd = _G[btn:GetName() .. "Cooldown"] or btn.cooldown
+        sfui.common.sync_masque(btn, { Icon = btn.icon, Cooldown = cd })
+        if btn._isMasqued and btn.borderBackdrop then btn.borderBackdrop:Hide() end
+    end
+
+    -- Resize frame to fit only visible buttons
+    local w = math.max(1, lastVisible * BTN_SIZE + math.max(0, lastVisible - 1) * BTN_GAP)
+    frame:SetSize(w, BTN_SIZE)
+    UpdateAnchor()
+end
+sfui.vehicle.UpdateBar = UpdateBar
+
+-- ─── UpdateCooldowns — safe every tick, handles 12.1 secret values ───────────
+local function UpdateCooldowns()
+    if not frame:IsShown() then return end
+    for i = 1, MAX_BUTTONS do
+        local btn = buttons[i]
+        if btn:GetAlpha() > 0 then
+            local actionID = btn:GetAttribute("action")
+            if actionID then
+                local cd = _G[btn:GetName() .. "Cooldown"] or btn.cooldown
+                if cd then
+                    _start, _duration, _enable = GetActionCooldown(actionID)
+                    local isSecret = common.issecretvalue(_start) or common.issecretvalue(_duration)
+                    if isSecret then
+                        local ok = pcall(cd.SetCooldown, cd, _start, _duration)
+                        if not ok then
+                            local atype, spellID = GetActionInfo(actionID)
+                            if atype == "spell" and spellID
+                                and cd.SetCooldownFromDurationObject
+                                and C_Spell and C_Spell.GetSpellCooldownDuration then
+                                local ok2, obj = pcall(C_Spell.GetSpellCooldownDuration, spellID, true)
+                                if ok2 and obj then
+                                    cd:SetCooldownFromDurationObject(obj)
+                                else
+                                    cd:Clear()
+                                end
+                            else
+                                cd:Clear()
+                            end
+                        end
+                    else
+                        if not _enable or _enable == 0 or not _duration or _duration == 0 then
+                            cd:Clear()
+                        else
+                            cd:SetCooldown(_start, _duration)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- ─── UpdateUsable — icon tinting for usability / range ───────────────────────
+local function UpdateUsable()
+    if not frame:IsShown() then return end
+    for i = 1, MAX_BUTTONS do
+        local btn = buttons[i]
+        if btn:GetAlpha() > 0 then
+            local actionID = btn:GetAttribute("action")
+            if actionID then
+                local usable, noMana = C_ActionBar.IsUsableAction(actionID)
+                local inRange = C_ActionBar.IsActionInRange and C_ActionBar.IsActionInRange(actionID)
+                if common.issecretvalue(usable) then
+                    btn.icon:SetVertexColor(1, 1, 1)
+                elseif not usable then
+                    if noMana then
+                        btn.icon:SetVertexColor(0.4, 0.4, 1.0) -- out of resource
+                    else
+                        btn.icon:SetVertexColor(0.4, 0.4, 0.4) -- unusable
+                    end
+                elseif inRange == false then
+                    btn.icon:SetVertexColor(0.8, 0.2, 0.2)     -- out of range
+                else
+                    btn.icon:SetVertexColor(1, 1, 1)
+                end
+            end
+        end
+    end
+end
+
+-- ─── OnUpdate ticker (non-secure) ────────────────────────────────────────────
+local ticker = 0
+frame:SetScript("OnUpdate", function(_, elapsed)
+    ticker = ticker + elapsed
+    if ticker >= TICK_RATE then
+        ticker = 0
+        UpdateCooldowns()
+        UpdateUsable()
     end
 end)
 
--- Handle Vehicle State
--- Suppress during Dragonriding (skyriding) but only when on a mount
--- This avoids suppressing quest vehicles that might trigger dragonriding
-local visString = "[petbattle] hide; [mounted,bonusbar:5] hide; "
-if sfui.common.get_player_class() == "DRUID" then
-    visString = visString ..
-        "[form:3,bonusbar:5] hide; [form:4,bonusbar:5] hide; " -- Form 3 & 4 catches Travel/Moonkin edge cases
-end
-visString = visString .. "[vehicleui][possessbar][overridebar][bonusbar:5] show; hide"
+-- ─── OnShow — refresh everything when state driver shows us ──────────────────
+frame:SetScript("OnShow", function()
+    UpdateBar()
+end)
 
-RegisterStateDriver(frame, "visibility", visString)
-
-local function UpdateCooldowns()
-    if not frame:IsVisible() then return end
-    for i = 1, 12 do
-        local btn = buttons[i]
-        if btn:IsVisible() then
-            _v_actionID = btn:GetAttribute("action")
-            if _v_actionID then
-                _v_start, _v_duration, _v_enable = GetActionCooldown(_v_actionID)
-
-                if sfui.common.issecretvalue(_v_start) or sfui.common.issecretvalue(_v_duration) then
-                    -- Taint safety bypass: Secret values cannot be stored on the frame directly (taints the UI).
-                    -- We store a boolean flag to avoid infinite securecall loops.
-                    if not _secretCacheStart[btn] then
-                        local cd = _G[btn:GetName() .. "Cooldown"] or btn.cooldown
-                        -- Use safe pcall to avoid crash when SetCooldown rejects secret values
-                        local ok1 = true
-                        if cd then ok1 = pcall(cd.SetCooldown, cd, _v_start, _v_duration) end
-                        local ok2 = true
-                        if btn.shadowCooldown then ok2 = pcall(btn.shadowCooldown.SetCooldown, btn.shadowCooldown, _v_start, _v_duration) end
-                        
-                        -- If SetCooldown fails, it means 12.0.1 blocked secret values. Redirect through GetActionInfo -> DurationObject
-                        if not ok1 or not ok2 then
-                            local actionType, id = GetActionInfo(_v_actionID)
-                            if actionType == "spell" and C_Spell and C_Spell.GetSpellCooldownDuration then
-                                local ok_dur, durationObj = pcall(C_Spell.GetSpellCooldownDuration, id)
-                                if ok_dur and durationObj then
-                                    if cd and cd.SetCooldownFromDurationObject then cd:SetCooldownFromDurationObject(durationObj) end
-                                    if btn.shadowCooldown and btn.shadowCooldown.SetCooldownFromDurationObject then btn.shadowCooldown:SetCooldownFromDurationObject(durationObj) end
-                                end
-                            end
-                        end
-                        _secretCacheStart[btn] = true
-                        _secretCacheDuration[btn] = true
-                    end
-                else
-                    _secretCacheStart[btn] = nil
-                    _secretCacheDuration[btn] = nil
-                    
-                    if _v_start ~= btn._lastStart or _v_duration ~= btn._lastDuration then
-                        local cd = _G[btn:GetName() .. "Cooldown"] or btn.cooldown
-                        if cd then cd:SetCooldown(_v_start, _v_duration) end
-                        if btn.shadowCooldown then btn.shadowCooldown:SetCooldown(_v_start, _v_duration) end
-                        btn._lastStart = _v_start
-                        btn._lastDuration = _v_duration
-                    end
-                end
-
-                _v_count = GetActionCount(_v_actionID)
-                _v_charges, _v_maxCharges, _v_chargeStart, _v_chargeDuration = GetActionCharges(_v_actionID)
-                _v_displayCount = _v_charges or _v_count or 0
-
-                -- Gating: Count
-                _v_isSecret = sfui.common.issecretvalue(_v_displayCount) or sfui.common.issecretvalue(_v_maxCharges)
-                
-                if _v_isSecret then
-                    if btn.Count and btn.Count:IsShown() then
-                        btn.Count:Hide()
-                    end
-                    btn._lastCount = nil
-                    btn._lastMaxCharges = nil
-                else
-                    if _v_displayCount ~= btn._lastCount or _v_maxCharges ~= btn._lastMaxCharges then
-                        if btn.Count then
-                            if _v_displayCount > 0 or (_v_maxCharges and _v_maxCharges > 1) then
-                                btn.Count:SetText(tostring(_v_displayCount))
-                                btn.Count:Show()
-                            else
-                                btn.Count:Hide()
-                            end
-                        end
-                        btn._lastCount = _v_displayCount
-                        btn._lastMaxCharges = _v_maxCharges
-                    end
-                end
-            end
-        end
-    end
-end
-sfui.vehicle.UpdateCooldowns = UpdateCooldowns
-
-local function UpdateActionButtons()
-    if InCombatLockdown() then
-        frame.needsUpdate = true
-        return
-    end
-    frame.needsUpdate = false
-
-    if C_ActionBar.HasVehicleActionBar() then
-        _v_barIndex = C_ActionBar.GetVehicleBarIndex()
-    elseif C_ActionBar.HasOverrideActionBar() then
-        _v_barIndex = C_ActionBar.GetOverrideBarIndex()
-    elseif C_ActionBar.HasTempShapeshiftActionBar() then
-        _v_barIndex = C_ActionBar.GetTempShapeshiftBarIndex()
-    elseif C_ActionBar.HasBonusActionBar() then
-        _v_barIndex = C_ActionBar.GetBonusBarIndex()
-    else
-        _v_barIndex = C_ActionBar.GetActionBarPage()
-    end
-
-    if not _v_barIndex or _v_barIndex == 0 then _v_barIndex = 1 end
-
-    local lastIdx = 0
-    for i = 1, 12 do
-        local btn = buttons[i]
-        _v_actionID = (_v_barIndex - 1) * 12 + i
-        btn:SetAttribute("action", _v_actionID)
-
-        _v_icon = C_ActionBar.GetActionTexture(_v_actionID)
-        if _v_icon then
-            if btn.icon:GetTexture() ~= _v_icon then
-                btn.icon:SetTexture(_v_icon)
-            end
-            if not btn:IsShown() then btn:Show() end
-            lastIdx = i
-            -- Sync Masque state
-            sfui.common.sync_masque(btn)
-        else
-            if btn:IsShown() then btn:Hide() end
-        end
-    end
-
-    -- Ensure Leave button is visible and correctly anchored
-    if lastIdx > 0 then
-        local totalWidth = (cfg.button_size + cfg.button_spacing) * (lastIdx + 1) + cfg.button_spacing
-        if frame:GetWidth() ~= totalWidth then frame:SetWidth(totalWidth) end
-        leaveBtn:SetPoint("LEFT", buttons[lastIdx], "RIGHT", cfg.button_spacing, 0)
-        if not leaveBtn:IsShown() then leaveBtn:Show() end
-    end
-
-    UpdateCooldowns()
-end
-sfui.vehicle.UpdateActionButtons = UpdateActionButtons
-
+-- ─── Events ──────────────────────────────────────────────────────────────────
+frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 frame:RegisterEvent("UNIT_ENTERED_VEHICLE")
 frame:RegisterEvent("UNIT_EXITED_VEHICLE")
 frame:RegisterEvent("VEHICLE_UPDATE")
-frame:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
 frame:RegisterEvent("UPDATE_VEHICLE_ACTIONBAR")
 frame:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR")
 frame:RegisterEvent("UPDATE_POSSESS_BAR")
+frame:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
 frame:RegisterEvent("ACTIONBAR_UPDATE_STATE")
-frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-frame:RegisterEvent("PLAYER_REGEN_ENABLED")
-frame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
-frame:RegisterEvent("SPELL_UPDATE_CHARGES")
-frame:RegisterEvent("SPELL_UPDATE_USABLE")
+frame:RegisterEvent("UPDATE_BINDINGS")
 
-frame:SetScript("OnEvent", function(self, event, ...)
-    if not SfuiDB.enableVehicle then
-        self:Hide()
-        if UnregisterStateDriver then UnregisterStateDriver(self, "visibility") end
-        if OverrideActionBar then
-            OverrideActionBar:SetAlpha(1); OverrideActionBar:EnableMouse(true)
-        end
-        if MainMenuBarVehicleLeaveButton then
-            MainMenuBarVehicleLeaveButton:SetAlpha(1); MainMenuBarVehicleLeaveButton:EnableMouse(true)
-        end
-        return
-    end
-
-    if event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_CHARGES" or event == "SPELL_UPDATE_USABLE" then
-        UpdateCooldowns()
-        return
-    end
-
-    if event == "PLAYER_ENTERING_WORLD" or event == "UPDATE_BONUS_ACTIONBAR" or event == "VEHICLE_UPDATE"
-        or event == "UPDATE_VEHICLE_ACTIONBAR" or event == "UPDATE_OVERRIDE_ACTIONBAR" or event == "UPDATE_POSSESS_BAR"
-        or event == "UNIT_ENTERED_VEHICLE" or (event == "PLAYER_REGEN_ENABLED" and self.needsUpdate) then
-        RequestUpdate()
+frame:SetScript("OnEvent", function(self, event)
+    if event == "PLAYER_REGEN_ENABLED" then
+        if pendingUpdate then UpdateBar() end
+    else
+        UpdateBar()
     end
 end)
-
--- Suppress Blizzard
-if OverrideActionBar then
-    OverrideActionBar:SetAlpha(0)
-    OverrideActionBar:EnableMouse(false)
-end
-if MainMenuBarVehicleLeaveButton then
-    MainMenuBarVehicleLeaveButton:SetAlpha(0)
-    MainMenuBarVehicleLeaveButton:EnableMouse(false)
-end

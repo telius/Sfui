@@ -294,23 +294,13 @@ function sfui.create_options_panel()
         end, "automatically sets 'alwaysCompareItems' cvar.")
     enable_auto_compare_cb:SetPoint("TOPLEFT", enable_ring_cursor_cb, "BOTTOMLEFT", 0, -10)
 
-    local enable_vehicle_cb = create_checkbox(main_panel, "enable vehicle ui", "enableVehicle", function(checked)
-        if checked then
-            common.common.print("Vehicle UI enabled. Please reload UI for changes to fully apply.")
-        else
-            common.common.print("Vehicle UI disabled. Default WoW frame will be used on reload.")
-        end
-    end, "Enables the custom vehicle/overlay bar (requires reload).")
-    enable_vehicle_cb:SetPoint("TOPLEFT", enable_auto_compare_cb, "BOTTOMLEFT", 0, -20)
-
-
     local use_spec_color_cb = create_checkbox(main_panel, "use spec color", "useSpecColor", function(checked)
         if common.invalidate_spec_color_cache then common.invalidate_spec_color_cache() end
         -- This is a global setting that other modules can poll
         if sfui.bars and sfui.bars.update_settings then sfui.bars.update_settings() end
         if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
     end, "toggles whether the UI uses specialization/class based colors globally.")
-    use_spec_color_cb:SetPoint("TOPLEFT", enable_vehicle_cb, "BOTTOMLEFT", 0, -20)
+    use_spec_color_cb:SetPoint("TOPLEFT", enable_auto_compare_cb, "BOTTOMLEFT", 0, -20)
 
     local fallback_label = main_panel:CreateFontString(nil, "OVERLAY", g.font)
     fallback_label:SetPoint("LEFT", use_spec_color_cb, "RIGHT", 150, 0)
