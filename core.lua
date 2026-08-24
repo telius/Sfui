@@ -60,6 +60,12 @@ function sfui.slash_command_handler(msg)
         else
             sfui.common.print("sfui: cooldown viewer not available.")
         end
+    elseif msg == "ql" or msg == "quests" or msg == "questlog" then
+        if sfui.questlog and sfui.questlog.toggle then
+            sfui.questlog.toggle()
+        else
+            sfui.common.print("sfui: quest log not available.")
+        end
     end
 end
 
@@ -202,6 +208,9 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
         if sfui.lfg and sfui.lfg.initialize then
             sfui.lfg.initialize()
         end
+        if sfui.questlog and sfui.questlog.initialize then
+            sfui.questlog.initialize()
+        end
 
 
 
@@ -213,7 +222,7 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
         -- Initialize Minimap Menu
         if not SfuiMinimapMenu then
             SfuiMinimapMenu = CreateFrame("Frame", "SfuiMinimapMenu", UIParent, "BackdropTemplate")
-            SfuiMinimapMenu:SetSize(160, 155)
+            SfuiMinimapMenu:SetSize(160, 180)
             SfuiMinimapMenu:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
             SfuiMinimapMenu:SetBackdropColor(0, 0, 0, 0.5)
             SfuiMinimapMenu:SetFrameStrata("TOOLTIP")
@@ -254,6 +263,11 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
                     sfui.lootspec.Toggle()
                 end
             end, -130)
+            AddMenuButton("|cffee8833quest log|r", function()
+                if sfui.questlog and sfui.questlog.toggle then
+                    sfui.questlog.toggle()
+                end
+            end, -155)
 
             SfuiMinimapMenu.throttle = 0
             SfuiMinimapMenu.hideTimer = 0

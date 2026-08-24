@@ -1631,18 +1631,24 @@ function sfui.trackedoptions.RenderPanelSettings(parent, panel, xOffset, yOffset
                 end)
 
                 btn:SetScript("OnEnter", function(self)
-                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                    local tInfo = configID and C_Traits and C_Traits.GetSubTreeInfo and
-                        C_Traits.GetSubTreeInfo(configID, heroInfo)
-                    GameTooltip:SetText(tInfo and tInfo.name or "Unknown Spec")
-                    if whitelist[heroInfo] then
-                        GameTooltip:AddLine("Filter: ENABLED (Only show in this spec)", 0, 1, 0)
-                    else
-                        GameTooltip:AddLine("Filter: DISABLED (Always show)", 0.6, 0.6, 0.6)
+                    if GameTooltip then
+                        pcall(function()
+                            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                            local tInfo = configID and C_Traits and C_Traits.GetSubTreeInfo and
+                                C_Traits.GetSubTreeInfo(configID, heroInfo)
+                            GameTooltip:SetText(tInfo and tInfo.name or "Unknown Spec")
+                            if whitelist[heroInfo] then
+                                GameTooltip:AddLine("Filter: ENABLED (Only show in this spec)", 0, 1, 0)
+                            else
+                                GameTooltip:AddLine("Filter: DISABLED (Always show)", 0.6, 0.6, 0.6)
+                            end
+                            GameTooltip:Show()
+                        end)
                     end
-                    GameTooltip:Show()
                 end)
-                btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                btn:SetScript("OnLeave", function()
+                    if GameTooltip then GameTooltip:Hide() end
+                end)
 
                 -- Masque sync just to make it square if the user prefers, but left as default works too
                 if common.sync_masque then

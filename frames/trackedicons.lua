@@ -802,7 +802,6 @@ local function CreateIconFrame(parent, id, entry, panelConfig)
         local showTooltips = GetIconValue(self.entry.settings, panelConfig, "showTooltips", false)
         if showTooltips and GameTooltip and self.id and not issecretvalue(self.id) then
             pcall(function()
-                -- Safety: anchor to parent to prevent inheriting secret dimensional taint
                 GameTooltip:SetOwner(self:GetParent(), "ANCHOR_RIGHT")
                 if self.entry.type == "item" then
                     GameTooltip:SetItemByID(self.id)
@@ -814,8 +813,7 @@ local function CreateIconFrame(parent, id, entry, panelConfig)
         end
     end)
     f:SetScript("OnLeave", function(self)
-        local showTooltips = GetIconValue(self.entry.settings, panelConfig, "showTooltips", false)
-        if showTooltips and GameTooltip then pcall(GameTooltip.Hide, GameTooltip) end
+        if GameTooltip then GameTooltip:Hide() end
     end)
 
     -- Initial State: Show immediately

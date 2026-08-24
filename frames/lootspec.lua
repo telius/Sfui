@@ -5,7 +5,7 @@ sfui.lootspec                   = {}
 
 local CreateFrame               = CreateFrame
 local UIParent                  = UIParent
-local GameTooltip               = GameTooltip
+local GameTooltip               = _G.GameTooltip
 local GetNumSpecializations     = GetNumSpecializations
 local GetSpecialization         = GetSpecialization
 local GetSpecializationInfo     = GetSpecializationInfo
@@ -551,14 +551,20 @@ local function AcquireRow(parent)
             end)
             b:SetScript("OnEnter", function(self)
                 if not self.keyID then return end
-                local specID = GetSpecID(self)
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:SetText(specID == 0 and "no swap configured" or SpecName(specID))
-                GameTooltip:AddLine("|cffaaaaaaleft-click|r to cycle spec", 1, 1, 1)
-                GameTooltip:AddLine("|cffaaaaaaright-click|r to clear", 1, 1, 1)
-                GameTooltip:Show()
+                if GameTooltip then
+                    local specID = GetSpecID(self)
+                    pcall(function()
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        GameTooltip:SetText(specID == 0 and "no swap configured" or SpecName(specID))
+                        GameTooltip:AddLine("|cffaaaaaaleft-click|r to cycle spec", 1, 1, 1)
+                        GameTooltip:AddLine("|cffaaaaaaright-click|r to clear", 1, 1, 1)
+                        GameTooltip:Show()
+                    end)
+                end
             end)
-            b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            b:SetScript("OnLeave", function()
+                if GameTooltip then GameTooltip:Hide() end
+            end)
             return b
         end
 
@@ -629,17 +635,23 @@ local function AcquireRow(parent)
 
         w:SetScript("OnEnter", function(self)
             if not self.keyID then return end
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            if IsWarned(self) then
-                GameTooltip:SetText("bonus roll reminder |cff00ff00enabled|r")
-                GameTooltip:AddLine("|cffaaaaaaleft-click|r to disable", 1, 1, 1)
-            else
-                GameTooltip:SetText("bonus roll reminder |cffff0000disabled|r")
-                GameTooltip:AddLine("|cffaaaaaaleft-click|r to enable", 1, 1, 1)
+            if GameTooltip then
+                pcall(function()
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    if IsWarned(self) then
+                        GameTooltip:SetText("bonus roll reminder |cff00ff00enabled|r")
+                        GameTooltip:AddLine("|cffaaaaaaleft-click|r to disable", 1, 1, 1)
+                    else
+                        GameTooltip:SetText("bonus roll reminder |cffff0000disabled|r")
+                        GameTooltip:AddLine("|cffaaaaaaleft-click|r to enable", 1, 1, 1)
+                    end
+                    GameTooltip:Show()
+                end)
             end
-            GameTooltip:Show()
         end)
-        w:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        w:SetScript("OnLeave", function()
+            if GameTooltip then GameTooltip:Hide() end
+        end)
 
         r.warnBtn = w
 
@@ -994,13 +1006,19 @@ function sfui.lootspec.CreateFrame()
         RefreshDefBtn()
     end)
     defBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("spec restored after boss loot")
-        GameTooltip:AddLine("|cffaaaaaaleft-click|r to cycle", 1, 1, 1)
-        GameTooltip:AddLine("|cffaaaaaaright-click|r to reset", 1, 1, 1)
-        GameTooltip:Show()
+        if GameTooltip then
+            pcall(function()
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText("spec restored after boss loot")
+                GameTooltip:AddLine("|cffaaaaaaleft-click|r to cycle", 1, 1, 1)
+                GameTooltip:AddLine("|cffaaaaaaright-click|r to reset", 1, 1, 1)
+                GameTooltip:Show()
+            end)
+        end
     end)
-    defBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    defBtn:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
 
     -- inline auto-swap checkbox
     local enableCB = sfui.common.create_checkbox(frame, "auto-swap",

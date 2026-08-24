@@ -554,13 +554,6 @@ function sfui.minimap.enable_button_manager(enabled)
             button_bar:SetScript("OnEnter", update_alpha)
             button_bar:SetScript("OnLeave", function() C_Timer.After(0.1, update_alpha) end)
 
-            -- Event-driven mouseover detection using Minimap frame
-            -- This eliminates the 10Hz OnUpdate polling
-            if Minimap then
-                Minimap:HookScript("OnEnter", update_alpha)
-                Minimap:HookScript("OnLeave", function() C_Timer.After(0.1, update_alpha) end)
-            end
-
             button_bar.sfuiMouseoverHooked = true
         end
 

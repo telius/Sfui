@@ -12,18 +12,28 @@ sfui.portals_db = {}
 
 -- ========================
 -- Current M+ Season Portals ("Path of the ...")
--- Midnight Season 1 spell IDs
+-- Midnight Season 2 (12.1) spell IDs
 -- ========================
 sfui.portals_db.SEASON_PORTALS = {
+    { spell = 1264400, name = "Altar of Fangs",        instance = 2950 },
+    { spell = 1264572, name = "Murder Row",            instance = 2951 },
+    { spell = 1264559, name = "Den of Nalorakk",        instance = 2952 },
+    { spell = 1264563, name = "The Blinding Vale",      instance = 2953 },
+    { spell = 1264551, name = "Voidscar Arena",        instance = 2954 },
+    { spell = 2177723, name = "Kings' Rest",           instance = 1762 },
+    { spell = 2177727, name = "Temple of Sethraliss",  instance = 1877 },
+    { spell = 393256,  name = "Ruby Life Pools",       instance = 2520 },
+}
+
+-- ========================
+-- Midnight Expansion Portals
+-- Midnight expansion dungeon portals
+-- ========================
+sfui.portals_db.MIDNIGHT_PORTALS = {
     { spell = 1254400, name = "Windrunner Spire",        instance = 2805 },
     { spell = 1254572, name = "Magisters' Terrace",      instance = 2811 },
     { spell = 1254559, name = "Maisara Cavern",          instance = 2874 },
     { spell = 1254563, name = "Nexus Point Xenas",       instance = 2915 },
-    { spell = 1254551, name = "Seat of the Triumvirate", instance = 1753 },
-    { spell = 1254555, name = "Pit of Saron",            instance = 658  },
-    { spell = 159898,  name = "Skyreach",                instance = 1209 }, -- old spell ID
-    { spell = 1254557, name = "Skyreach (New)",          instance = 1209 }, -- new spell ID
-    { spell = 393273,  name = "Algeth'ar Academy",       instance = 2526 },
 }
 
 -- ========================
@@ -122,6 +132,12 @@ sfui.portals_db.LEGACY_GROUPS = {
         },
     },
     {
+        label = "Northrend",
+        portals = {
+            { spell = 1254555, name = "Pit of Saron"                 },
+        },
+    },
+    {
         label = "Pandaria",
         portals = {
             { spell = 131204, name = "Temple of the Jade Serpent"    },
@@ -138,6 +154,8 @@ sfui.portals_db.LEGACY_GROUPS = {
             { spell = 159895, name = "Bloodmaul Slag Mines"          },
             { spell = 159896, name = "Iron Docks"                    },
             { spell = 159897, name = "Auchindoun"                    },
+            { spell = 159898, name = "Skyreach"                     },
+            { spell = 1254557, name = "Skyreach (New)"               },
             { spell = 159899, name = "Shadowmoon Burial Grounds"     },
             { spell = 159900, name = "Grimrail Depot"                },
             { spell = 159901, name = "The Everbloom"                 },
@@ -151,6 +169,7 @@ sfui.portals_db.LEGACY_GROUPS = {
             { spell = 424153, name = "Black Rook Hold"               },
             { spell = 424163, name = "Darkheart Thicket"             },
             { spell = 410078, name = "Neltharion's Lair"             },
+            { spell = 1254551, name = "Seat of the Triumvirate"      },
         },
     },
     {
@@ -158,6 +177,8 @@ sfui.portals_db.LEGACY_GROUPS = {
         portals = {
             { spell = 410074, name = "The Underrot"                  },
             { spell = 424187, name = "Atal'Dazar"                    },
+            { spell = 2177723, name = "Kings' Rest"                  },
+            { spell = 2177727, name = "Temple of Sethraliss"         },
             { spell = 467553, name = "The MOTHERLODE!! (A)"          },
             { spell = 467555, name = "The MOTHERLODE!! (H)"          },
         },
@@ -276,5 +297,13 @@ sfui.portals_db.SHORT_STRINGS = {
     ["Nexus-Point Xenas"] = "NPX",
     ["Windrunner Spire"] = "SPIRE",
     ["Skyreach"] = "SKY",
-    ["Skyreach (New)"] = "SKY"
+    ["Skyreach (New)"] = "SKY",
+    ["Altar of Fangs"] = "AOF",
+    ["Murder Row"] = "MR",
+    ["Den of Nalorakk"] = "DON",
+    ["The Blinding Vale"] = "BV",
+    ["Voidscar Arena"] = "VA",
+    ["Kings' Rest"] = "KR",
+    ["Temple of Sethraliss"] = "TOS",
 }
+

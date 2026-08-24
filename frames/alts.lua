@@ -19,9 +19,14 @@ local GetServerTime = GetServerTime
 local GetMoney = GetMoney
 local AbbreviateLargeNumbers = AbbreviateLargeNumbers
 local table = table
+local math = math
+local math_max = math.max
+local math_min = math.min
+local math_floor = math.floor
 local wipe = wipe
 local C_Timer = C_Timer
 local unpack = unpack or table.unpack
+local GameTooltip = _G.GameTooltip
 
 -- Frame Pooling
 local columnPool = {}
@@ -190,7 +195,18 @@ local CURRENCIES = {
 
 -- Warband pool quests: IsQuestFlaggedCompleted is account-wide for these,
 -- so we track per-character completion via QUEST_TURNED_IN events.
-local LEGENDS_POOL = { 88993, 88994, 88996, 88997, 88995 }
+local LEGENDS_POOL = {
+    92713, -- Echoes Rekindled (Main wrapper)
+    92716, -- The Story of Wey'nan's Ward
+    92719, -- The Story of the Cauldron of Echoes
+    92721, -- The Story of the Echoless Flame
+    92720, -- The Story of Aln'hara's Bloom
+    92722, -- The Story of Russula's Outreach
+    92724, -- The Story of the Root of the World
+    92725, -- The Story of Sky's Hope
+    -- Legacy / Beta IDs
+    89268, 88993, 88994, 88996, 88997, 88995,
+}
 
 local BASE_CATEGORIES = {
     { name = "GENERAL",       label = "Character",     type = "header" },
@@ -687,52 +703,66 @@ function sfui.alts.PerformSync(isLogout)
     end
 
     -- Quests tracking (Midnight expansion)
+    -- Quests tracking (Midnight expansion - Champion Track & Higher)
     data.quests = data.quests or {}
     local q = data.quests
 
     -- Store Quest Details
     -- Matches WeeklyRewards Progress.Init() logic:
-    -- For pool-choice quests (e.g. Legends, Runestones):
+    -- For pool-choice quests (e.g. Unity, Legends, Runestones):
     --   - completion = IsQuestFlaggedCompleted on POOL sub-quest IDs (these reset weekly)
     --   - active/in-progress = IsOnQuest on pool sub-quest IDs
-    --   - The main wrapper quest ID (e.g. 89268) is NEVER checked with IsQuestFlaggedCompleted
+    --   - The main wrapper quest ID is NEVER checked with IsQuestFlaggedCompleted
     --     because wrapper quests often persist across resets permanently.
     -- For simple weekly quests (no pool): IsQuestFlaggedCompleted on the quest itself is reliable.
     -- skipFlagCheck: When true, do NOT use IsQuestFlaggedCompleted for pool quests.
     --   Use this for warband quests where the flag is account-wide but rewards
     --   are per-character. Completion is tracked locally via QUEST_TURNED_IN.
-    local function GetQuestStatus(questID, pool, skipFlagCheck)
-        if not questID then return { completed = false, progress = 0, active = false } end
+    local function GetQuestStatus(questID, pool, skipFlagCheck, maxCompletion)
+        if not questID and (not pool or #pool == 0) then
+            return { completed = false, progress = 0, active = false, done = 0, total = 1 }
+        end
         local progress = 0
         local progressText = nil
         local isActive = false
         local isCompleted = false
+        local doneCount = 0
+        local targetTotal = maxCompletion or 1
 
         if pool then
             -- Pool-choice weekly: check pool sub-quest IDs only (not the main wrapper quest).
             for _, pID in ipairs(pool) do
                 if not skipFlagCheck and C_QuestLog.IsQuestFlaggedCompleted(pID) then
-                    -- Pool sub-quest flagged completed this week → entire quest is done.
-                    isCompleted = true
-                    break
+                    doneCount = doneCount + 1
                 elseif C_QuestLog.IsOnQuest(pID) then
-                    -- Picked sub-quest is currently in the log → in progress.
                     isActive = true
                     local pProgress = C_TaskQuest.GetQuestProgressBarInfo(pID)
-                    if pProgress then progress = pProgress end
+                    if pProgress and pProgress > 0 then progress = pProgress end
                     local pobjs = C_QuestLog.GetQuestObjectives(pID)
                     if pobjs and #pobjs > 0 then
                         local done, total = 0, #pobjs
                         for _, obj in ipairs(pobjs) do
                             if obj.finished then done = done + 1 end
                         end
-                        progressText = string.format("%d/%d", done, total)
+                        if not progressText then
+                            progressText = string.format("%d/%d", done, total)
+                        end
                     end
-                    break
                 end
             end
+
+            if doneCount >= targetTotal then
+                isCompleted = true
+            elseif doneCount > 0 then
+                isActive = true
+            end
+
+            if targetTotal > 1 then
+                progressText = string.format("%d/%d", doneCount, targetTotal)
+            end
+
             -- Also check if the main wrapper is in the log but no sub-quest picked yet.
-            if not isActive and not isCompleted and C_QuestLog.IsOnQuest(questID) then
+            if questID and not isActive and not isCompleted and C_QuestLog.IsOnQuest(questID) then
                 isActive = true
             end
         else
@@ -755,50 +785,86 @@ function sfui.alts.PerformSync(isLogout)
                     end
                     progressText = string.format("%d/%d", finishedCount, numLeaderBoards)
                 end
+            else
+                doneCount = 1
             end
         end
 
-        return { completed = isCompleted, progress = progress, progressText = progressText, active = isActive }
+        return {
+            completed    = isCompleted,
+            progress     = progress,
+            progressText = progressText,
+            active       = isActive,
+            done         = doneCount,
+            total        = targetTotal,
+        }
     end
 
-    -- Abundance
+    -- 1. Unity Against the Void (Midnight Apex/Pinnacle Meta-Quest)
+    local unityPool = {
+        93766, 93767, 93769, 93889, 93890, 93891, 93892, 93909, 93910,
+        93911, 93912, 93913, 94457, 95842, 95843, 96727, 98232
+    }
+    q.unity = GetQuestStatus(93744, unityPool)
+
+    -- 2. Abundant Offerings (Eversong / Silvermoon Pinnacle Cache)
     q.abundance = GetQuestStatus(89507)
 
-    -- Legends (warband quest: IsQuestFlaggedCompleted is account-wide,
-    -- but rewards are per-character — track completion via QUEST_TURNED_IN)
+    -- 3. Legends of the Haranir / Echoes Rekindled (Warband quest)
     local prevLegendsCompleted = q.legends and q.legends.completed
-    q.legends = GetQuestStatus(89268, LEGENDS_POOL, true)
+    q.legends = GetQuestStatus(92713, LEGENDS_POOL, true)
     if prevLegendsCompleted and not q.legends.completed then
         q.legends.completed = true
     end
 
-    -- Runestones
+    -- 4. Saltheril's Soiree / Runestones
     local runestonesPool = { 90573, 90574, 90575, 90576 }
     q.runestones = GetQuestStatus(91966, runestonesPool)
 
-    -- Stormarion
+    -- 5. Stormarion Assault
     q.stormarion = GetQuestStatus(90962)
 
-    -- World Boss
-    local worldBossPool = { 92123, 92560, 92636, 92034 }
+    -- 6. Void Surges & Trailing Xal'atath (Patch 12.1 Pinnacle Weeklies)
+    local surgePool = { 96995, 98172 }
+    q.surges = GetQuestStatus(nil, surgePool)
+
+    -- 7. Special Assignment (2 per week)
+    local saPool = { 92145, 92063, 93013, 93438, 93244, 91390, 91796, 92139 }
+    q.specialAssignment = GetQuestStatus(nil, saPool, false, 2)
+
+    -- 8. World Boss (including Lair Boss Nymrissa Wavecaller)
+    local worldBossPool = { 92123, 92560, 92636, 92034, 97128 }
     q.worldBoss = GetQuestStatus(nil, worldBossPool)
 
-    -- Special Assignment
-    local saPool = { 92145, 92063, 93013, 93438, 93244, 91390, 91796, 92139 }
-    q.specialAssignment = GetQuestStatus(nil, saPool)
+    -- 9. Trovehunter's Bounty (Tier 8+ Bountiful Delve Map -> Hero/Champion track)
+    q.bounty = GetQuestStatus(86371)
 
-    -- Void Assaults
+    -- 10. Gilded Stash: Tier 11 Delve weekly cap (0-4), tracked via UI Widget 7591.
+    q.gildedStash = q.gildedStash or { done = 0, total = 4, completed = false, active = false }
+    local stashWidget = C_UIWidgetManager and C_UIWidgetManager.GetSpellDisplayVisualizationInfo(7591)
+    if stashWidget and stashWidget.spellInfo and stashWidget.spellInfo.tooltip then
+        local _, fulfilled = stashWidget.spellInfo.tooltip:match("COLOR:([^%d]*(%d)/4)")
+        local n = tonumber(fulfilled)
+        if n then
+            q.gildedStash.done      = n
+            q.gildedStash.active    = n > 0 and n < 4
+            q.gildedStash.completed = n >= 4
+        end
+    end
+
+    -- 11. Prey Bounty (Beacon: 94446, Preferential: 91277, Anguish: 96528)
+    local preyPool = { 94446, 91277, 96528 }
+    q.prey = GetQuestStatus(nil, preyPool)
+
+    -- 12. Void Assaults (Field Accolades -> Champion/Hero Gear)
     local voidAssaultsPool = { 94386, 94385 }
     q.voidAssaults = GetQuestStatus(nil, voidAssaultsPool)
 
-    -- Prey Bounty
-    local preyPool = { 94446, 91277 }
-    q.prey = GetQuestStatus(nil, preyPool)
+    -- 13. Weekly Bonus Event (Emissary of War: 93598, Delves: 93595, WQ: 93605, Battle: 93593, Arena: 93600)
+    local bonusEventPool = { 93598, 93595, 93605, 93593, 93600 }
+    q.bonusEvent = GetQuestStatus(nil, bonusEventPool)
 
-    -- Trovehunter's Bounty
-    q.bounty = GetQuestStatus(86371)
-
-    -- Timewalking Raid (one active per TW event week: Classic, TBC, WotLK, Cata/Firelands)
+    -- 14. Timewalking Raid (Heroic Raid Cache)
     local twRaidQuests = { 82817, 47523, 50316, 57637 }
     q.twRaid = { completed = false, progress = 0, active = false }
     for _, qID in ipairs(twRaidQuests) do
@@ -806,21 +872,6 @@ function sfui.alts.PerformSync(isLogout)
         if s.completed or s.active then
             q.twRaid = s
             break
-        end
-    end
-
-    -- Gilded Stash: Tier 11 Delve weekly cap (0-4), tracked via UI Widget 7591.
-    -- Widget only populates near Silvermoon City / Delve hub; alts not yet visited show 0/4.
-    q.gildedStash = q.gildedStash or { done = 0, total = 4, completed = false, active = false }
-
-    local stashWidget = C_UIWidgetManager and C_UIWidgetManager.GetSpellDisplayVisualizationInfo(7591)
-    if stashWidget and stashWidget.spellInfo and stashWidget.spellInfo.tooltip then
-        local _, fulfilled = stashWidget.spellInfo.tooltip:match("COLOR:([^%d]*(%d)/4)")
-        local n = tonumber(fulfilled)
-        if n then
-            q.gildedStash.done      = n
-            q.gildedStash.active    = n > 0
-            q.gildedStash.completed = n >= 4
         end
     end
 
@@ -1618,72 +1669,83 @@ function sfui.alts.UpdateUI(force)
 
                 -- Add tooltip for currency
                 cell:SetScript("OnEnter", function(self)
-                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                    if not isGroup then
-                        local tLine = tooltipLines[1]
-                        if tLine.itemConfig.isItem then
-                            GameTooltip:SetItemByID(tLine.itemConfig.id)
-                        else
-                            GameTooltip:SetCurrencyByID(tLine.itemConfig.id)
+                    if not GameTooltip then return end
+                    pcall(function()
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        if not isGroup then
+                            local tLine = tooltipLines[1]
+                            if tLine and tLine.itemConfig then
+                                if tLine.itemConfig.isItem then
+                                    if GameTooltip.SetItemByID then
+                                        GameTooltip:SetItemByID(tLine.itemConfig.id)
+                                    elseif GameTooltip.SetHyperlink and tLine.itemConfig.link then
+                                        GameTooltip:SetHyperlink(tLine.itemConfig.link)
+                                    end
+                                else
+                                    if GameTooltip.SetCurrencyByID then
+                                        GameTooltip:SetCurrencyByID(tLine.itemConfig.id)
+                                    end
+                                    if tLine.cData and type(tLine.cData) == "table" then
+                                        GameTooltip:AddLine(" ")
+                                        if tLine.cData.max and tLine.cData.max > 0 then
+                                            GameTooltip:AddDoubleLine("Weekly Earned:",
+                                                string.format("%d / %d", tLine.cData.earned or 0, tLine.cData.max), 1, 1, 1, 1, 1,
+                                                1)
+                                        elseif tLine.displayMaxQuantity > 0 then
+                                            local currentAmount = tLine.cData.useTotalEarned and tLine.cData.totalEarned or
+                                                tLine.cData.val
+                                            GameTooltip:AddDoubleLine("Season Earned:",
+                                                string.format("%d / %d", currentAmount or 0, tLine.displayMaxQuantity), 1, 1, 1,
+                                                1, 1, 1)
+                                        end
+                                        if tLine.isCapped then
+                                            GameTooltip:AddLine("Season/Weekly cap reached!", 1, 0, 0)
+                                        end
+                                    end
+                                end
+                            end
+                            GameTooltip:Show()
+                            return
+                        end
+
+                        -- Group tooltip
+                        GameTooltip:AddLine(cat.label, 1, 1, 1)
+                        for _, tLine in ipairs(tooltipLines) do
+                            local name
+                            if tLine.itemConfig.isItem then
+                                name = C_Item.GetItemInfo(tLine.itemConfig.id) or "Item"
+                            else
+                                local info = C_CurrencyInfo.GetCurrencyInfo(tLine.itemConfig.id)
+                                name = info and info.name or "Currency"
+                            end
+
+                            GameTooltip:AddLine(" ")
+                            GameTooltip:AddLine(string.format("|T%d:16:16:0:0|t %s", tLine.itemConfig.icon, name))
+
                             if tLine.cData and type(tLine.cData) == "table" then
-                                GameTooltip:AddLine(" ")
                                 if tLine.cData.max and tLine.cData.max > 0 then
                                     GameTooltip:AddDoubleLine("Weekly Earned:",
-                                        string.format("%d / %d", tLine.cData.earned or 0, tLine.cData.max), 1, 1, 1, 1, 1,
-                                        1)
+                                        string.format("%d / %d", tLine.cData.earned or 0, tLine.cData.max), 1, 1, 1, 1, 1, 1)
                                 elseif tLine.displayMaxQuantity > 0 then
                                     local currentAmount = tLine.cData.useTotalEarned and tLine.cData.totalEarned or
                                         tLine.cData.val
                                     GameTooltip:AddDoubleLine("Season Earned:",
-                                        string.format("%d / %d", currentAmount or 0, tLine.displayMaxQuantity), 1, 1, 1,
-                                        1, 1, 1)
+                                        string.format("%d / %d", currentAmount or 0, tLine.displayMaxQuantity), 1, 1, 1, 1, 1,
+                                        1)
+                                else
+                                    local val = tLine.cData.val or 0
+                                    GameTooltip:AddDoubleLine("Total:", tostring(val), 1, 1, 1, 1, 1, 1)
                                 end
                                 if tLine.isCapped then
                                     GameTooltip:AddLine("Season/Weekly cap reached!", 1, 0, 0)
                                 end
+                            else
+                                local val = tLine.cData or 0
+                                GameTooltip:AddDoubleLine("Total:", tostring(val), 1, 1, 1, 1, 1, 1)
                             end
                         end
                         GameTooltip:Show()
-                        return
-                    end
-
-                    -- Group tooltip
-                    GameTooltip:AddLine(cat.label, 1, 1, 1)
-                    for _, tLine in ipairs(tooltipLines) do
-                        local name
-                        if tLine.itemConfig.isItem then
-                            name = C_Item.GetItemInfo(tLine.itemConfig.id) or "Item"
-                        else
-                            local info = C_CurrencyInfo.GetCurrencyInfo(tLine.itemConfig.id)
-                            name = info and info.name or "Currency"
-                        end
-
-                        GameTooltip:AddLine(" ")
-                        GameTooltip:AddLine(string.format("|T%d:16:16:0:0|t %s", tLine.itemConfig.icon, name))
-
-                        if tLine.cData and type(tLine.cData) == "table" then
-                            if tLine.cData.max and tLine.cData.max > 0 then
-                                GameTooltip:AddDoubleLine("Weekly Earned:",
-                                    string.format("%d / %d", tLine.cData.earned or 0, tLine.cData.max), 1, 1, 1, 1, 1, 1)
-                            elseif tLine.displayMaxQuantity > 0 then
-                                local currentAmount = tLine.cData.useTotalEarned and tLine.cData.totalEarned or
-                                    tLine.cData.val
-                                GameTooltip:AddDoubleLine("Season Earned:",
-                                    string.format("%d / %d", currentAmount or 0, tLine.displayMaxQuantity), 1, 1, 1, 1, 1,
-                                    1)
-                            else
-                                local val = tLine.cData.val or 0
-                                GameTooltip:AddDoubleLine("Total:", tostring(val), 1, 1, 1, 1, 1, 1)
-                            end
-                            if tLine.isCapped then
-                                GameTooltip:AddLine("Season/Weekly cap reached!", 1, 0, 0)
-                            end
-                        else
-                            local val = tLine.cData or 0
-                            GameTooltip:AddDoubleLine("Total:", tostring(val), 1, 1, 1, 1, 1, 1)
-                        end
-                    end
-                    GameTooltip:Show()
+                    end)
                 end)
                 cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
             elseif cat.type == "quests_grid" then
@@ -1696,31 +1758,33 @@ function sfui.alts.UpdateUI(force)
                     text:Show()
                     text:SetText("-")
                     text:SetTextColor(0.4, 0.4, 0.4)
-                    for bIdx = 1, 7 do
+                    for bIdx = 1, 20 do
                         if cell["qRect" .. bIdx] then cell["qRect" .. bIdx]:Hide() end
                         if cell["qCount" .. bIdx] then cell["qCount" .. bIdx]:Hide() end
                     end
                     cell:SetScript("OnEnter", nil)
                     cell:SetScript("OnLeave", nil)
                 else
-                    -- Layout: [Abund][Legend][Runes][Storm] · [Bounty][TW Raid][Stash N/4]
                     text:Hide()
-                    local q           = alt.data.quests
+                    local q = alt.data.quests
 
-                    -- Block definitions: core group (purple) then bonus group (amber)
-                    local BLOCKS      = {
-                        -- Core Pinnacle weeklies
+                    -- Block definitions: Core Pinnacle Caches (purple) then High-Tier Events & Delves (amber)
+                    local BLOCKS = {
+                        -- Core Pinnacle weeklies (Champion track gear)
+                        { key = "unity",             label = "Unity",       group = "core" },
                         { key = "abundance",         label = "Abundance",   group = "core" },
                         { key = "legends",           label = "Legends",     group = "core" },
                         { key = "runestones",        label = "Runestones",  group = "core" },
                         { key = "stormarion",        label = "Stormarion",  group = "core" },
+                        { key = "surges",            label = "Surges",      group = "core" },
+                        { key = "specialAssignment", label = "Special",     group = "core", isCount = true },
                         { key = "worldBoss",         label = "World Boss",  group = "core" },
-                        -- Bonus / event weeklies
-                        { key = "specialAssignment", label = "Special",     group = "bonus" },
-                        { key = "voidAssaults",      label = "Void",        group = "bonus" },
+                        -- High-Tier Delve / Prey / Event weeklies (Champion / Hero track gear)
+                        { key = "bounty",            label = "Bounty Map",  group = "bonus" },
+                        { key = "gildedStash",       label = "Stash (T11)", group = "bonus", isCount = true },
                         { key = "prey",              label = "Prey",        group = "bonus" },
-                        { key = "bounty",            label = "Bounty",      group = "bonus" },
-                        { key = "gildedStash",       label = "Stash",       group = "bonus", isCount = true },
+                        { key = "voidAssaults",      label = "Void",        group = "bonus" },
+                        { key = "bonusEvent",        label = "Event",       group = "bonus" },
                         { key = "twRaid",            label = "TW Raid",     group = "bonus" },
                     }
                     -- Colours: completed / inProgress / available — per group
@@ -1734,7 +1798,7 @@ function sfui.alts.UpdateUI(force)
                     local BONUS_TEXT  = "|cffffaa44"               -- light amber for tooltip
 
                     local numBlocks   = #BLOCKS
-                    local GAP         = 6                          -- px gap between group 1 and group 2
+                    local GAP         = 6                          -- px gap between core and bonus group
                     local totalW      = cfg.columnWidth - 10
                     local blockW      = (totalW - GAP) / numBlocks
 
@@ -1742,15 +1806,15 @@ function sfui.alts.UpdateUI(force)
                         local rect = cell["qRect" .. bIdx] or cell:CreateTexture(nil, "ARTWORK")
                         cell["qRect" .. bIdx] = rect
                         rect:Show()
-                        rect:SetSize(blockW - 2, cfg.rowHeight - 12)
+                        rect:SetSize(math_max(2, blockW - 2), cfg.rowHeight - 12)
 
-                        -- Offset: blocks 6-11 (bonus) get extra GAP nudge
-                        local xOff = (bIdx - 1) * blockW + 5 + (bIdx >= 6 and GAP or 0)
+                        -- Offset: blocks 9-14 (bonus) get extra GAP nudge
+                        local xOff = (bIdx - 1) * blockW + 5 + (bIdx >= 9 and GAP or 0)
                         rect:SetPoint("LEFT", xOff, 0)
 
                         local status   = q and q[block.key]
                         local isDone   = status and status.completed
-                        local isActive = status and (status.active or (status.progress and status.progress > 0))
+                        local isActive = status and (status.active or (status.progress and status.progress > 0) or (status.done and status.done > 0 and not isDone))
 
                         if block.group == "core" then
                             if isDone then
@@ -1770,21 +1834,21 @@ function sfui.alts.UpdateUI(force)
                             end
                         end
 
-                        -- Stash: overlay N/4 text centred in block
+                        -- Counter overlay (e.g. Stash 0/4, Special Assignments 0/2)
                         if block.isCount then
                             local lbl = cell["qCount" .. bIdx]
                             if not lbl then
                                 lbl = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
                                 cell["qCount" .. bIdx] = lbl
                             end
-                            if isDone then
+                            if isDone or not status or (status.done and status.done == 0) then
                                 lbl:Hide()
                             else
                                 lbl:ClearAllPoints()
                                 lbl:SetPoint("CENTER", rect, "CENTER")
                                 lbl:Show()
                                 local done  = (status and status.done) or 0
-                                local total = (status and status.total) or 4
+                                local total = (status and status.total) or (block.key == "gildedStash" and 4 or 2)
                                 lbl:SetText(done .. "/" .. total)
                                 lbl:SetTextColor(unpack(sfui.config.colors.white))
                             end
@@ -1794,38 +1858,45 @@ function sfui.alts.UpdateUI(force)
                         end
                     end
 
+                    -- Hide any leftover rectangles from older sizes
+                    for bIdx = numBlocks + 1, 20 do
+                        if cell["qRect" .. bIdx] then cell["qRect" .. bIdx]:Hide() end
+                        if cell["qCount" .. bIdx] then cell["qCount" .. bIdx]:Hide() end
+                    end
+
                     cell:SetScript("OnEnter", function(self)
                         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                        GameTooltip:SetText("Weekly Quests")
+                        GameTooltip:SetText("Weekly Quests (Champion+ Gear)")
 
                         -- Core group header
-                        GameTooltip:AddLine("|cffaa66ffPinnacle Weeklies|r", 1, 1, 1)
+                        GameTooltip:AddLine("|cffaa66ffPinnacle Caches (Champion Track)|r", 1, 1, 1)
                         for _, block in ipairs(BLOCKS) do
-                            if block.group ~= "core" then break end
-                            local status = q and q[block.key]
-                            local color  = "|cff555555"
-                            local valStr = "Not Started"
-                            if status then
-                                if status.completed then
-                                    color  = CORE_TEXT
-                                    valStr = "Completed"
-                                elseif status.progressText then
-                                    color  = "|cff886699"
-                                    valStr = status.progressText
-                                elseif status.progress and status.progress > 0 then
-                                    color  = "|cff886699"
-                                    valStr = status.progress .. "%"
-                                elseif status.active then
-                                    color  = "|cff886699"
-                                    valStr = "In Progress"
+                            if block.group == "core" then
+                                local status = q and q[block.key]
+                                local color  = "|cff555555"
+                                local valStr = "Not Started"
+                                if status then
+                                    if status.completed then
+                                        color  = CORE_TEXT
+                                        valStr = "Completed"
+                                    elseif status.progressText then
+                                        color  = "|cff886699"
+                                        valStr = status.progressText
+                                    elseif status.progress and status.progress > 0 then
+                                        color  = "|cff886699"
+                                        valStr = status.progress .. "%"
+                                    elseif status.active then
+                                        color  = "|cff886699"
+                                        valStr = "In Progress"
+                                    end
                                 end
+                                GameTooltip:AddDoubleLine(block.label, color .. valStr .. "|r", 1, 1, 1, 1, 1, 1)
                             end
-                            GameTooltip:AddDoubleLine(block.label, color .. valStr .. "|r", 1, 1, 1, 1, 1, 1)
                         end
 
                         -- Bonus group header
                         GameTooltip:AddLine(" ")
-                        GameTooltip:AddLine("|cffffaa44Bonus Weeklies|r", 1, 1, 1)
+                        GameTooltip:AddLine("|cffffaa44Delves, Prey & Event Caches (Champion / Hero)|r", 1, 1, 1)
                         for _, block in ipairs(BLOCKS) do
                             if block.group == "bonus" then
                                 local status = q and q[block.key]
@@ -1833,6 +1904,8 @@ function sfui.alts.UpdateUI(force)
                                 local valStr = "Not Started"
                                 if block.key == "twRaid" and not (status and (status.completed or status.active)) then
                                     valStr = "No TW Event Active"
+                                elseif block.key == "bonusEvent" and not (status and (status.completed or status.active)) then
+                                    valStr = "No Event Quest Taken"
                                 end
                                 if status then
                                     if status.completed then
@@ -1841,6 +1914,9 @@ function sfui.alts.UpdateUI(force)
                                     elseif block.isCount and status.done and status.done > 0 then
                                         color  = "|cffcc8833"
                                         valStr = string.format("%d / %d", status.done, status.total or 4)
+                                    elseif status.progressText then
+                                        color  = "|cffcc8833"
+                                        valStr = status.progressText
                                     elseif status.active or (status.progress and status.progress > 0) then
                                         color  = "|cffcc8833"
                                         valStr = "In Progress"

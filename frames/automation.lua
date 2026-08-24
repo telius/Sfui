@@ -594,8 +594,64 @@ local function init_keystone_automation()
     end
 end
 
+local function apply_ah_current_expansion_filter()
+    if SfuiDB.ahCurrentExpansionFilter == false then return end
+    if not _G.AuctionHouseFrame then return end
+
+    if _G.g_auctionHouseFilters and _G.g_auctionHouseFilters.filters and Enum and Enum.AuctionHouseFilter then
+        _G.g_auctionHouseFilters.filters[Enum.AuctionHouseFilter.CurrentExpansionOnly] = true
+    end
+
+    local searchBar = _G.AuctionHouseFrame.SearchBar
+    if searchBar then
+        local fb = searchBar.FilterButton
+        if fb and fb.GetFilters and Enum and Enum.AuctionHouseFilter then
+            local filters = fb:GetFilters()
+            if filters then
+                filters[Enum.AuctionHouseFilter.CurrentExpansionOnly] = true
+            end
+        end
+        if searchBar.UpdateClearFiltersButton then
+            searchBar:UpdateClearFiltersButton()
+        end
+    end
+end
+
+local function init_auction_house_automation()
+    local ah = _G.AuctionHouseFrame
+    if not ah or ah._sfui_filter_hooked then return end
+    ah._sfui_filter_hooked = true
+
+    ah:HookScript("OnShow", function()
+        apply_ah_current_expansion_filter()
+    end)
+
+    local searchBar = ah.SearchBar
+    if searchBar then
+        searchBar:HookScript("OnShow", function()
+            apply_ah_current_expansion_filter()
+        end)
+        local fb = searchBar.FilterButton
+        if fb then
+            hooksecurefunc(fb, "Reset", function()
+                apply_ah_current_expansion_filter()
+            end)
+        end
+    end
+
+    if ah:IsShown() then
+        apply_ah_current_expansion_filter()
+    end
+end
+
 sfui.events.RegisterEvent("PLAYER_LOGIN", function()
     init_keystone_automation()
+    init_auction_house_automation()
+end)
+
+sfui.events.RegisterEvent("AUCTION_HOUSE_SHOW", function()
+    init_auction_house_automation()
+    apply_ah_current_expansion_filter()
 end)
 
 sfui.events.RegisterEvent("ADDON_LOADED", function(event, addon)
@@ -604,17 +660,6 @@ sfui.events.RegisterEvent("ADDON_LOADED", function(event, addon)
     end
 
     if addon == "Blizzard_AuctionHouseUI" then
-        -- AuctionHouseSearchBarMixin:OnShow calls FilterButton:Reset() each time the
-        -- AH opens, which wipes all filters back to AUCTION_HOUSE_DEFAULT_FILTERS
-        -- (CurrentExpansionOnly = false). We hook Reset to re-assert the flag after
-        -- Blizzard's own reset runs, so the filter is always on by default.
-        local fb = AuctionHouseFrame and AuctionHouseFrame.SearchBar and AuctionHouseFrame.SearchBar.FilterButton
-        if fb then
-            hooksecurefunc(fb, "Reset", function(self)
-                if SfuiDB.ahCurrentExpansionFilter ~= false then
-                    self.filters[Enum.AuctionHouseFilter.CurrentExpansionOnly] = true
-                end
-            end)
-        end
+        init_auction_house_automation()
     end
 end)

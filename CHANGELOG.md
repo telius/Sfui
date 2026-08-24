@@ -1,3 +1,12 @@
+## v12.1.0-5 (2026-08-24)
+
+### Features & Updates
+- **Custom Quest Log & Objective Tracker (`quests.lua`)**: Rebuilt custom Quest Log and Objective Tracker panel with zero-interaction isolation from Blizzard's `UIWidgetManager` and secret layout frames.
+- **Quest Log Toggle**: Added an `enable quest log` toggle in the Main tab of the Options panel (enabled by default) and `/sfquestlog` / `/sfql` slash command toggles.
+- **Zero-Interaction & Taint Prevention**: Decoupled `SfuiTooltip` from `"GameTooltipTemplate"` and switched to `"TooltipBackdropTemplate"` with `TooltipDataHandlerMixin`, eliminating secret arithmetic errors (`LayoutFrame.lua:491` / `Blizzard_UIWidgetTemplateTextWithState.lua:35`).
+- **MapCanvas & Pin Protection**: Replaced dynamic group finder queries with static quest log metadata and deferred tracker re-hiding, eliminating blocked action errors on `SetPassThroughButtons()` and `SetPropagateMouseClicks()`.
+- **World Quest Summary (`wqs.lua`)**: Reparented WQS UI elements to `UIParent` with deferred World Map synchronization and modern `C_TooltipInfo.GetQuestLogItem` scanning.
+
 ## v12.1.0-4 (2026-08-14)
 
 ### Features & Updates

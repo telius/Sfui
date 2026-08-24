@@ -8,7 +8,7 @@ local container
 local issecretvalue = common.issecretvalue
 local CreateFrame = CreateFrame
 local UIParent = UIParent
-local GameTooltip = GameTooltip
+local GameTooltip = _G.GameTooltip
 local C_Spell = C_Spell
 local InCombatLockdown = InCombatLockdown
 local wipe = table.wipe or wipe
@@ -271,23 +271,18 @@ local function CreateBar(cooldownID)
     bar:SetScript("OnEnter", function(self)
         if GameTooltip and self.spellID then
             local secureSpell = self.spellID
-            
-            -- Passing a Secret Value pointer to the global GameTooltip violently escalates 
-            -- the entire UI tooltip renderer into a deep C++ Secrecy Context, causing future 
-            -- string-width evaluations (like MoneyFrame coin positioning) to fail and crash!
             if issecretvalue(secureSpell) then
                 if type(self.cooldownID) == "number" then
                     secureSpell = self.cooldownID
                 else
-                    return -- Abort safely to preserve the global UI state
+                    return
                 end
             end
-            -- Anchor to the parent container instead of the bar itself!
-            -- Anchoring to a StatusBar that holds a secret value (like duration) mathematically
-            -- taints the entire GameTooltip's localized dimensions, crashing future money scans.
-            GameTooltip:SetOwner(self:GetParent(), "ANCHOR_RIGHT")
-            GameTooltip:SetSpellByID(secureSpell)
-            GameTooltip:Show()
+            pcall(function()
+                GameTooltip:SetOwner(self:GetParent(), "ANCHOR_RIGHT")
+                GameTooltip:SetSpellByID(secureSpell)
+                GameTooltip:Show()
+            end)
         end
     end)
     bar:SetScript("OnLeave", function()

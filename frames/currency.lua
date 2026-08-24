@@ -3,13 +3,16 @@ do
     local widget_frame, icons, value_labels = nil, {}, {}
 
     local function OnCurrencyIconEnter(self)
-        securecall(pcall, GameTooltip.SetOwner, GameTooltip, self, "ANCHOR_RIGHT")
-        securecall(pcall, GameTooltip.SetCurrencyByID, GameTooltip, self.id)
-        GameTooltip:Show()
+        if not GameTooltip or not self.id then return end
+        pcall(function()
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetCurrencyByID(self.id)
+            GameTooltip:Show()
+        end)
     end
 
     local function OnIconLeave(self)
-        GameTooltip:Hide()
+        if GameTooltip then GameTooltip:Hide() end
     end
 
     local function get_currency_details(currencyID)
@@ -80,13 +83,16 @@ do
     end
 
     local function OnIconLeave(self)
-        GameTooltip:Hide()
+        if sfui.tooltip then sfui.tooltip:Hide() end
     end
 
     local function OnItemIconEnter(self)
-        securecall(pcall, GameTooltip.SetOwner, GameTooltip, self, "ANCHOR_RIGHT")
-        securecall(pcall, GameTooltip.SetItemByID, GameTooltip, self.id)
-        GameTooltip:Show()
+        if not GameTooltip or not self.id then return end
+        pcall(function()
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetItemByID(self.id)
+            GameTooltip:Show()
+        end)
     end
 
     local function OnItemIconMouseUp(self, button)

@@ -43,7 +43,7 @@ local GetQuestLogLeaderBoard = _G.GetQuestLogLeaderBoard or function(...) end
 local GetNumQuestLeaderBoards = _G.GetNumQuestLeaderBoards or function(...) return 0 end
 local IsShiftKeyDown, ShowUIPanel = _G.IsShiftKeyDown, _G.ShowUIPanel
 local WorldMapFrame = _G.WorldMapFrame
-local GameTooltip, ITEM_QUALITY_COLORS = _G.GameTooltip, _G.ITEM_QUALITY_COLORS
+local ITEM_QUALITY_COLORS = _G.ITEM_QUALITY_COLORS
 local C_SuperTrack = _G.C_SuperTrack
 local wipe = _G.wipe or (_G.table and _G.table.wipe)
 local STAT_AVERAGE_ITEM_LEVEL = _G.STAT_AVERAGE_ITEM_LEVEL or "Item Level"
@@ -237,20 +237,20 @@ local function ScanQuestRewards(self, questID)
                     end
                 end
 
-                -- Tooltip Scan for scaling/warband
-                if self.ScanTooltip then
-                    securecall(pcall, self.ScanTooltip.SetOwner, self.ScanTooltip, WorldFrame, "ANCHOR_NONE")
-                    securecall(pcall, self.ScanTooltip.SetQuestLogItem, self.ScanTooltip, "reward", i, questID)
-                    local lines = self.ScanTooltip.leftLines
-                    for lineIdx = 2, math_min(self.ScanTooltip:NumLines(), 20) do
-                        local text = lines[lineIdx] and lines[lineIdx]:GetText()
-                        if text then
-                            if string_find(text, STAT_AVERAGE_ITEM_LEVEL) then
-                                local foundIlvl = string_match(text, "(%d+)")
-                                if foundIlvl then ilvl = math_max(ilvl, tonumber(foundIlvl) or 0) end
-                            end
-                            if string_find(text, "Warband reputation bonus") or string_find(text, "Account Bound") or string_find(text, "Warband Soulbound") then
-                                isWarbound = true
+                -- Item info / scaling / warband check via C_TooltipInfo (zero tooltip frame / zero UIWidget taint)
+                if C_TooltipInfo and C_TooltipInfo.GetQuestLogItem then
+                    local ok, tipInfo = pcall(C_TooltipInfo.GetQuestLogItem, "reward", i, questID)
+                    if ok and tipInfo and tipInfo.lines then
+                        for _, line in ipairs(tipInfo.lines) do
+                            local text = line.leftText
+                            if text then
+                                if string_find(text, STAT_AVERAGE_ITEM_LEVEL) then
+                                    local foundIlvl = string_match(text, "(%d+)")
+                                    if foundIlvl then ilvl = math_max(ilvl, tonumber(foundIlvl) or 0) end
+                                end
+                                if string_find(text, "Warband") or string_find(text, "Account Bound") then
+                                    isWarbound = true
+                                end
                             end
                         end
                     end
@@ -302,7 +302,7 @@ end
 
 
 
--- Constants (Strict Midnight Zones)
+-- Constants (Strict Midnight Zones & Content Patches 12.0.5, 12.0.7, 12.1)
 local MIDNIGHT_ZONES = {
     2393, -- Silvermoon City
     2395, -- Eversong Woods
@@ -310,15 +310,21 @@ local MIDNIGHT_ZONES = {
     2413, -- Harandar
     2405, -- Voidstorm
     2444, -- Slayer's Rise
+    2424, -- Isle of Quel'Danas
+    2599, -- Val (12.0.7 Showdown Zone)
+    2600, -- Naigtal (12.0.7 Showdown Zone)
+    2512, -- The Coiled Isle (12.1 Zone)
 }
 local function UpdateZoneCache()
-    if zoneCache["midnight"] then return zoneCache["midnight"] end
-    zoneCache["midnight"] = {}
+    if not zoneCache["midnight"] then
+        zoneCache["midnight"] = {}
+    end
     for _, zoneID in ipairs(MIDNIGHT_ZONES) do
-        local info = C_Map.GetMapInfo(zoneID)
-        if info then
-            local name = info.name or ("Map " .. zoneID)
-            zoneCache["midnight"][zoneID] = name
+        if not zoneCache["midnight"][zoneID] then
+            local info = C_Map.GetMapInfo(zoneID)
+            if info and info.name and info.name ~= "" then
+                zoneCache["midnight"][zoneID] = info.name
+            end
         end
     end
     return zoneCache["midnight"]
@@ -393,11 +399,18 @@ function WQS:Initialize()
         end)
 
         btn:SetScript("OnEnter", function(s)
-            GameTooltip:SetOwner(s, "ANCHOR_TOP")
-            GameTooltip:SetText(tooltipText)
-            GameTooltip:Show()
+            local tip = sfui.tooltip
+            if tip then
+                pcall(function()
+                    tip:SetOwner(s, "ANCHOR_TOP")
+                    tip:SetText(tooltipText)
+                    tip:Show()
+                end)
+            end
         end)
-        btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        btn:SetScript("OnLeave", function()
+            if sfui.tooltip then sfui.tooltip:Hide() end
+        end)
 
         btn:updateBtnStyle()
         return btn
@@ -424,12 +437,19 @@ function WQS:Initialize()
         pinBtn:updateBtnStyle()
     end)
     pinBtn:SetScript("OnEnter", function(s)
-        GameTooltip:SetOwner(s, "ANCHOR_TOP")
-        GameTooltip:SetText("Toggle Detach/Pin Frame")
-        GameTooltip:AddLine("When detached, frame stays visible and can be dragged.", 1, 1, 1, true)
-        GameTooltip:Show()
+        local tip = sfui.tooltip
+        if tip then
+            pcall(function()
+                tip:SetOwner(s, "ANCHOR_TOP")
+                tip:SetText("Toggle Detach/Pin Frame")
+                tip:AddLine("When detached, frame stays visible and can be dragged.", 1, 1, 1, true)
+                tip:Show()
+            end)
+        end
     end)
-    pinBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    pinBtn:SetScript("OnLeave", function()
+        if sfui.tooltip then sfui.tooltip:Hide() end
+    end)
     pinBtn:updateBtnStyle()
     self.PinButton = pinBtn
 
@@ -457,14 +477,6 @@ function WQS:Initialize()
     self:SetBackdropColor(0, 0, 0, 0.7)
 
     -- Expansion Dropdown Removed (Strictly Midnight)
-
-    self.ScanTooltip = CreateFrame("GameTooltip", "SfuiWQSScanTooltip", nil, "GameTooltipTemplate")
-    self.ScanTooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
-    -- Cache high-frequency tooltip lines
-    self.ScanTooltip.leftLines = {}
-    for i = 1, 30 do
-        self.ScanTooltip.leftLines[i] = _G["SfuiWQSScanTooltipTextLeft" .. i]
-    end
 
     -- Sort Headers
     local sortHeader = CreateFrame("Frame", nil, self)
@@ -624,11 +636,10 @@ function WQS:AttachToMap()
     if not WorldMapFrame then return end
     self:SetupMapHooks()
     self:ClearAllPoints()
-    self:SetParent(WorldMapFrame)
+    self:SetParent(UIParent)
     self:SetFrameStrata("HIGH")
-    self:SetFrameLevel(WorldMapFrame:GetFrameLevel() + 2)
-    -- Correct positioning (Bottom Right of World Map)
-    self:SetPoint("TOPRIGHT", WorldMapFrame, "BOTTOMRIGHT", 5, -13) -- Shifted 5 right, 13 down
+    -- Position relative to WorldMapFrame without parenting to it
+    self:SetPoint("TOPRIGHT", WorldMapFrame, "BOTTOMRIGHT", 5, -13)
     self:SetSize(620, 200)
 end
 
@@ -636,15 +647,19 @@ function WQS:SetupMapHooks()
     if not WorldMapFrame or self.mapHooksDone then return end
     self.mapHooksDone = true
 
-    WorldMapFrame:HookScript("OnShow", function()
+    hooksecurefunc(WorldMapFrame, "Show", function()
         if not (SfuiDB and SfuiDB.wqsState and SfuiDB.wqsState.detached) then
-            self:Show()
-            self:Refresh()
+            -- Defer to next tick so Blizzard's WorldMapFrame:Show() and MapCanvas pin
+            -- creation (SetPropagateMouseClicks) complete in a 100% untainted context.
+            C_Timer.After(0, function()
+                if WorldMapFrame and WorldMapFrame:IsShown() and not (SfuiDB and SfuiDB.wqsState and SfuiDB.wqsState.detached) then
+                    self:Show()
+                    self:Refresh()
+                end
+            end)
         end
-        -- Second refresh after a short delay for data loading
-        C_Timer.After(1, function() if self:IsShown() then self:Refresh() end end)
     end)
-    WorldMapFrame:HookScript("OnHide", function()
+    hooksecurefunc(WorldMapFrame, "Hide", function()
         if not (SfuiDB and SfuiDB.wqsState and SfuiDB.wqsState.detached) then
             self:Hide()
         end
@@ -652,9 +667,8 @@ function WQS:SetupMapHooks()
 
     -- Map Highlight Frame (Red Ring)
     if not self.MapHighlight then
-        -- Parent to WorldMapFrame (non-secure) instead of the canvas to avoid
-        -- tainting the canvas's protected child hierarchy (SetPassThroughButtons).
-        local hl = CreateFrame("Frame", "SfuiWQSMapHighlight", WorldMapFrame)
+        -- Parent to UIParent so map canvas/pin hierarchy is completely untouched
+        local hl = CreateFrame("Frame", "SfuiWQSMapHighlight", UIParent)
         hl:SetSize(128, 128)
         hl:SetFrameStrata("TOOLTIP")
         hl:Hide()
@@ -776,40 +790,45 @@ function WQS:CreateRow()
 
         row:SetScript("OnEnter", function(s)
             s.Highlight:Show()
-            securecall(pcall, GameTooltip.SetOwner, GameTooltip, s, "ANCHOR_RIGHT")
-
-            local success = false
-            if GameTooltip.SetWorldQuestByID then
-                success = securecall(pcall, GameTooltip.SetWorldQuestByID, GameTooltip, s.questID)
-            end
-            if not success then
-                success = securecall(pcall, GameTooltip.SetQuestLogItem, GameTooltip, "reward", 1, s.questID)
-            end
-
-            local numObjs = GetNumQuestLeaderBoards(s.questID)
-            if common.SafeGT(numObjs, 0) then
-                GameTooltip:AddLine(" ")
-                for i = 1, numObjs do
-                    local text, _, finished = GetQuestLogLeaderBoard(i, s.questID)
-                    if text then
-                        local r, g, b = 1, 1, 1
-                        if finished then r, g, b = 0.5, 0.5, 0.5 end
-                        GameTooltip:AddLine("- " .. text, r, g, b, true)
+            local tip = sfui.tooltip
+            if tip then
+                pcall(function()
+                    tip:SetOwner(s, "ANCHOR_RIGHT")
+                    local success = false
+                    if tip.SetWorldQuestByID then
+                        success = pcall(tip.SetWorldQuestByID, tip, s.questID)
                     end
-                end
-            end
-            GameTooltip:Show()
+                    if not success then
+                        pcall(tip.SetQuestLogItem, tip, "reward", 1, s.questID)
+                    end
 
-            -- Map Highlight — anchor to canvas position without reparenting
+                    local numObjs = GetNumQuestLeaderBoards(s.questID)
+                    if common.SafeGT(numObjs, 0) then
+                        tip:AddLine(" ")
+                        for i = 1, numObjs do
+                            local text, _, finished = GetQuestLogLeaderBoard(i, s.questID)
+                            if text then
+                                local r, g, b = 1, 1, 1
+                                if finished then r, g, b = 0.5, 0.5, 0.5 end
+                                tip:AddLine("- " .. text, r, g, b, true)
+                            end
+                        end
+                    end
+                    tip:Show()
+                end)
+            end
+
+            -- Map Highlight — anchor to ScrollContainer position without touching canvas
             if WorldMapFrame and sfui.wqs.MapHighlight and s.posX and s.posY and WorldMapFrame:GetMapID() == s.mapID then
-                local canvas = WorldMapFrame:GetCanvas() or WorldMapFrame.ScrollContainer.Child
+                local container = WorldMapFrame.ScrollContainer
+                local canvas = WorldMapFrame:GetCanvas() or (container and container.Child)
                 if canvas then
-                    local mapWidth = canvas:GetWidth()
-                    local mapHeight = canvas:GetHeight()
-                    if mapWidth > 0 and mapHeight > 0 then
+                    local cLeft, cBottom, cWidth, cHeight = canvas:GetRect()
+                    if cLeft and cBottom and cWidth and cHeight and cWidth > 0 and cHeight > 0 then
+                        local screenX = cLeft + (s.posX * cWidth)
+                        local screenY = cBottom + ((1 - s.posY) * cHeight)
                         sfui.wqs.MapHighlight:ClearAllPoints()
-                        -- Anchor relative to canvas without becoming its child
-                        sfui.wqs.MapHighlight:SetPoint("CENTER", canvas, "TOPLEFT", s.posX * mapWidth, -s.posY * mapHeight)
+                        sfui.wqs.MapHighlight:SetPoint("CENTER", UIParent, "BOTTOMLEFT", screenX, screenY)
                         sfui.wqs.MapHighlight:Show()
                     end
                 end
@@ -817,22 +836,29 @@ function WQS:CreateRow()
         end)
         row:SetScript("OnLeave", function(s)
             s.Highlight:Hide()
-            GameTooltip:Hide()
+            if sfui.tooltip then sfui.tooltip:Hide() end
             if sfui.wqs.MapHighlight then sfui.wqs.MapHighlight:Hide() end
         end)
         row:SetScript("OnClick", function(s, button)
+            if InCombat() then return end
             if IsShiftKeyDown() then
                 if C_QuestLog.GetQuestWatchType(s.questID) == Enum.QuestWatchType.Manual then
-                    C_QuestLog.RemoveWorldQuestWatch(s.questID)
+                    pcall(C_QuestLog.RemoveWorldQuestWatch, s.questID)
                 else
-                    C_QuestLog.AddWorldQuestWatch(s.questID, Enum.QuestWatchType.Manual)
+                    pcall(C_QuestLog.AddWorldQuestWatch, s.questID, Enum.QuestWatchType.Manual)
                 end
             else
-                C_QuestLog.SetSelectedQuest(s.questID)
-                C_SuperTrack.SetSuperTrackedQuestID(s.questID)
-                if not WorldMapFrame:IsShown() then ShowUIPanel(WorldMapFrame) end
-                WorldMapFrame:SetMapID(s.mapID)
-                if WorldMapFrame.ScrollToQuest then WorldMapFrame:ScrollToQuest(s.questID) end
+                pcall(C_QuestLog.SetSelectedQuest, s.questID)
+                pcall(C_SuperTrack.SetSuperTrackedQuestID, s.questID)
+                if WorldMapFrame and not WorldMapFrame:IsShown() and ShowUIPanel then
+                    pcall(ShowUIPanel, WorldMapFrame)
+                end
+                if WorldMapFrame and WorldMapFrame.SetMapID and s.mapID then
+                    pcall(WorldMapFrame.SetMapID, WorldMapFrame, s.mapID)
+                end
+                if WorldMapFrame and WorldMapFrame.ScrollToQuest then
+                    pcall(WorldMapFrame.ScrollToQuest, WorldMapFrame, s.questID)
+                end
             end
         end)
     end
@@ -849,16 +875,11 @@ function WQS:ClearRows()
     end
 end
 
-local lastBackgroundRefresh = 0
 function WQS:Refresh()
+    if not self:IsShown() then return end
+    if InCombatLockdown and InCombatLockdown() then return end
+    if IsInInstance and IsInInstance() then return end
     if refreshTimer then return end
-    
-    -- Significant throttle for background scanning
-    if not self:IsShown() then
-        local now = GetTime()
-        if now - lastBackgroundRefresh < 10 then return end
-        lastBackgroundRefresh = now
-    end
 
     refreshTimer = C_Timer.After(0.3, function()
         self:DoRefresh()
@@ -899,6 +920,10 @@ local function QuestSorter(a, b)
 end
 
 function WQS:DoRefresh()
+    if not self:IsShown() then return end
+    if InCombatLockdown and InCombatLockdown() then return end
+    if IsInInstance and IsInInstance() then return end
+
     refreshCount = refreshCount + 1
     -- Sweep stale entries every 50 refreshes (~15 min at typical WQ update cadence).
     -- Previously 300, which let expired quest data accumulate for too long.

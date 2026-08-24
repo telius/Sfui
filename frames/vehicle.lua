@@ -133,13 +133,17 @@ for i = 1, MAX_BUTTONS do
 
     btn:SetScript("OnEnter", function(self)
         local action = self:GetAttribute("action")
-        if action and HasAction(action) then
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:SetAction(action)
-            GameTooltip:Show()
+        if GameTooltip and action and HasAction(action) then
+            pcall(function()
+                GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                GameTooltip:SetAction(action)
+                GameTooltip:Show()
+            end)
         end
     end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    btn:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
 
     buttons[i] = btn
 end

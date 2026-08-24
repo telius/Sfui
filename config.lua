@@ -613,5 +613,24 @@ sfui.config = {
             textInProgress = "|cff003333",     -- Matching 0, 0.2, 0.2 hex approximately
             textAvailable = "|cff888888",
         },
-    }
+    },
+
+    questlog = {
+        enabled = true,
+        width = 280,
+        sectionHeight = 20,
+        questHeight = 17,
+        objectiveHeight = 13,
+        itemSize = 32,
+        throttle = 0.35,
+        defaultHidden = false,
+        sections = {
+            { id = "scenario",   label = "objectives",       color = { 0.85, 0.40, 1.00 } },
+            { id = "important",  label = "important",        color = { 1.00, 0.40, 0.35 } },
+            { id = "campaign",   label = "campaign",         color = { 0.90, 0.75, 0.10 } },
+            { id = "world",      label = "world quests",     color = { 0.20, 0.85, 0.95 } },
+            { id = "activities", label = "activities",       color = { 0.35, 0.90, 0.40 } },
+            { id = "zone",       label = "quests",           color = { 1.00, 1.00, 1.00 } },
+        },
+    },
 }

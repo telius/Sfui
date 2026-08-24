@@ -545,11 +545,13 @@ local function build_portals_frame()
 
     local curY = -6
 
-    -- ── M+ Season Portals ────────────────────────────────────────
+    -- ── M+ Current Season Portals (12.1 Midnight Season 2) ───────
+    local seasonSpellMap = {}
     local seasonKnown = {}
     for _, e in ipairs(db.SEASON_PORTALS or {}) do
         if player_has_spell(e.spell) then
             tinsert(seasonKnown, e)
+            seasonSpellMap[e.spell] = true
         end
     end
 
@@ -570,6 +572,33 @@ local function build_portals_frame()
         make_divider(portalFrame, curY)
         curY = curY - 6
     end
+
+    -- ── Midnight Expansion Portals ───────────────────────────────
+    local midnightKnown = {}
+    for _, e in ipairs(db.MIDNIGHT_PORTALS or {}) do
+        if not seasonSpellMap[e.spell] and player_has_spell(e.spell) then
+            tinsert(midnightKnown, e)
+        end
+    end
+
+    if #midnightKnown > 0 then
+        local col, row = 0, 0
+        for _, e in ipairs(midnightKnown) do
+            local x = ICON_SPACING_X + col * (ICON_SIZE + ICON_SPACING_X)
+            local y = curY - row * (ICON_SIZE + ICON_SPACING_Y)
+            local btn = make_spell_icon(portalFrame, e.spell, e.name, x, y)
+            tinsert(portalFrame.refreshable, btn)
+            col = col + 1
+            if col >= ICONS_PER_ROW then
+                col = 0; row = row + 1
+            end
+        end
+        local usedRows = math_floor((#midnightKnown - 1) / ICONS_PER_ROW) + 1
+        curY = curY - usedRows * (ICON_SIZE + ICON_SPACING_Y) - 8
+        make_divider(portalFrame, curY)
+        curY = curY - 6
+    end
+
 
     -- ── Personal / Class Portals ─────────────────────────────────
     local personalKnown = {}

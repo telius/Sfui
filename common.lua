@@ -54,6 +54,17 @@ local function issecretvalue(val)
 end
 sfui.common.issecretvalue = issecretvalue
 
+-- Dedicated Addon Tooltip (Zero global GameTooltip taint, zero UIWidgetManager registration)
+local SfuiTooltip = CreateFrame("GameTooltip", "SfuiTooltip", UIParent, "TooltipBackdropTemplate")
+if _G.TooltipDataHandlerMixin then
+    Mixin(SfuiTooltip, _G.TooltipDataHandlerMixin)
+elseif _G.GameTooltipDataMixin then
+    Mixin(SfuiTooltip, _G.GameTooltipDataMixin)
+end
+SfuiTooltip:SetFrameStrata("TOOLTIP")
+sfui.tooltip = SfuiTooltip
+sfui.common.tooltip = SfuiTooltip
+
 -- Robust helper to check if an aura/ID is present, even if it's a secret value
 function sfui.common.HasAuraInstanceID(value)
     if value == nil then return false end
@@ -1367,11 +1378,17 @@ function sfui.common.create_checkbox(parent, label, dbKeyOrGetter, onClickFunc, 
 
     if tooltip then
         cb:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText(tooltip)
-            GameTooltip:Show()
+            if GameTooltip then
+                pcall(function()
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetText(tooltip)
+                    GameTooltip:Show()
+                end)
+            end
         end)
-        cb:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
+        cb:SetScript("OnLeave", function(self)
+            if GameTooltip then GameTooltip:Hide() end
+        end)
     end
     return cb
 end
@@ -1476,11 +1493,17 @@ function sfui.common.create_slider_input(parent, label, dbKeyOrGetter, minVal, m
 
     if tooltip then
         container:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText(tooltip)
-            GameTooltip:Show()
+            if GameTooltip then
+                pcall(function()
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetText(tooltip)
+                    GameTooltip:Show()
+                end)
+            end
         end)
-        container:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
+        container:SetScript("OnLeave", function(self)
+            if GameTooltip then GameTooltip:Hide() end
+        end)
     end
 
     local title = container:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1600,11 +1623,17 @@ function sfui.common.create_input_field(parent, label, dbKeyOrGetter, width, onV
 
     if tooltip then
         container:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText(tooltip)
-            GameTooltip:Show()
+            if GameTooltip then
+                pcall(function()
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetText(tooltip)
+                    GameTooltip:Show()
+                end)
+            end
         end)
-        container:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
+        container:SetScript("OnLeave", function(self)
+            if GameTooltip then GameTooltip:Hide() end
+        end)
     end
 
     local title = container:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")

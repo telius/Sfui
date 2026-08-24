@@ -271,6 +271,21 @@ function sfui.create_options_panel()
     end, "hides the sfui minimap icon.")
     hide_minimap_icon_cb:SetPoint("TOPLEFT", reload_button, "BOTTOMLEFT", 0, -20)
 
+    local enable_questlog_cb = create_checkbox(main_panel, "enable quest log", function()
+        if sfui.questlog and sfui.questlog.is_enabled then
+            return sfui.questlog.is_enabled()
+        end
+        if SfuiDB.enableQuestLog ~= nil then return SfuiDB.enableQuestLog end
+        return true
+    end, function(checked)
+        if sfui.questlog and sfui.questlog.set_enabled then
+            sfui.questlog.set_enabled(checked)
+        else
+            SfuiDB.enableQuestLog = checked
+        end
+    end, "toggles the sfui custom quest log and objectives tracker (enabled by default).")
+    enable_questlog_cb:SetPoint("LEFT", hide_minimap_icon_cb, "RIGHT", 150, 0)
+
     local enable_ring_cursor_cb = create_checkbox(main_panel, "enable ring cursor", "enableCursorRing", function(checked)
         if sfui.cursor and sfui.cursor.toggle then
             sfui.cursor.toggle(checked)
@@ -982,11 +997,17 @@ function sfui.create_options_panel()
         end
     end)
     add_trait_button:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("trait tree (skyriding, delves, etc.)")
-        GameTooltip:Show()
+        if GameTooltip then
+            pcall(function()
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText("trait tree (skyriding, delves, etc.)")
+                GameTooltip:Show()
+            end)
+        end
     end)
-    add_trait_button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    add_trait_button:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
 
     local add_garr_button = CreateFlatButton(research_panel, "garr", 60, 22)
     add_garr_button:SetPoint("LEFT", add_trait_button, "RIGHT", 5, 0)
@@ -998,11 +1019,17 @@ function sfui.create_options_panel()
         end
     end)
     add_garr_button:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("garrison tree (class halls, covenants, etc.)")
-        GameTooltip:Show()
+        if GameTooltip then
+            pcall(function()
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText("garrison / order hall / covenant tree")
+                GameTooltip:Show()
+            end)
+        end
     end)
-    add_garr_button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    add_garr_button:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
 
     -- 9. Debug Panel
     local spec_id_label = debug_panel:CreateFontString(nil, "OVERLAY", g.font)

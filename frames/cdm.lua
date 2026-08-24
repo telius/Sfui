@@ -5,7 +5,7 @@ local cfg = sfui.config
 local common = sfui.common
 
 local CreateFrame = CreateFrame
-local GameTooltip = GameTooltip
+local GameTooltip = _G.GameTooltip
 local InCombatLockdown = InCombatLockdown
 local GetCursorPosition = GetCursorPosition
 local GetCursorInfo = GetCursorInfo
@@ -160,69 +160,70 @@ local function OnZoneIconClick(self)
 end
 
 local function OnZoneIconEnter(self)
-    if not GameTooltip or not self.id then return end
+    local tip = sfui.tooltip
+    if not tip or not self.id then return end
     pcall(function()
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        tip:SetOwner(self, "ANCHOR_RIGHT")
         if self.info then
             if self.info.spellID then
-                GameTooltip:SetSpellByID(self.info.spellID)
+                tip:SetSpellByID(self.info.spellID)
             elseif self.info.itemID then
-                GameTooltip:SetItemByID(self.info.itemID)
+                tip:SetItemByID(self.info.itemID)
             else
-                GameTooltip:SetText(self.info.name or "Unknown")
+                tip:SetText(self.info.name or "Unknown")
             end
 
-            GameTooltip:AddLine(" ")
+            tip:AddLine(" ")
             if self.cooldownID then
-                GameTooltip:AddDoubleLine("Cooldown ID:", "|cffffffff" .. self.cooldownID .. "|r")
+                tip:AddDoubleLine("Cooldown ID:", "|cffffffff" .. self.cooldownID .. "|r")
             end
             if self.info.spellID then
-                GameTooltip:AddDoubleLine("Spell ID:", "|cffffffff" .. self.info.spellID .. "|r")
+                tip:AddDoubleLine("Spell ID:", "|cffffffff" .. self.info.spellID .. "|r")
             end
             if self.info.itemID then
-                GameTooltip:AddDoubleLine("Item ID:", "|cffffffff" .. self.info.itemID .. "|r")
+                tip:AddDoubleLine("Item ID:", "|cffffffff" .. self.info.itemID .. "|r")
             end
         elseif self.isRightSidePool then
             local cdInfo = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo(self.id)
             if cdInfo and cdInfo.spellID then
-                GameTooltip:SetSpellByID(cdInfo.spellID)
+                tip:SetSpellByID(cdInfo.spellID)
             elseif cdInfo and cdInfo.itemID then
-                GameTooltip:SetItemByID(cdInfo.itemID)
+                tip:SetItemByID(cdInfo.itemID)
             else
-                GameTooltip:SetText("Cooldown " .. self.id)
+                tip:SetText("Cooldown " .. self.id)
             end
-            GameTooltip:AddLine(" ")
-            GameTooltip:AddDoubleLine("Cooldown ID:", "|cffffffff" .. self.id .. "|r")
+            tip:AddLine(" ")
+            tip:AddDoubleLine("Cooldown ID:", "|cffffffff" .. self.id .. "|r")
             if cdInfo and cdInfo.spellID then
-                GameTooltip:AddDoubleLine("Spell ID:", "|cffffffff" .. cdInfo.spellID .. "|r")
+                tip:AddDoubleLine("Spell ID:", "|cffffffff" .. cdInfo.spellID .. "|r")
             elseif cdInfo and cdInfo.itemID then
-                GameTooltip:AddDoubleLine("Item ID:", "|cffffffff" .. cdInfo.itemID .. "|r")
+                tip:AddDoubleLine("Item ID:", "|cffffffff" .. cdInfo.itemID .. "|r")
             end
         else
             if self.isTrackedBars then
                 local info = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo(self.id)
                 if info and info.itemID then
-                    GameTooltip:SetItemByID(info.itemID)
+                    tip:SetItemByID(info.itemID)
                 elseif info and info.spellID then
-                    GameTooltip:SetSpellByID(info.spellID)
+                    tip:SetSpellByID(info.spellID)
                 else
-                    GameTooltip:SetSpellByID(self.id)
+                    tip:SetSpellByID(self.id)
                 end
             else
                 local entryType = self.type or "spell"
                 if entryType == "item" then
-                    GameTooltip:SetItemByID(self.id)
+                    tip:SetItemByID(self.id)
                 else
-                    GameTooltip:SetSpellByID(self.id)
+                    tip:SetSpellByID(self.id)
                 end
             end
         end
-        GameTooltip:Show()
+        tip:Show()
     end)
 end
 
 local function OnZoneIconLeave()
-    if GameTooltip then GameTooltip:Hide() end
+    if sfui.tooltip then sfui.tooltip:Hide() end
 end
 
 local function OnPreviewBarUpClick(self)
