@@ -620,9 +620,21 @@ function sfui.alts.PerformSync(isLogout)
 
         if activity.index >= 1 and activity.index <= 3 then
             data.vault[group][activity.index] = data.vault[group][activity.index] or {}
+            data.vault[group][activity.index].id = activity.id
             data.vault[group][activity.index].progress = activity.progress or 0
             data.vault[group][activity.index].threshold = activity.threshold or 0
             data.vault[group][activity.index].level = activity.level or 0
+            data.vault[group][activity.index].activityTierID = activity.activityTierID
+
+            -- Query live itemLevel if available
+            local itemLevel = nil
+            if activity.id and C_WeeklyRewards and C_WeeklyRewards.GetExampleRewardItemHyperlinks then
+                local itemLink = C_WeeklyRewards.GetExampleRewardItemHyperlinks(activity.id)
+                if itemLink then
+                    itemLevel = C_Item.GetDetailedItemLevelInfo(itemLink)
+                end
+            end
+            data.vault[group][activity.index].itemLevel = itemLevel
         end
     end
 
@@ -2017,20 +2029,19 @@ function sfui.alts.UpdateUI(force)
 
                 local GetVaultColor = function(g, l)
                     if g == "raid" then
-                        if l == 16 then return { 1.0, 0.5, 0.0, 0.8 } end
-                        if l == 15 then return { 0.64, 0.21, 0.93, 0.8 } end
-                        if l == 14 then return { 0.0, 0.44, 0.87, 0.8 } end
-                        return { 0.12, 1.0, 0.0, 0.8 }
+                        if l == 16 then return { 1.0, 0.5, 0.0, 0.8 } end     -- Mythic (Orange)
+                        if l == 15 then return { 0.64, 0.21, 0.93, 0.8 } end  -- Heroic (Purple)
+                        if l == 14 then return { 0.0, 0.44, 0.87, 0.8 } end   -- Normal (Blue)
+                        return { 0.12, 1.0, 0.0, 0.8 }                        -- LFR (Green)
                     elseif g == "world" then
-                        if l >= 8 then return { 1.0, 0.5, 0.0, 0.8 } end
-                        if l >= 6 then return { 0.64, 0.21, 0.93, 0.8 } end
-                        if l >= 4 then return { 0.0, 0.44, 0.87, 0.8 } end
-                        return { 0.12, 1.0, 0.0, 0.8 }
-                    else
-                        if l >= 10 then return { 1.0, 0.5, 0.0, 0.8 } end
-                        if l >= 7 then return { 0.64, 0.21, 0.93, 0.8 } end
-                        if l >= 4 then return { 0.0, 0.44, 0.87, 0.8 } end
-                        return { 0.12, 1.0, 0.0, 0.8 }
+                        if l >= 7 then return { 0.64, 0.21, 0.93, 0.8 } end   -- Hero (Tier 7-8+ Delves, Purple)
+                        if l >= 4 then return { 0.0, 0.44, 0.87, 0.8 } end    -- Champion (Tier 4-6 Delves, Blue)
+                        return { 0.12, 1.0, 0.0, 0.8 }                         -- Veteran (Tier 1-3 Delves, Green)
+                    else -- dungeon
+                        if l >= 10 then return { 1.0, 0.5, 0.0, 0.8 } end     -- Myth (+10+, Orange)
+                        if l >= 2  then return { 0.64, 0.21, 0.93, 0.8 } end  -- Hero (+2 to +9, Purple)
+                        if l >= 0  then return { 0.0, 0.44, 0.87, 0.8 } end   -- Champion (M0, Blue)
+                        return { 0.12, 1.0, 0.0, 0.8 }                         -- Veteran (Heroic Dungeon, Green)
                     end
                 end
 
@@ -2040,6 +2051,69 @@ function sfui.alts.UpdateUI(force)
                     if l == 15 then return "Heroic" end
                     if l == 16 then return "Mythic" end
                     return tostring(l)
+                end
+
+                local GetVaultItemLevel = function(g, l, vData)
+                    if vData and vData.itemLevel and vData.itemLevel > 0 then
+                        return vData.itemLevel
+                    end
+                    if vData and vData.id and C_WeeklyRewards and C_WeeklyRewards.GetExampleRewardItemHyperlinks then
+                        local link = C_WeeklyRewards.GetExampleRewardItemHyperlinks(vData.id)
+                        if link then
+                            local ilvl = C_Item.GetDetailedItemLevelInfo(link)
+                            if ilvl and ilvl > 0 then return ilvl end
+                        end
+                    end
+                    -- Patch 12.1 / Midnight Great Vault ilvl baseline
+                    if g == "raid" then
+                        if l == 16 then return 318 end -- Mythic (Myth 1/6)
+                        if l == 15 then return 305 end -- Heroic (Hero 1/6)
+                        if l == 14 then return 292 end -- Normal (Champion 1/6)
+                        if l == 17 then return 279 end -- LFR (Veteran 1/6)
+                    elseif g == "dungeon" then
+                        if l >= 10 then return 318 end -- +10+ (Myth 1/6)
+                        if l >= 7  then return 315 end -- +7 to +9 (Hero 4/6)
+                        if l == 6  then return 311 end -- +6 (Hero 3/6)
+                        if l >= 4  then return 308 end -- +4 to +5 (Hero 2/6)
+                        if l >= 2  then return 305 end -- +2 to +3 (Hero 1/6)
+                        if l >= 0  then return 292 end -- M0 / Heroic (Champion 1/6)
+                    elseif g == "world" then
+                        if l >= 8 then return 308 end -- Tier 8+ (Hero 2/6)
+                        if l == 7 then return 305 end -- Tier 7 (Hero 1/6)
+                        if l == 6 then return 298 end -- Tier 6 (Champion 3/6)
+                        if l == 5 then return 295 end -- Tier 5 (Champion 2/6)
+                        if l == 4 then return 292 end -- Tier 4 (Champion 1/6)
+                        if l == 3 then return 285 end -- Tier 3 (Veteran 3/6)
+                        if l == 2 then return 282 end -- Tier 2 (Veteran 2/6)
+                        if l >= 1 then return 279 end -- Tier 1 (Veteran 1/6)
+                    end
+                    return nil
+                end
+
+                local GetVaultTrack = function(g, l)
+                    if g == "dungeon" then
+                        if l >= 10 then return "|cffff8000Myth 1/6|r" end
+                        if l >= 7  then return "|cffa335eeHero 4/6|r" end
+                        if l == 6  then return "|cffa335eeHero 3/6|r" end
+                        if l >= 4  then return "|cffa335eeHero 2/6|r" end
+                        if l >= 2  then return "|cffa335eeHero 1/6|r" end
+                        if l >= 0  then return "|cff0070ddChampion 1/6|r" end
+                    elseif g == "world" then
+                        if l >= 8 then return "|cffa335eeHero 2/6|r" end
+                        if l == 7 then return "|cffa335eeHero 1/6|r" end
+                        if l == 6 then return "|cff0070ddChampion 3/6|r" end
+                        if l == 5 then return "|cff0070ddChampion 2/6|r" end
+                        if l == 4 then return "|cff0070ddChampion 1/6|r" end
+                        if l == 3 then return "|cff1eff00Veteran 3/6|r" end
+                        if l == 2 then return "|cff1eff00Veteran 2/6|r" end
+                        if l >= 1 then return "|cff1eff00Veteran 1/6|r" end
+                    elseif g == "raid" then
+                        if l == 16 then return "|cffff8000Myth 1/6|r" end
+                        if l == 15 then return "|cffa335eeHero 1/6|r" end
+                        if l == 14 then return "|cff0070ddChampion 1/6|r" end
+                        if l == 17 then return "|cff1eff00Veteran 1/6|r" end
+                    end
+                    return nil
                 end
 
                 for slotIdx = 1, 3 do
@@ -2076,14 +2150,39 @@ function sfui.alts.UpdateUI(force)
                     for idx = 1, 3 do
                         local v = vGroup and vGroup[idx]
                         if v and v.threshold > 0 then
-                            local status = v.progress >= v.threshold and "|cff00ff00Unlocked|r" or
+                            local isUnlocked = v.progress >= v.threshold
+                            local statusStr = isUnlocked and "|cff00ff00Unlocked|r" or
                                 string.format("%d/%d", v.progress, v.threshold)
-                            local levelStr = ""
+
+                            local detailParts = {}
                             if v.level > 0 then
-                                levelStr = group == "raid" and string.format(" (%s)", GetDifficultyName(v.level)) or
-                                    string.format(" (Level: %d)", v.level)
+                                local diffName
+                                if group == "raid" then
+                                    diffName = GetDifficultyName(v.level)
+                                elseif group == "dungeon" then
+                                    diffName = (v.level >= 2 and string.format("+%d", v.level)) or "M0"
+                                else
+                                    diffName = string.format("Tier %d", v.level)
+                                end
+                                table.insert(detailParts, diffName)
                             end
-                            GameTooltip:AddDoubleLine("Slot " .. idx .. ":", status .. levelStr, 1, 1, 1, 1, 1, 1)
+
+                            local ilvl = GetVaultItemLevel(group, v.level, v)
+                            local track = GetVaultTrack(group, v.level)
+                            if ilvl and (isUnlocked or v.level > 0) then
+                                if track then
+                                    table.insert(detailParts, string.format("|cffffd100%d ilvl|r (%s)", ilvl, track))
+                                else
+                                    table.insert(detailParts, string.format("|cffffd100%d ilvl|r", ilvl))
+                                end
+                            end
+
+                            local extraStr = ""
+                            if #detailParts > 0 then
+                                extraStr = " (" .. table.concat(detailParts, " — ") .. ")"
+                            end
+
+                            GameTooltip:AddDoubleLine("Slot " .. idx .. ":", statusStr .. extraStr, 1, 1, 1, 1, 1, 1)
                         end
                     end
                     GameTooltip:Show()

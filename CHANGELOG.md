@@ -1,3 +1,10 @@
+## v12.1.0-6 (2026-08-25)
+
+### Features & Updates
+- **Great Vault Rewards & Item Levels (`alts.lua`)**: Integrated Great Vault reward item level resolution and upgrade tracks (Myth, Hero, Champion, Veteran) for Patch 12.1 / Midnight.
+- **Great Vault Tooltips**: Enhanced hover tooltips across Raid, Dungeon, and World/Delve rows to display exact item levels, difficulty names, and color-coded upgrade tracks (`318 ilvl (Myth 1/6)`, `315 ilvl (Hero 4/6)`, `308 ilvl (Hero 2/6)`, etc.).
+- **Vault Grid Visuals**: Aligned Great Vault grid box colors with Blizzard item quality standards (Mythic Orange for +10/Mythic, Epic Purple for +2–9/Heroic/Tier 7–8+, Rare Blue for M0/Normal/Tier 4–6, Uncommon Green for LFR/Veteran).
+
 ## v12.1.0-5 (2026-08-24)
 
 ### Features & Updates
