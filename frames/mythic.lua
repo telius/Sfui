@@ -1,37 +1,37 @@
-local addonName, addon                          = ...
-sfui                                            = sfui or {}
-sfui.mythic                                     = sfui.mythic or {}
+local addonName, addon                               = ...
+sfui                                                 = sfui or {}
+sfui.mythic                                          = sfui.mythic or {}
 
 -- ─── Config ────────────────────────────────────────────────
-local g                                         = sfui.config
-local mcfg                                      = g.mythic or {}
+local g                                              = sfui.config
+local mcfg                                           = g.mythic or {}
 
 -- ─── Localize C-APIs ──────────────────────────────────────
-local CreateFrame                               = _G.CreateFrame
-local UIParent                                  = _G.UIParent
-local C_Timer                                   = _G.C_Timer
-local C_ChallengeMode                           = _G.C_ChallengeMode
-local C_Scenario                                = _G.C_Scenario
-local C_ScenarioInfo                            = _G.C_ScenarioInfo
-local C_DelvesUI                                = _G.C_DelvesUI
-local C_UIWidgetManager                         = _G.C_UIWidgetManager
-local C_Spell                                   = _G.C_Spell
-local GetWorldElapsedTime                       = _G.GetWorldElapsedTime
-local GameTooltip                               = _G.GameTooltip
-local issecretvalue                             = _G.issecretvalue
-local math_max, math_min, math_floor, math_ceil = math.max, math.min, math.floor, math.ceil
-local string_format                             = string.format
-local table_insert, table_sort, wipe            = table.insert, table.sort, wipe
+local CreateFrame                                    = _G.CreateFrame
+local UIParent                                       = _G.UIParent
+local C_Timer                                        = _G.C_Timer
+local C_ChallengeMode                                = _G.C_ChallengeMode
+local C_Scenario                                     = _G.C_Scenario
+local C_ScenarioInfo                                 = _G.C_ScenarioInfo
+local C_DelvesUI                                     = _G.C_DelvesUI
+local C_UIWidgetManager                              = _G.C_UIWidgetManager
+local C_Spell                                        = _G.C_Spell
+local GetWorldElapsedTime                            = _G.GetWorldElapsedTime
+local GameTooltip                                    = _G.GameTooltip
+local issecretvalue                                  = _G.issecretvalue
+local math_max, math_min, math_floor, math_ceil      = math.max, math.min, math.floor, math.ceil
+local string_format                                  = string.format
+local table_insert, table_sort, wipe                 = table.insert, table.sort, wipe
 local pcall, ipairs, pairs, type, tonumber, tostring =
     pcall, ipairs, pairs, type, tonumber, tostring
 
 -- ─── Layout Constants ─────────────────────────────────────
-local HUD_W                                     = mcfg.width or 280
-local HUD_PAD                                   = 8
-local TICKER_RATE                               = 0.5 -- 2 Hz relaxed timer ticker
+local HUD_W                                          = mcfg.width or 280
+local HUD_PAD                                        = 8
+local TICKER_RATE                                    = 0.5 -- 2 Hz relaxed timer ticker
 
 -- ─── Color Table (used only in BuildHUDFrame — unpack is fine there) ─
-local COLORS                                    = {
+local COLORS                                         = {
     cyan     = { 0.00, 1.00, 1.00, 1 },
     white    = { 1.00, 1.00, 1.00, 1 },
     dim      = { 0.50, 0.50, 0.50, 1 },
@@ -44,17 +44,17 @@ local COLORS                                    = {
 -- ─── Pre-unpacked Color Scalars ───────────────────────────
 -- Avoids unpack() vararg allocation on every hot-path call.
 -- Named with a CLR_ prefix to distinguish from the COLORS table.
-local CLR_GREEN_R, CLR_GREEN_G, CLR_GREEN_B     = 0.20, 1.00, 0.40
-local CLR_WHITE_R, CLR_WHITE_G, CLR_WHITE_B     = 1.00, 1.00, 1.00
-local CLR_DIM_R, CLR_DIM_G, CLR_DIM_B           = 0.50, 0.50, 0.50
-local CLR_ONTIME_R, CLR_ONTIME_G, CLR_ONTIME_B  = 0.00, 1.00, 1.00
-local CLR_YELLOW_R, CLR_YELLOW_G, CLR_YELLOW_B  = 1.00, 0.82, 0.00
-local CLR_RED_R, CLR_RED_G, CLR_RED_B           = 1.00, 0.25, 0.25
-local CLR_OVTM_R, CLR_OVTM_G, CLR_OVTM_B        = 1.00, 0.20, 0.20
+local CLR_GREEN_R, CLR_GREEN_G, CLR_GREEN_B          = 0.20, 1.00, 0.40
+local CLR_WHITE_R, CLR_WHITE_G, CLR_WHITE_B          = 1.00, 1.00, 1.00
+local CLR_DIM_R, CLR_DIM_G, CLR_DIM_B                = 0.50, 0.50, 0.50
+local CLR_ONTIME_R, CLR_ONTIME_G, CLR_ONTIME_B       = 0.00, 1.00, 1.00
+local CLR_YELLOW_R, CLR_YELLOW_G, CLR_YELLOW_B       = 1.00, 0.82, 0.00
+local CLR_RED_R, CLR_RED_G, CLR_RED_B                = 1.00, 0.25, 0.25
+local CLR_OVTM_R, CLR_OVTM_G, CLR_OVTM_B             = 1.00, 0.20, 0.20
 
 -- ─── Hoisted Constants ────────────────────────────────────
 -- Difficulty abbreviation map — allocated once, reused in InitDungeon.
-local DIFF_ABBR                                 = { Mythic = "M", Heroic = "H", Normal = "N", Timewalking = "TW" }
+local DIFF_ABBR                                      = { Mythic = "M", Heroic = "H", Normal = "N", Timewalking = "TW" }
 
 -- ─── Helpers ──────────────────────────────────────────────
 local function FormatTime(secs)
@@ -131,7 +131,9 @@ local function CacheGroupMembers()
     if pGUID and pName then
         idx = idx + 1
         local entry = _playerList[idx]
-        if not entry then entry = {}; _playerList[idx] = entry end
+        if not entry then
+            entry = {}; _playerList[idx] = entry
+        end
         entry.unit = "player"; entry.guid = pGUID; entry.name = pName; entry.class = pClass
         _playerClasses[pName] = pClass
     end
@@ -143,7 +145,9 @@ local function CacheGroupMembers()
         if guid and name then
             idx = idx + 1
             local entry = _playerList[idx]
-            if not entry then entry = {}; _playerList[idx] = entry end
+            if not entry then
+                entry = {}; _playerList[idx] = entry
+            end
             entry.unit = unit; entry.guid = guid; entry.name = name; entry.class = class
             _playerClasses[name] = class
         end
@@ -171,7 +175,7 @@ function sfui.mythic.IsEnabled()
 end
 
 -- ─── Static Pools for Delve / Nemesis Structures ─────────
-local staticDelveInfo = {
+local staticDelveInfo      = {
     isDelve = true,
     name = nil,
     tierText = nil,
@@ -184,7 +188,7 @@ local staticDelveInfo = {
     currencies = {},
     spells = {},
 }
-local staticNemesisInfo = {
+local staticNemesisInfo    = {
     hasNemesis = false,
     isDone = false,
     text = nil,
@@ -273,7 +277,8 @@ local function GetDelveInfo()
                     if wID then
                         table.insert(staticWidgetIDs, wID)
                         if not foundWidget and C_UIWidgetManager.GetScenarioHeaderDelvesWidgetVisualizationInfo then
-                            local okVis, vis = pcall(C_UIWidgetManager.GetScenarioHeaderDelvesWidgetVisualizationInfo, wID)
+                            local okVis, vis = pcall(C_UIWidgetManager.GetScenarioHeaderDelvesWidgetVisualizationInfo,
+                                wID)
                             if okVis and vis and vis.shownState ~= (_G.Enum and _G.Enum.WidgetShownState and _G.Enum.WidgetShownState.Hidden) then
                                 foundWidget = vis
                             end
@@ -293,7 +298,7 @@ local function GetDelveInfo()
         if foundWidget.rewardInfo and foundWidget.rewardInfo.shownState ~= (_G.Enum and _G.Enum.UIWidgetRewardShownState and _G.Enum.UIWidgetRewardShownState.Hidden) then
             delveInfo.isBountiful = true
             delveInfo.bountyTooltip = (foundWidget.rewardInfo.shownState == 1) and foundWidget.rewardInfo.earnedTooltip or
-            foundWidget.rewardInfo.unearnedTooltip
+                foundWidget.rewardInfo.unearnedTooltip
         end
 
         if foundWidget.currencies then
@@ -331,7 +336,7 @@ local function GetDelveInfo()
                     spObj.spellID = s.spellID
                     spObj.text = s.text or ""
                     spObj.stack = (s.stackDisplay and s.stackDisplay > 0 and s.stackDisplay) or
-                    (s.text and s.text:match("(%d+)"))
+                        (s.text and s.text:match("(%d+)"))
                     spObj.tooltip = s.tooltip
                     table.insert(delveInfo.spells, spObj)
                 end
@@ -390,16 +395,16 @@ local function GetNemesisInfo(delveInfo)
                 if okC and info and info.description and info.description ~= "" then
                     local descLower = info.description:lower()
                     if descLower:find("nemesis") or descLower:find("zekvir") or descLower:find("influence") or
-                       descLower:find("empowered") or descLower:find("underpin") or descLower:find("ky'veza") then
+                        descLower:find("empowered") or descLower:find("underpin") or descLower:find("ky'veza") then
                         nemesis.hasNemesis = true
                         nemesis.tooltip = info.description
                         if info.completed then
-                            nemesis.isDone = true
+                            nemesis.isDone  = true
                             nemesis.current = info.totalQuantity or 4
                             nemesis.total   = info.totalQuantity or 4
                         else
-                            local cur = info.quantity or 0
-                            local tot = (info.totalQuantity and info.totalQuantity > 0) and info.totalQuantity or 4
+                            local cur       = info.quantity or 0
+                            local tot       = (info.totalQuantity and info.totalQuantity > 0) and info.totalQuantity or 4
                             nemesis.current = cur
                             nemesis.total   = tot
                             if cur >= tot and tot > 0 then
@@ -420,17 +425,17 @@ local function GetNemesisInfo(delveInfo)
             local spellName = ""
             if s.spellID then
                 local n = (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(s.spellID)) or
-                          (_G.GetSpellInfo and _G.GetSpellInfo(s.spellID))
+                    (_G.GetSpellInfo and _G.GetSpellInfo(s.spellID))
                 if n then spellName = n:lower() end
             end
 
             if tt:find("nemesis") or tt:find("zekvir") or tt:find("influence") or tt:find("empowered") or
-               tt:find("underpin") or tt:find("ky'veza") or spellName:find("nemesis") or spellName:find("zekvir") or
-               spellName:find("influence") or spellName:find("empowered") then
+                tt:find("underpin") or tt:find("ky'veza") or spellName:find("nemesis") or spellName:find("zekvir") or
+                spellName:find("influence") or spellName:find("empowered") then
                 nemesis.hasNemesis = true
                 if s.spellID then
                     nemesis.icon = (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(s.spellID)) or
-                                   (_G.GetSpellTexture and _G.GetSpellTexture(s.spellID)) or nemesis.icon
+                        (_G.GetSpellTexture and _G.GetSpellTexture(s.spellID)) or nemesis.icon
                 end
                 nemesis.tooltip = s.tooltip or nemesis.tooltip
 
@@ -440,7 +445,8 @@ local function GetNemesisInfo(delveInfo)
                     nemesis.current = tonumber(cM)
                     nemesis.total   = tonumber(tM)
                 else
-                    local totMatch = tt:match("defeat (%d+)") or tt:match("(%d+)%s*empowered") or tt:match("(%d+)%s*groups?") or tt:match("(%d+)%s*packs?")
+                    local totMatch = tt:match("defeat (%d+)") or tt:match("(%d+)%s*empowered") or
+                        tt:match("(%d+)%s*groups?") or tt:match("(%d+)%s*packs?")
                     if totMatch then
                         nemesis.total = tonumber(totMatch)
                     end
@@ -483,7 +489,7 @@ local function GetNemesisInfo(delveInfo)
             local tt = (c.tooltip or ""):lower()
             local lt = (c.leadingText or ""):lower()
             if tt:find("nemesis") or tt:find("zekvir") or tt:find("influence") or tt:find("empowered") or
-               tt:find("underpin") or tt:find("ky'veza") or lt:find("nemesis") or lt:find("zekvir") or lt:find("influence") then
+                tt:find("underpin") or tt:find("ky'veza") or lt:find("nemesis") or lt:find("zekvir") or lt:find("influence") then
                 nemesis.hasNemesis = true
                 nemesis.icon = c.icon or nemesis.icon
                 nemesis.tooltip = c.tooltip or nemesis.tooltip
@@ -569,8 +575,8 @@ local function GetNemesisInfo(delveInfo)
 
     -- Ensure final format is always accurate
     if nemesis.hasNemesis then
-        local tot = nemesis.total or 4
-        local cur = nemesis.current or tot
+        local tot       = nemesis.total or 4
+        local cur       = nemesis.current or tot
         nemesis.current = cur
         nemesis.total   = tot
         if nemesis.isDone or (cur == 0 and tot > 0 and (nemesis.tooltip and nemesis.tooltip:lower():find("remain"))) then
@@ -672,7 +678,8 @@ local function BuildHUDFrame()
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:ClearLines()
             GameTooltip:AddLine("Nemesis Progress", 0.75, 0.35, 1)
-            GameTooltip:AddLine(self.tooltip or "Nemesis Influence: Defeat empowered enemies to draw out the Nemesis.", 1, 1, 1, true)
+            GameTooltip:AddLine(self.tooltip or "Nemesis Influence: Defeat empowered enemies to draw out the Nemesis.", 1,
+                1, 1, true)
             GameTooltip:Show()
         end
     end)
@@ -900,7 +907,7 @@ local function GetOrCreateDelveBadge(idx)
                 GameTooltip:SetSpellByID(self.spellID)
             else
                 local spellName = (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(self.spellID)) or
-                                  (_G.GetSpellInfo and _G.GetSpellInfo(self.spellID))
+                    (_G.GetSpellInfo and _G.GetSpellInfo(self.spellID))
                 if spellName then GameTooltip:AddLine(spellName, 1, 1, 1) end
             end
         end
@@ -1090,7 +1097,7 @@ local function RelayoutHUD(numBoss, isDelve, delveRowH, hasForces)
 
         local affixH = MF.affixRow:IsShown() and (4 + MF.affixRow:GetHeight()) or 0
         local totalH = HUD_PAD + 24 + affixH + (6 + 16) + (bossH > 0 and (4 + 1 + 4 + bossH) or 0) + (4 + 1 + 4 + 14) +
-        HUD_PAD
+            HUD_PAD
         MF:SetHeight(math_max(60, totalH))
     elseif isDelve then
         MF.delveRow:SetShown(delveRowH > 0)
@@ -1197,7 +1204,7 @@ local function UpdateInstanceState()
             MF.delveLivesFrame:Show()
 
             MF.delveLivesFrame.tooltip = delveInfo.livesTooltip or
-            ("Reinforcements remaining: " .. delveInfo.livesText .. " lives.\nRunning out forfeits the Heavy Bountiful Coffer.")
+                ("Reinforcements remaining: " .. delveInfo.livesText .. " lives.\nRunning out forfeits the Heavy Bountiful Coffer.")
         else
             MF.delveLivesText:SetText("")
             MF.delveLivesFrame.tooltip = nil
@@ -1226,7 +1233,8 @@ local function UpdateInstanceState()
             else
                 MF.delveNemesisFrame:SetPoint("TOPRIGHT", MF.delveRow, "TOPRIGHT", 0, 0)
             end
-            MF.delveNemesisFrame.tooltip = nemesis.tooltip or "Nemesis Influence: Defeat empowered enemies to draw out the Nemesis."
+            MF.delveNemesisFrame.tooltip = nemesis.tooltip or
+                "Nemesis Influence: Defeat empowered enemies to draw out the Nemesis."
             MF.delveNemesisFrame:Show()
         else
             MF.delveNemesisText:SetText("")
@@ -1249,7 +1257,7 @@ local function UpdateInstanceState()
             b.frame:SetSize(w, 18)
             b.frame.title = "Bountiful Delve"
             b.frame.customTooltip = delveInfo.bountyTooltip or
-            "Heavy Bountiful Coffer available upon delve completion with a Restored Coffer Key."
+                "Heavy Bountiful Coffer available upon delve completion with a Restored Coffer Key."
             b.frame.spellID = nil
         end
 
@@ -1268,10 +1276,11 @@ local function UpdateInstanceState()
                 end
                 if (not valStr or valStr == "") and c.tooltip then
                     valStr = c.tooltip:match("(%d+/%d+)") or c.tooltip:match("(%d+ of %d+)") or
-                    c.tooltip:match("(%d+ remaining)") or ""
+                        c.tooltip:match("(%d+ remaining)") or ""
                 end
 
-                local isNemCurr = (c.tooltip and c.tooltip:lower():find("nemesis")) or (c.leadingText and c.leadingText:lower():find("nemesis"))
+                local isNemCurr = (c.tooltip and c.tooltip:lower():find("nemesis")) or
+                    (c.leadingText and c.leadingText:lower():find("nemesis"))
                 if (not valStr or valStr == "") and isNemCurr and nemesis.text then
                     valStr = nemesis.text
                 end
@@ -1304,7 +1313,7 @@ local function UpdateInstanceState()
                 badgeIdx = badgeIdx + 1
                 local b = GetOrCreateDelveBadge(badgeIdx)
                 local tex = (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(s.spellID)) or
-                (_G.GetSpellTexture and _G.GetSpellTexture(s.spellID)) or 134400
+                    (_G.GetSpellTexture and _G.GetSpellTexture(s.spellID)) or 134400
                 b.icon:SetTexture(tex)
                 b.icon:SetSize(16, 16)
                 b.stackText:Hide()
@@ -1327,8 +1336,8 @@ local function UpdateInstanceState()
 
                 if not displayNum and s.tooltip then
                     local match = s.tooltip:match("(%d+/%d+)") or s.tooltip:match("(%d+ of %d+)") or
-                    s.tooltip:match("(%d+ remaining)") or s.tooltip:match("(%d+) groups?") or
-                    s.tooltip:match("(%d+) packs?")
+                        s.tooltip:match("(%d+ remaining)") or s.tooltip:match("(%d+) groups?") or
+                        s.tooltip:match("(%d+) packs?")
                     if match then displayNum = match end
                 end
 
@@ -1490,10 +1499,10 @@ local function UpdateInstanceState()
 
     -- Forces bar — info already in hand from the backward scan above.
     if forcesInfo then
-        local rawStr   = forcesInfo.quantityString or ""
-        local current  = forcesInfo.quantity or 0
-        local total    = forcesInfo.totalQuantity or 100
-        local pct      = 0
+        local rawStr             = forcesInfo.quantityString or ""
+        local current            = forcesInfo.quantity or 0
+        local total              = forcesInfo.totalQuantity or 100
+        local pct                = 0
 
         -- Check if quantityString contains fractional count "186/301"
         local curMatch, totMatch = rawStr:match("(%d+)/(%d+)")
@@ -1669,8 +1678,9 @@ local function UpdateTimer()
             local lostMin = math_floor(tl / 60)
             local lostSec = tl % 60
             local lostStr = (lostMin > 0 and (lostSec > 0 and string_format("+%dm %ds", lostMin, lostSec) or string_format("+%dm", lostMin))) or
-            string_format("+%ds", lostSec)
-            local newDeathStr = string_format("|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_8:12:12:0:0|t |cffff4444%d (%s)|r", deaths, lostStr)
+                string_format("+%ds", lostSec)
+            local newDeathStr = string_format(
+                "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_8:12:12:0:0|t |cffff4444%d (%s)|r", deaths, lostStr)
             _lastDeathText = newDeathStr
             MF.deathText:SetText(newDeathStr)
             if MF.deathFrame then
@@ -2009,12 +2019,11 @@ function sfui.mythic.ShowPreview()
 
     PlaceChestTicks()
 
-    -- Fake bosses
     local fakes = {
-        { name = "Ol' Waxbeard",    done = true,  split = "[04:12]" },
-        { name = "Blazikon",        done = true,  split = "[08:55]" },
-        { name = "The Candle King", done = false, split = "" },
-        { name = "The Darkness",    done = false, split = "" },
+        { name = "Corpsefire",  done = true,  split = "[04:12]" },
+        { name = "Bishibosh",   done = true,  split = "[08:55]" },
+        { name = "Coldcrow",    done = false, split = "" },
+        { name = "Blood Raven", done = false, split = "" },
     }
     for i, f in ipairs(fakes) do
         local r = GetOrCreateBossRow(i)
@@ -2091,9 +2100,13 @@ ev:SetScript("OnEvent", function(self, event, ...)
                 local onTime = el and timeLimit and (el <= timeLimit)
                 local upgrades = 0
                 if onTime then
-                    if el <= timeLimit * 0.60 then upgrades = 3
-                    elseif el <= timeLimit * 0.80 then upgrades = 2
-                    else upgrades = 1 end
+                    if el <= timeLimit * 0.60 then
+                        upgrades = 3
+                    elseif el <= timeLimit * 0.80 then
+                        upgrades = 2
+                    else
+                        upgrades = 1
+                    end
                 end
                 if MF and MF.timerBar then
                     local r, g2, b = unpack(onTime and COLORS.cyan or { 1, 0.2, 0.2, 1 })
@@ -2188,4 +2201,3 @@ function sfui.mythic_debug_info()
         bossRowPool  = (MF and MF.bossRows and #MF.bossRows) or 0,
     }
 end
-
