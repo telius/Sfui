@@ -38,6 +38,8 @@ local _defaultColor = { 1, 1, 0, 1 }
 local _defaultTextColor = { 1, 1, 1, 1 } -- Reuse to avoid per-call allocation
 local _emptyTable = {}
 local _iconCounter = 0
+local _staticActiveEntries = {}
+local _staticActiveIcons = {}
 
 local _iconConfigCache = setmetatable({}, { __mode = "k" })
 function sfui.trackedicons.InvalidateConfigCache()
@@ -1050,8 +1052,9 @@ function sfui.trackedicons.UpdatePanelLayout(panelFrame, panelConfig)
         panelFrame.icons = {}
     end
 
-    local activeIcons = {}
-    local entries = sfui.common.get_active_panel_entries(panelConfig)
+    local activeIcons = _staticActiveIcons
+    wipe(activeIcons)
+    local entries = sfui.common.get_active_panel_entries(panelConfig, _staticActiveEntries)
 
     for i, entry in ipairs(entries) do
         -- Handle both new simple numeric IDs and legacy table entries
@@ -1287,7 +1290,7 @@ local function CheckPanelVisibility(panelConfig)
 
     -- Hide if no active icons
     if panelConfig.hideIfEmpty then
-        local activeEntries = sfui.common.get_active_panel_entries(panelConfig)
+        local activeEntries = sfui.common.get_active_panel_entries(panelConfig, _staticActiveEntries)
         if #activeEntries == 0 then
             return false
         end
@@ -1541,7 +1544,7 @@ function sfui.trackedicons.initialize()
 
 
     -- Real-time events that require immediate structural/GCD sync
-    sfui.events.RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(unit)
+    sfui.events.RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit)
         if unit == "player" then
             MarkDirty(0.5, true)
         end
@@ -1560,8 +1563,10 @@ function sfui.trackedicons.initialize()
     end)
 
     -- 11.0 C_UnitAuras Event Migration
-    sfui.events.RegisterEvent("UNIT_AURA", function(unit, updateInfo)
-        if unit == "player" and updateInfo then
+    sfui.events.RegisterEvent("UNIT_AURA", function(event, unit, updateInfo)
+        if unit ~= "player" then return end
+
+        if updateInfo then
             local needsFullUpdate = false
 
             if updateInfo.addedAuras and #updateInfo.addedAuras > 0 then

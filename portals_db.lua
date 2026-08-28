@@ -15,14 +15,14 @@ sfui.portals_db = {}
 -- Midnight Season 2 (12.1) spell IDs
 -- ========================
 sfui.portals_db.SEASON_PORTALS = {
-    { spell = 1264400, name = "Altar of Fangs",        instance = 2950 },
-    { spell = 1264572, name = "Murder Row",            instance = 2951 },
-    { spell = 1264559, name = "Den of Nalorakk",        instance = 2952 },
-    { spell = 1264563, name = "The Blinding Vale",      instance = 2953 },
-    { spell = 1264551, name = "Voidscar Arena",        instance = 2954 },
-    { spell = 2177723, name = "Kings' Rest",           instance = 1762 },
-    { spell = 2177727, name = "Temple of Sethraliss",  instance = 1877 },
-    { spell = 393256,  name = "Ruby Life Pools",       instance = 2520 },
+    { spell = 1286812, name = "Altar of Fangs",        instance = 2993 }, -- Path of Venomous Evolution / Path of the Vicious
+    { spell = 1286809, name = "Murder Row",            instance = 2813 }, -- Path of the Devious Smuggler / Path of the Murderer
+    { spell = 1286807, name = "Den of Nalorakk",        instance = 2825 }, -- Path of the Savage God
+    { spell = 1286801, name = "The Blinding Vale",      instance = 2859 }, -- Path of the Blooming Verdure
+    { spell = 1286804, name = "Voidscar Arena",        instance = 2923 }, -- Path of the Brutal Combatant / Path of the Voidscarred
+    { spell = 1286831, name = "Kings' Rest",           instance = 1762 }, -- Path of the Slumbering Conqueror / Path of the Ancient Kings
+    { spell = 1286828, name = "Temple of Sethraliss",  instance = 1877 }, -- Path of the Sacred Temple
+    { spell = 393256,  name = "Ruby Life Pools",       instance = 2521 }, -- Path of the Clutch Defender
 }
 
 -- ========================
@@ -32,8 +32,13 @@ sfui.portals_db.SEASON_PORTALS = {
 sfui.portals_db.MIDNIGHT_PORTALS = {
     { spell = 1254400, name = "Windrunner Spire",        instance = 2805 },
     { spell = 1254572, name = "Magisters' Terrace",      instance = 2811 },
-    { spell = 1254559, name = "Maisara Cavern",          instance = 2874 },
-    { spell = 1254563, name = "Nexus Point Xenas",       instance = 2915 },
+    { spell = 1254559, name = "Maisara Caverns",         instance = 2874 },
+    { spell = 1254563, name = "Nexus-Point Xenas",       instance = 2915 },
+    { spell = 1286809, name = "Murder Row",            instance = 2813 },
+    { spell = 1286807, name = "Den of Nalorakk",        instance = 2825 },
+    { spell = 1286801, name = "The Blinding Vale",      instance = 2859 },
+    { spell = 1286804, name = "Voidscar Arena",        instance = 2923 },
+    { spell = 1286812, name = "Altar of Fangs",        instance = 2993 },
 }
 
 -- ========================
@@ -80,7 +85,7 @@ sfui.portals_db.PERSONAL_PORTALS = {
     { spell = 281403,  portal = 281400, name = "Boralus"                          },
     { spell = 281404,  portal = 281402, name = "Dazar'alor"                       },
     { spell = 344587,  portal = 344597, name = "Oribos"                           },
-    { spell = 395277,  portal = 395289, name = "Valdraken"                        },
+    { spell = 395277,  portal = 395289, name = "Valdrakken"                       },
     { spell = 446540,  portal = 446534, name = "Dornogal"                         },
     { spell = 1259190, portal = 1259194,name = "Silvermoon City (Midnight)"       },
 }
@@ -175,12 +180,12 @@ sfui.portals_db.LEGACY_GROUPS = {
     {
         label = "Zandalar",
         portals = {
-            { spell = 410074, name = "The Underrot"                  },
-            { spell = 424187, name = "Atal'Dazar"                    },
-            { spell = 2177723, name = "Kings' Rest"                  },
-            { spell = 2177727, name = "Temple of Sethraliss"         },
-            { spell = 467553, name = "The MOTHERLODE!! (A)"          },
-            { spell = 467555, name = "The MOTHERLODE!! (H)"          },
+            { spell = 410074,  name = "The Underrot"                  },
+            { spell = 424187,  name = "Atal'Dazar"                    },
+            { spell = 1286831, name = "Kings' Rest"                   },
+            { spell = 1286828, name = "Temple of Sethraliss"          },
+            { spell = 467553,  name = "The MOTHERLODE!! (A)"          },
+            { spell = 467555,  name = "The MOTHERLODE!! (H)"          },
         },
     },
     {
@@ -293,6 +298,7 @@ sfui.portals_db.SHORT_STRINGS = {
     ["Magisters' Terrace"] = "MGT",
     ["Seat of the Triumvirate"] = "SEAT",
     ["Maisara Cavern"] = "MAIS",
+    ["Maisara Caverns"] = "MAIS",
     ["Nexus Point Xenas"] = "NPX",
     ["Nexus-Point Xenas"] = "NPX",
     ["Windrunner Spire"] = "SPIRE",
@@ -304,6 +310,7 @@ sfui.portals_db.SHORT_STRINGS = {
     ["The Blinding Vale"] = "BV",
     ["Voidscar Arena"] = "VA",
     ["Kings' Rest"] = "KR",
+    ["King's Rest"] = "KR",
     ["Temple of Sethraliss"] = "TOS",
 }
 

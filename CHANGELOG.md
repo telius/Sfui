@@ -1,3 +1,14 @@
+## v12.1.0-7 (2026-08-28)
+
+### Bug Fixes & Performance
+- **City & Idle Memory Leak Fix (`trackedicons.lua`, `trackedbars.lua`, `common.lua`)**: Fixed central event argument signatures for `UNIT_AURA` and `UNIT_SPELLCAST_SUCCEEDED`. Added strict player-only unit filtering, preventing nearby player and NPC aura updates in populated cities from triggering continuous icon layout updates and table churn.
+- **Table Allocation & Scratch Pooling**: Added reusable destination table support to `sfui.common.get_active_panel_entries` and hoisted scratch tables in `trackedicons.lua` and `trackedbars.lua`.
+- **Delve Nemesis Tracking (`mythic.lua`)**: Fixed Nemesis Influence counter in Delves to accurately display active remaining empowered packs (e.g. `4/4`) counting down to `Done`, and expanded widget inspection to `IconAndTextWidget` and `TextWithStateWidget`.
+- **M+ / Delve HUD Fixes (`mythic.lua`)**: Replaced raw escape bytes with Blizzard raid target markup in preview, resolved preview lexical scoping nil calls, and eliminated duplicate `GetAllWidgetsBySetID` queries.
+- **Blizzard Objective Tracker Taint & Flicker Prevention (`quests.lua`)**: Switched tracker hiding to native `RegisterStateDriver` without insecure `OnShow` hooks, eliminating secret aura taint errors in `ShouldShowMawBuffs` during Mythic+, and anchored the Blizzard tracker off-screen with alpha 0 to eliminate delve 1-frame flickering.
+- **Fast Spec Swapping & Gear Cache (`gear.lua`, `highest.lua`)**: Added staggered sync passes (0ms, 150ms, 400ms) on spec switch to guarantee immediate equipping of weapons and trinkets, and added a 300-entry eviction limit to `validationCache`.
+- **World Quest Summary Optimizations (`wqs.lua`)**: Eliminated intermediate table creation on item scans and capped `tablePool`.
+
 ## v12.1.0-6 (2026-08-25)
 
 ### Features & Updates

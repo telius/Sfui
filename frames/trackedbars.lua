@@ -1253,7 +1253,11 @@ local function UpdateBarsState()
                     myBar.status:SetValue(blizzFrame.Bar:GetValue())
 
                     if blizzFrame.Bar.Duration then
-                        myBar.time:SetText(blizzFrame.Bar.Duration:GetText() or "")
+                        local durText = blizzFrame.Bar.Duration:GetText() or ""
+                        if durText ~= myBar._lastDurationText then
+                            myBar._lastDurationText = durText
+                            myBar.time:SetText(durText)
+                        end
                     end
                 end
             end

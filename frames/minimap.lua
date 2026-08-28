@@ -154,7 +154,7 @@ function ButtonManager:is_button(frame)
     if lowerName:find("^worldquest") or lowerName:find("^warband") or lowerName:find("^scenario") then
         ignoreNameCache[name] = true; return false
     end
-    if lowerName:find("cluster") or lowerName:find("gametime") or lowerName:find("micro") then
+    if lowerName:find("cluster") or lowerName:find("gametime") or lowerName:find("micro") or lowerName:find("timemanager") or lowerName:find("clock") then
         ignoreNameCache[name] = true; return false
     end
     if lowerName:find("flight") or lowerName:find("garrison") then
@@ -568,11 +568,84 @@ function sfui.minimap.enable_button_manager(enabled)
         ButtonManager:arrange_buttons()
 
         if AddonCompartmentFrame then AddonCompartmentFrame:Hide() end
+        sfui.minimap.update_clock_position()
     else
         ButtonManager:restore_all()
         if button_bar then button_bar:Hide() end
         if AddonCompartmentFrame then AddonCompartmentFrame:Show() end
+        local clock = _G.TimeManagerClockButton
+        if clock and clock.sfuiAnchored then
+            clock.sfuiRepositioning = true
+            clock:ClearAllPoints()
+            clock:SetParent(MinimapCluster or Minimap)
+            clock:SetPoint("TOPRIGHT", Minimap, "BOTTOMRIGHT", 0, -2)
+            clock.sfuiRepositioning = nil
+        end
     end
+end
+
+function sfui.minimap.update_clock_position()
+    local clock = _G.TimeManagerClockButton
+    if not clock then
+        if C_AddOns and C_AddOns.LoadAddOn then
+            pcall(C_AddOns.LoadAddOn, "Blizzard_TimeManager")
+        elseif _G.UIParentLoadAddOn then
+            pcall(_G.UIParentLoadAddOn, "Blizzard_TimeManager")
+        end
+        clock = _G.TimeManagerClockButton
+    end
+
+    if not clock or not button_bar then return end
+
+    local isClockEnabled = true
+    if _G.GetCVarBool then
+        local ok, show = pcall(_G.GetCVarBool, "showClock")
+        if ok and show ~= nil then isClockEnabled = show end
+    end
+
+    if not isClockEnabled then
+        clock:Hide()
+        return
+    end
+
+    if not clock.sfuiAnchored then
+        clock:SetParent(button_bar)
+        clock:SetFrameStrata(button_bar:GetFrameStrata())
+        clock:SetFrameLevel(button_bar:GetFrameLevel() + 5)
+
+        -- Strip default background textures for clean text appearance
+        local regions = { clock:GetRegions() }
+        for _, region in ipairs(regions) do
+            if region:IsObjectType("Texture") then
+                local tex = region:GetTexture()
+                if tex and type(tex) == "string" and (tex:lower():find("timemanager") or tex:lower():find("clock")) then
+                    region:SetTexture(nil)
+                    region:SetAlpha(0)
+                end
+            end
+        end
+
+        if _G.TimeManagerClockTicker then
+            _G.TimeManagerClockTicker:ClearAllPoints()
+            _G.TimeManagerClockTicker:SetPoint("CENTER", clock, "CENTER", 0, 0)
+        end
+
+        hooksecurefunc(clock, "SetPoint", function(self)
+            if self.sfuiRepositioning or not button_bar or not button_bar:IsShown() then return end
+            self.sfuiRepositioning = true
+            self:ClearAllPoints()
+            self:SetPoint("LEFT", button_bar, "RIGHT", 5, 0)
+            self.sfuiRepositioning = nil
+        end)
+
+        clock.sfuiAnchored = true
+    end
+
+    clock.sfuiRepositioning = true
+    clock:ClearAllPoints()
+    clock:SetPoint("LEFT", button_bar, "RIGHT", 5, 0)
+    clock.sfuiRepositioning = nil
+    clock:Show()
 end
 
 function sfui.minimap.update_button_bar_position()
@@ -581,6 +654,7 @@ function sfui.minimap.update_button_bar_position()
         button_bar:SetPoint(SfuiDB.minimap_button_point or "TOP", Minimap,
             SfuiDB.minimap_button_relative_point or "BOTTOM", SfuiDB.minimap_button_x or 0,
             SfuiDB.minimap_button_y or sfui.config.minimap.button_bar.defaultY)
+        sfui.minimap.update_clock_position()
     end
 end
 
@@ -598,6 +672,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
             set_default_zoom()
         end
         sfui.minimap.enable_button_manager(SfuiDB.minimap_collect_buttons)
+        sfui.minimap.update_clock_position()
 
         if MinimapCluster and MinimapCluster.IndicatorFrame then
             MinimapCluster.IndicatorFrame:Hide(); MinimapCluster.IndicatorFrame:SetAlpha(0)
@@ -606,7 +681,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
             MinimapCluster.BorderTop:Hide(); MinimapCluster.BorderTop:SetAlpha(0)
         end
 
-        -- Startup timer to catch late-loading buttons
+        -- Startup timer to catch late-loading buttons and clock
         if SfuiDB.minimap_collect_buttons then
             C_Timer.NewTicker(2, function(self)
                 startup_scans = startup_scans + 1
@@ -616,6 +691,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
                     if ButtonManager:collect_buttons() then
                         ButtonManager:arrange_buttons()
                     end
+                    sfui.minimap.update_clock_position()
                 end
             end)
         end
@@ -625,6 +701,10 @@ frame:SetScript("OnEvent", function(self, event, ...)
     end
 
     if event == "ADDON_LOADED" then
+        local loadedAddon = select(1, ...)
+        if loadedAddon == "Blizzard_TimeManager" then
+            sfui.minimap.update_clock_position()
+        end
         if SfuiDB.minimap_collect_buttons then
             if ButtonManager:collect_buttons() then
                 ButtonManager:arrange_buttons()

@@ -12,7 +12,6 @@ local qcfg = g.questlog or {
     throttle = 0.35,
     defaultHidden = false,
     sections = {
-        { id = "scenario",   label = "objectives",       color = { 0.85, 0.40, 1.00 } },
         { id = "important",  label = "important",        color = { 1.00, 0.40, 0.35 } },
         { id = "campaign",   label = "campaign",         color = { 0.90, 0.75, 0.10 } },
         { id = "world",      label = "world quests",     color = { 0.20, 0.85, 0.95 } },
@@ -61,6 +60,7 @@ local ShowUIPanel, WorldMapFrame = _G.ShowUIPanel, _G.WorldMapFrame
 local GetTasksTable = _G.GetTasksTable
 local GetQuestLogSpecialItemInfo = _G.GetQuestLogSpecialItemInfo
 local print = _G.print
+local string_format = string.format  -- localize alias (avoids global table lookup on every call)
 
 -- Isolated Tooltip Frame (Zero global GameTooltip taint, zero UIWidgetManager registration)
 local SfuiQuestTooltip = sfui.tooltip
@@ -84,12 +84,13 @@ local QUEST_H    = qcfg.questHeight or 17
 local OBJ_H      = qcfg.objectiveHeight or 13
 local PAD_X      = 8
 local OBJ_INDENT = 14
-local THROTTLE   = qcfg.throttle or 0.05
+local THROTTLE   = qcfg.throttle or 0.5
 local SECT_GAP   = 2
 local QUEST_PAD  = 2
 
 -- Pre-cached Formatting Strings
 local ITEM_TAG_STRING   = "|TInterface\\Buttons\\WHITE8x8:6:6:0:0:8:8:0:8:0:8:102:0:255|t "
+local COLOR_COMPLETE    = "|cffff00ff"
 local COMPLETE_SUFFIX   = " |cff44cc44[Complete]|r"
 local COLOR_SUPERTRACK  = "|cffffff00"
 local COLOR_WARBAND     = "|cffa02020"
@@ -101,7 +102,8 @@ local COLOR_RESET       = "|r"
 
 -- Section definitions (display order)
 local SECTION_DEFS = qcfg.sections or {
-    { id = "scenario",   label = "objectives",       color = { 0.85, 0.40, 1.00 } },
+    -- NOTE: "scenario" (dungeon/delve/instance objectives) is intentionally absent.
+    -- frames/mythic.lua owns that display in both M+ and regular dungeon mode.
     { id = "important",  label = "important",        color = { 1.00, 0.40, 0.35 } },
     { id = "campaign",   label = "campaign",         color = { 0.90, 0.75, 0.10 } },
     { id = "world",      label = "world quests",     color = { 0.20, 0.85, 0.95 } },
@@ -130,12 +132,28 @@ end
 local State = {}
 State._active = false
 
+-- Named helper: avoids anonymous closure allocation on every State:Update() call.
+local function _IsChallengeActive()
+    return _G.C_ChallengeMode
+        and _G.C_ChallengeMode.IsChallengeModeActive
+        and _G.C_ChallengeMode.IsChallengeModeActive()
+end
+
 function State:Update()
-    local ok1, cm = pcall(function()
-        return _G.C_ChallengeMode
-            and _G.C_ChallengeMode.IsChallengeModeActive
-            and _G.C_ChallengeMode.IsChallengeModeActive()
-    end)
+    -- mythic.lua owns the display whenever it is active (M+, dungeon, delve, scenario).
+    -- Check this first so we never race against mythic.lua's event registration order.
+    if sfui.mythic and sfui.mythic.IsActive and sfui.mythic.IsActive() then
+        self._active = true; return
+    end
+
+    -- Also self-detect: if we are in any scenario (dungeon/delve/story scenario)
+    -- we hide and let mythic.lua take over, even before it has fired its own events.
+    local C_Sc = _G.C_Scenario
+    if C_Sc and C_Sc.IsInScenario and C_Sc.IsInScenario() then
+        self._active = true; return
+    end
+
+    local ok1, cm = pcall(_IsChallengeActive)
     if ok1 and cm then self._active = true; return end
 
     if _G.GetInstanceInfo then
@@ -156,11 +174,13 @@ local Refresh = {}
 local _refreshPending = false
 
 function Refresh:Request()
+    State:Update()
     if _G.InCombatLockdown() or State:IsActive() then return end
     if _refreshPending then return end
     _refreshPending = true
     C_Timer.After(THROTTLE, function()
         _refreshPending = false
+        State:Update()
         if _G.InCombatLockdown() or State:IsActive() then return end
         if QL and QL.IsShown and QL:IsShown() then
             QL:DoRefresh()
@@ -168,56 +188,64 @@ function Refresh:Request()
     end)
 end
 
--- ─── Blizzard Root Tracker Hook ───────────────────────────
--- Following MidnightObjective (Tracker.lua:1686-1708):
--- Synchronous hook on ROOT ObjectiveTrackerFrame OnShow.
--- Keeps all module update cycles (ScenarioObjectiveTracker, ShouldShowMawBuffs,
--- GetAuraDataByIndex) 100% taint-free.
-local _blizzardHookApplied = false
-local _hidePending = false
+-- ─── Blizzard Root Tracker Suppression (Taint-Free) ─────────
+-- Off-screen positioning + alpha 0 + secure StateDriver completely prevents
+-- Blizzard's ObjectiveTracker from flickering during Delves/Scenarios while
+-- keeping execution 100% taint-free.
+local _stateDriverRegistered = false
+local _blizzardOriginalPoints = nil
 
-local function ApplyBlizzardTrackerVisibility()
-    if State:IsActive() then return end
-
+local function SuppressBlizzardTracker()
     local root = _G.ObjectiveTrackerFrame
     if not root then return end
-    if root.SetAlpha then root:SetAlpha(0) end
-    if root.Hide then root:Hide() end
-    if root.EnableMouse then root:EnableMouse(false) end
-end
+    if _G.InCombatLockdown and _G.InCombatLockdown() then return end
 
--- Install the OnShow hook exactly once so Blizzard can't re-show the tracker.
-local function EnsureBlizzardTrackerHook()
-    local root = _G.ObjectiveTrackerFrame
-    if not root or _blizzardHookApplied then return end
-    _blizzardHookApplied = true
-    root:HookScript("OnShow", function(f)
-        if not (sfui.questlog and sfui.questlog.is_enabled and sfui.questlog.is_enabled()) then return end
-        if State:IsActive() then return end
-        if _hidePending then return end
-        _hidePending = true
-        -- Defer re-hide by 1 tick so Blizzard's QuestSuperTracking and MapCanvas pin
-        -- acquisition (SetPassThroughButtons) finish in a 100% untainted context.
-        C_Timer.After(0, function()
-            _hidePending = false
-            if not (sfui.questlog and sfui.questlog.is_enabled and sfui.questlog.is_enabled()) then return end
-            if State:IsActive() then return end
-            if not f:IsShown() then return end
-            if f.SetAlpha then f:SetAlpha(0) end
-            f:Hide()
-            if f.EnableMouse then f:EnableMouse(false) end
-        end)
-    end)
-    if sfui.questlog and sfui.questlog.is_enabled and sfui.questlog.is_enabled() then
-        ApplyBlizzardTrackerVisibility()
+    if not _blizzardOriginalPoints and root.GetPoint then
+        local p, relTo, relP, x, y = root:GetPoint()
+        if p then
+            _blizzardOriginalPoints = { p = p, relTo = relTo, relP = relP, x = x, y = y }
+        end
+    end
+
+    if root.ClearAllPoints and root.SetPoint then
+        root:ClearAllPoints()
+        root:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -9999, -9999)
+    end
+    if root.SetAlpha then root:SetAlpha(0) end
+    if root.EnableMouse then root:EnableMouse(false) end
+
+    if _G.RegisterStateDriver and not _stateDriverRegistered then
+        _G.RegisterStateDriver(root, "visibility", "hide")
+        _stateDriverRegistered = true
     end
 end
 
--- Called every time we show our tracker — actively enforces suppression.
-local function SuppressBlizzardTracker()
-    EnsureBlizzardTrackerHook()
-    ApplyBlizzardTrackerVisibility()
+local function RestoreBlizzardTracker()
+    local root = _G.ObjectiveTrackerFrame
+    if not root then return end
+    if _G.InCombatLockdown and _G.InCombatLockdown() then return end
+
+    if _G.UnregisterStateDriver and _stateDriverRegistered then
+        _G.UnregisterStateDriver(root, "visibility")
+        _stateDriverRegistered = false
+    end
+
+    if root.ClearAllPoints and root.SetPoint then
+        root:ClearAllPoints()
+        if _blizzardOriginalPoints and _blizzardOriginalPoints.p then
+            root:SetPoint(_blizzardOriginalPoints.p, _blizzardOriginalPoints.relTo or UIParent, _blizzardOriginalPoints.relP, _blizzardOriginalPoints.x, _blizzardOriginalPoints.y)
+        else
+            root:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -10, -10)
+        end
+    end
+
+    if root.SetAlpha then root:SetAlpha(1) end
+    if root.Show then root:Show() end
+    if root.EnableMouse then root:EnableMouse(true) end
 end
+
+sfui.SuppressBlizzardTracker = SuppressBlizzardTracker
+sfui.RestoreBlizzardTracker  = RestoreBlizzardTracker
 
 local outOfCombatQueue = {}
 local function QueueOutOfCombatAction(key, fn)
@@ -262,25 +290,14 @@ local function AcquireTable()
 end
 local function ReleaseTable(t)
     if type(t) ~= "table" then return end
-    if t.isScenario and t.objectives and type(t.objectives) == "table" then
-        for i = #t.objectives, 1, -1 do
-            local obj = table.remove(t.objectives, i)
-            if type(obj) == "table" then
-                wipe(obj)
-                table.insert(tablePool, obj)
-            end
-        end
-        wipe(t.objectives)
-        table.insert(tablePool, t.objectives)
-        t.objectives = nil
-    end
+    t.objectives = nil
     wipe(t)
     table.insert(tablePool, t)
 end
 
 -- Static section lists to eliminate table allocation on refresh
+-- NOTE: "scenario" key removed — mythic.lua owns dungeon/delve/scenario display.
 local sectionLists = {
-    scenario   = {},
     world      = {},
     campaign   = {},
     important  = {},
@@ -288,7 +305,6 @@ local sectionLists = {
     zone       = {},
 }
 local renderedSectionQuests = {
-    scenario   = {},
     world      = {},
     campaign   = {},
     important  = {},
@@ -309,8 +325,7 @@ local function GetQLState()
     end
     SfuiDB.questlog.expandedQuests = SfuiDB.questlog.expandedQuests or {}
     SfuiDB.questlog.collapsed      = SfuiDB.questlog.collapsed or {}
-    -- Wipe legacy hiddenQuests if present from old sessions
-    SfuiDB.questlog.hiddenQuests   = nil
+    -- hiddenQuests wipe moved to initialize() — was wrongly running on every GetQLState call
     if SfuiDB.questlog.hidden == nil then SfuiDB.questlog.hidden = false end
     return SfuiDB.questlog
 end
@@ -341,15 +356,21 @@ local function UntrackQuest(questID)
     end
 end
 
--- Check if a quest is a World Quest
+-- World Quest cache — invalidated on zone change.
+local worldQuestCache = {}
+
+-- Check if a quest is a World Quest (cached per session)
 local function IsWorldQuest(questID)
+    local cached = worldQuestCache[questID]
+    if cached ~= nil then return cached end
+    local result = false
     if C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(questID) then
-        return true
+        result = true
+    elseif _G.QuestUtils_IsQuestWorldQuest and _G.QuestUtils_IsQuestWorldQuest(questID) then
+        result = true
     end
-    if _G.QuestUtils_IsQuestWorldQuest and _G.QuestUtils_IsQuestWorldQuest(questID) then
-        return true
-    end
-    return false
+    worldQuestCache[questID] = result
+    return result
 end
 
 -- Check if a quest is actively watched in Blizzard's quest watch system
@@ -489,7 +510,8 @@ addon.questlog = QL
 
 QL:Hide()
 QL:SetSize(FRAME_W, 400)
-QL:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -10, -10)
+QL:SetMovable(true)
+QL:SetClampedToScreen(true)
 QL:EnableMouse(true)
 QL:SetFrameStrata("MEDIUM")
 QL:SetFrameLevel(10)
@@ -497,6 +519,31 @@ QL:SetFrameLevel(10)
 -- Fully transparent outer backdrop
 QL:SetBackdrop({ bgFile = [[Interface\ChatFrame\ChatFrameBackground]] })
 QL:SetBackdropColor(0, 0, 0, 0)
+
+-- ─── Position helpers ─────────────────────────────────────
+-- Returns true if the quest log is currently unlocked for dragging.
+local function QL_IsUnlocked()
+    return SfuiDB.questlogUnlocked == true
+end
+
+-- Persist current anchor to SfuiDB.
+local function QL_SavePosition()
+    local _, _, _, x, y = QL:GetPoint()
+    SfuiDB.questlogX  = x
+    SfuiDB.questlogY  = y
+    SfuiDB.mythicHudX = x
+    SfuiDB.mythicHudY = y
+end
+
+-- Restore saved position, or keep default TOPRIGHT anchor.
+local function QL_RestorePosition()
+    if SfuiDB.questlogX and SfuiDB.questlogY then
+        QL:ClearAllPoints()
+        QL:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT",
+            SfuiDB.questlogX, SfuiDB.questlogY)
+    end
+end
+QL._RestorePosition = QL_RestorePosition
 
 -- ─── Scrollbar ───────────────────────────────────────────
 local scrollBar = CreateFrame("Slider", nil, QL, "BackdropTemplate")
@@ -578,6 +625,9 @@ for _, def in ipairs(SECTION_DEFS) do
 
     local defID = def.id
     local defLabel = def.label
+    hdr:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    hdr:RegisterForDrag("LeftButton")
+
     hdr:SetScript("OnClick", function()
         local IsShiftKeyDown = _G.IsShiftKeyDown
         if IsShiftKeyDown and IsShiftKeyDown() then
@@ -589,6 +639,19 @@ for _, def in ipairs(SECTION_DEFS) do
         state.collapsed[defID] = not state.collapsed[defID]
         Refresh:Request()
     end)
+
+    -- Drag to reposition the whole QL frame when unlocked.
+    hdr:SetScript("OnDragStart", function()
+        if QL_IsUnlocked() then
+            QL:StartMoving()
+            SfuiQuestTooltip:Hide()
+        end
+    end)
+    hdr:SetScript("OnDragStop", function()
+        QL:StopMovingOrSizing()
+        QL_SavePosition()
+    end)
+
     hdr:SetScript("OnEnter", function(s)
         s:SetBackdropColor(0.08, 0.08, 0.08, 0.65)
         SfuiQuestTooltip:SetOwner(s, "ANCHOR_LEFT")
@@ -596,6 +659,9 @@ for _, def in ipairs(SECTION_DEFS) do
         SfuiQuestTooltip:AddLine(defLabel, def.color[1], def.color[2], def.color[3])
         SfuiQuestTooltip:AddLine("|cff888888Left-click: Collapse/Expand section|r", 1, 1, 1)
         SfuiQuestTooltip:AddLine("|cff888888Shift-click: Untrack all quests in category|r", 1, 1, 1)
+        if QL_IsUnlocked() then
+            SfuiQuestTooltip:AddLine("|cff6600ffDrag: Move the tracker|r", 1, 1, 1)
+        end
         SfuiQuestTooltip:Show()
     end)
     hdr:SetScript("OnLeave", function(s)
@@ -654,6 +720,57 @@ local function AcquireRow()
         end)
         row.ToggleBtn = toggleBtn
 
+        -- Left indicator / complete text (outside window on the left of dropdown icon)
+        local leftFS = row:CreateFontString(nil, "OVERLAY")
+        leftFS:SetFontObject("GameFontHighlightSmall")
+        leftFS:SetPoint("RIGHT", row, "LEFT", -6, 0)
+        leftFS:SetJustifyH("RIGHT")
+        leftFS:SetWordWrap(false)
+        leftFS:Hide()
+        row.LeftFS = leftFS
+
+        -- Usable Quest Item Button (outside window on the left of dropdown icon)
+        local itemBtn = CreateFrame("Button", nil, row, "SecureActionButtonTemplate,BackdropTemplate")
+        itemBtn:SetSize(16, 16)
+        itemBtn:SetPoint("RIGHT", row, "LEFT", -6, 0)
+        itemBtn:SetBackdrop({
+            bgFile = "Interface/Buttons/WHITE8X8",
+            edgeFile = "Interface/Buttons/WHITE8X8",
+            edgeSize = 1,
+        })
+        itemBtn:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
+        itemBtn:SetBackdropBorderColor(0.35, 0.35, 0.35, 0.9)
+        itemBtn:RegisterForClicks("AnyUp", "AnyDown")
+        itemBtn:SetAttribute("type", "item")
+
+        local itemTex = itemBtn:CreateTexture(nil, "ARTWORK")
+        itemTex:SetAllPoints()
+        itemTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        itemBtn.Icon = itemTex
+
+        local countFS = itemBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        countFS:SetPoint("BOTTOMRIGHT", itemBtn, "BOTTOMRIGHT", 1, -1)
+        itemBtn.Count = countFS
+
+        itemBtn:SetScript("OnEnter", function(btn)
+            btn:SetBackdropBorderColor(0.6, 0.3, 1.0, 1.0)
+            if btn.questLogIndex then
+                SfuiQuestTooltip:SetOwner(btn, "ANCHOR_LEFT")
+                if SfuiQuestTooltip.SetQuestLogSpecialItem then
+                    SfuiQuestTooltip:SetQuestLogSpecialItem(btn.questLogIndex)
+                elseif btn.itemLink then
+                    SfuiQuestTooltip:SetHyperlink(btn.itemLink)
+                end
+                SfuiQuestTooltip:Show()
+            end
+        end)
+        itemBtn:SetScript("OnLeave", function(btn)
+            btn:SetBackdropBorderColor(0.35, 0.35, 0.35, 0.9)
+            SfuiQuestTooltip:Hide()
+        end)
+        itemBtn:Hide()
+        row.ItemBtn = itemBtn
+
         -- Title
         local fs = row:CreateFontString(nil, "OVERLAY")
         fs:SetFontObject("GameFontHighlightSmall")
@@ -665,11 +782,11 @@ local function AcquireRow()
 
         -- Find Group Eye Button (Right edge)
         local findGroupBtn = CreateFrame("Button", nil, row)
-        findGroupBtn:SetSize(14, 14)
+        findGroupBtn:SetSize(18, 18)
         findGroupBtn:SetPoint("RIGHT", row, "RIGHT", -2, 0)
 
         local eyeIcon = findGroupBtn:CreateTexture(nil, "ARTWORK")
-        eyeIcon:SetSize(12, 12)
+        eyeIcon:SetSize(16, 16)
         eyeIcon:SetPoint("CENTER", findGroupBtn, "CENTER", 0, 0)
         eyeIcon:SetAtlas("socialqueuing-icon-eye")
         eyeIcon:SetVertexColor(0.85, 0.85, 0.85, 0.85)
@@ -748,7 +865,7 @@ local function AcquireRow()
                 end
                 if not s.isWorldQuest then
                     SfuiQuestTooltip:AddLine("|cff888888Alt-click: Share Quest with Party|r", 1, 1, 1)
-                    SfuiQuestTooltip:AddLine("|cff888888Ctrl-click: Abandon Quest|r", 1, 1, 1)
+                    SfuiQuestTooltip:AddLine("|cff888888Ctrl-Right-click: Abandon Quest|r", 1, 1, 1)
                 end
                 SfuiQuestTooltip:Show()
             end
@@ -774,16 +891,38 @@ local function AcquireRow()
                 return
             end
 
-            if btn == "RightButton" then
-                -- Right-click: toggle collapse/expand of objectives
-                local state = GetQLState()
-                state.expandedQuests = state.expandedQuests or {}
-                state.expandedQuests[s.questID] = not state.expandedQuests[s.questID]
-                Refresh:Request()
+            -- 1. Ctrl-Click / Ctrl-Right-Click: Abandon Quest (standard quests only)
+            local IsControlKeyDown = _G.IsControlKeyDown
+            if IsControlKeyDown and IsControlKeyDown() and not s.isWorldQuest then
+                if InCombat() then return end
+                if C_QuestLog.CanAbandonQuest and C_QuestLog.CanAbandonQuest(s.questID) then
+                    if C_QuestLog.SetSelectedQuest then
+                        pcall(C_QuestLog.SetSelectedQuest, s.questID)
+                    end
+                    if C_QuestLog.SetAbandonQuest then
+                        pcall(C_QuestLog.SetAbandonQuest)
+                    end
+                    if _G.QuestMapQuestOptions_AbandonQuest then
+                        local ok = pcall(_G.QuestMapQuestOptions_AbandonQuest, s.questID)
+                        if ok then return end
+                    end
+
+                    local title = s.questTitle or (C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(s.questID)) or "Quest"
+                    local items = (C_QuestLog.GetAbandonQuestItems and C_QuestLog.GetAbandonQuestItems()) or nil
+                    if items and _G.StaticPopup_Show then
+                        _G.StaticPopup_Show("ABANDON_QUEST_WITH_ITEMS", title, items)
+                    elseif _G.StaticPopup_Show then
+                        _G.StaticPopup_Show("ABANDON_QUEST", title)
+                    elseif C_QuestLog.AbandonQuest then
+                        pcall(C_QuestLog.AbandonQuest)
+                    end
+                else
+                    print("|cff8888ff[SFUI]|r Quest cannot be abandoned.")
+                end
                 return
             end
 
-            -- Alt-Click: Share Quest with Party (standard quests only)
+            -- 2. Alt-Click: Share Quest with Party (standard quests only)
             local IsAltKeyDown = _G.IsAltKeyDown
             if IsAltKeyDown and IsAltKeyDown() and not s.isWorldQuest then
                 if InCombat() then return end
@@ -796,19 +935,7 @@ local function AcquireRow()
                 return
             end
 
-            -- Ctrl-Click: Abandon Quest (standard quests only)
-            local IsControlKeyDown = _G.IsControlKeyDown
-            if IsControlKeyDown and IsControlKeyDown() and not s.isWorldQuest then
-                if InCombat() then return end
-                local QuestMapQuestOptions_AbandonQuest = _G.QuestMapQuestOptions_AbandonQuest
-                if C_QuestLog.CanAbandonQuest and C_QuestLog.CanAbandonQuest(s.questID) then
-                    pcall(C_QuestLog.SetSelectedQuest, s.questID)
-                    pcall(C_QuestLog.AbandonQuest)
-                end
-                return
-            end
-
-            -- Shift-Click: Untrack / Hide quest (or insert link if chat editbox has focus)
+            -- 3. Shift-Click: Untrack / Hide quest (or insert link if chat editbox has focus)
             local IsShiftKeyDown = _G.IsShiftKeyDown
             if IsShiftKeyDown and IsShiftKeyDown() then
                 local ChatEdit_GetActiveWindow = _G.ChatEdit_GetActiveWindow
@@ -826,6 +953,15 @@ local function AcquireRow()
                 end
 
                 UntrackQuest(s.questID)
+                Refresh:Request()
+                return
+            end
+
+            -- 4. Plain Right-Click: Toggle collapse/expand of objectives
+            if btn == "RightButton" then
+                local state = GetQLState()
+                state.expandedQuests = state.expandedQuests or {}
+                state.expandedQuests[s.questID] = not state.expandedQuests[s.questID]
                 Refresh:Request()
                 return
             end
@@ -902,28 +1038,34 @@ local function AcquireObjRow()
 end
 
 local function ClearRows()
+    -- ClearAllPoints removed: rows are always re-anchored in AcquireRow/AcquireObjRow.
     for i = #activeRows, 1, -1 do
         local r = table.remove(activeRows, i)
         r:Hide()
-        r:ClearAllPoints()
         table.insert(rowPool, r)
     end
     for i = #activeObjs, 1, -1 do
         local r = table.remove(activeObjs, i)
         r:Hide()
-        r:ClearAllPoints()
         table.insert(objPool, r)
     end
 end
 
--- ─── Panel Anchor (Clean, isolated, zero-taint anchor) ────
+-- ─── Panel Anchor ────────────────────────────────────────
+-- Respects saved drag position so the frame isn't silently reset after
+-- combat ends or CheckVisibilityAndRefresh() calls this function.
 UpdateQuestLogAnchor = function()
     if not QL then return 758 end
     if InCombat() or State:IsActive() then return QL.lastTop or 758 end
 
     local parentTop = (UIParent and UIParent:GetTop()) or 768
     QL:ClearAllPoints()
-    QL:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -10, -10)
+    if SfuiDB and SfuiDB.questlogX and SfuiDB.questlogY then
+        QL:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT",
+            SfuiDB.questlogX, SfuiDB.questlogY)
+    else
+        QL:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -10, -10)
+    end
     local qlTop = parentTop - 10
     QL.lastTop = qlTop
     return qlTop
@@ -974,7 +1116,7 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
         if C_TaskQuest and C_TaskQuest.GetQuestProgressBarInfo then
             local ok, pct = pcall(C_TaskQuest.GetQuestProgressBarInfo, questID)
             if ok and pct and pct > 0 then
-                objs = { { text = string.format("%d%%", pct), finished = (pct >= 100), numFulfilled = pct, numRequired = 100 } }
+                objs = { { text = string_format("%d%%", pct), finished = (pct >= 100), numFulfilled = pct, numRequired = 100 } }
             end
         end
     end
@@ -1062,34 +1204,40 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
                     local d = math_floor(mins / 1440)
                     local h = math_floor((mins % 1440) / 60)
                     if h > 0 then
-                        timeLeftText = string.format("%dd %dh", d, h)
+                        timeLeftText = string_format("%dd %dh", d, h)
                     else
-                        timeLeftText = string.format("%dd", d)
+                        timeLeftText = string_format("%dd", d)
                     end
                 elseif mins >= 60 then
                     local h = math_floor(mins / 60)
                     local m = mins % 60
                     if m > 0 then
-                        timeLeftText = string.format("%dh %dm", h, m)
+                        timeLeftText = string_format("%dh %dm", h, m)
                     else
-                        timeLeftText = string.format("%dh", h)
+                        timeLeftText = string_format("%dh", h)
                     end
                 else
-                    timeLeftText = string.format("%dm", mins)
+                    timeLeftText = string_format("%dm", mins)
                 end
             end
         end
     end
 
     local hasItem = false
+    local itemLink = nil
+    local itemTex = nil
+    local itemCharges = nil
     local logIndex = defaultInfo and defaultInfo.questLogIndex
     if not logIndex and C_QuestLog.GetLogIndexForQuestID then
         logIndex = C_QuestLog.GetLogIndexForQuestID(questID)
     end
     if logIndex and GetQuestLogSpecialItemInfo then
-        local ok, l, tex = pcall(GetQuestLogSpecialItemInfo, logIndex)
+        local ok, l, tex, charges = pcall(GetQuestLogSpecialItemInfo, logIndex)
         if ok and (tex or l) then
             hasItem = true
+            itemLink = l
+            itemTex = tex
+            itemCharges = charges
         end
     end
 
@@ -1109,12 +1257,20 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
     local isWarbandCompleted = IsQuestWarbandCompleted(questID)
     local canFindGroup = (defaultInfo and defaultInfo.suggestedGroup and defaultInfo.suggestedGroup > 1) or false
 
+    local isAutoTurnIn = (isAutoComplete and isComplete)
+    if not isAutoTurnIn and C_QuestLog.GetAutoQuestPopUpType then
+        local ok, pt = pcall(C_QuestLog.GetAutoQuestPopUpType, questID)
+        if ok and pt == "COMPLETE" then isAutoTurnIn = true end
+    end
+
     local entry = AcquireTable()
     entry.questID            = questID
+    entry.questLogIndex      = logIndex
     entry.title              = title
     entry.isComplete         = isComplete
     entry.isFailed           = isFailed
     entry.isAutoComplete     = isAutoComplete
+    entry.isAutoTurnIn       = isAutoTurnIn
     entry.isWarbandCompleted = isWarbandCompleted
     entry.canFindGroup       = canFindGroup
     entry.objectives         = objs
@@ -1124,119 +1280,61 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
     entry.isWorldQuest       = isWorld
     entry.timeLeftText       = timeLeftText
     entry.hasItem            = hasItem
+    entry.itemLink           = itemLink
+    entry.itemTex            = itemTex
+    entry.itemCharges        = itemCharges
     entry.isScenario         = false
     return entry
 end
 
--- ─── SCENARIO / DELVE HELPER ─────────────────────────────
-local function BuildScenarioEntry()
-    if not (C_Scenario and C_Scenario.IsInScenario and C_Scenario.IsInScenario()) then
-        return nil
+-- Helper: check if a quest has any active progress
+local function QuestHasProgress(entry)
+    if not entry then return false end
+    if entry.isComplete then return true end
+    if entry.done and entry.done > 0 then return true end
+    if entry.singleCountStr then
+        local cur = entry.singleCountStr:match("(%d+)/%d+") or entry.singleCountStr:match("(%d+)%%")
+        if cur and tonumber(cur) and tonumber(cur) > 0 then return true end
     end
-
-    local scenarioName, currentStage, numStages, _, _, _, _, _, _, scenarioType, _, textureKit = C_Scenario.GetInfo()
-    if not (scenarioName and currentStage and currentStage > 0) then
-        return nil
-    end
-
-    local stageName, stageDesc, numCriteria
-    if C_ScenarioInfo and C_ScenarioInfo.GetScenarioStepInfo then
-        local step = C_ScenarioInfo.GetScenarioStepInfo()
-        if type(step) == "table" then
-            stageName = step.title
-            stageDesc = step.description
-            numCriteria = step.numCriteria
-        end
-    elseif C_Scenario.GetStepInfo then
-        stageName, stageDesc, numCriteria = C_Scenario.GetStepInfo()
-    end
-
-    local isDelve = (scenarioType == 8) or (textureKit and textureKit:lower():find("delve"))
-    local category = "Scenario"
-    if isDelve then
-        category = "Delve"
-    elseif scenarioType == 1 then
-        category = "Mythic+"
-    elseif scenarioType == 5 then
-        category = "Dungeon"
-    end
-
-    local title = stageName or scenarioName or "Objective"
-    if numStages and numStages > 1 then
-        title = string.format("Stage %d/%d: %s", currentStage, numStages, stageName or scenarioName)
-    end
-
-    local objs = AcquireTable()
-    local done, total = 0, 0
-    local getCriteria = (C_ScenarioInfo and C_ScenarioInfo.GetCriteriaInfo) or (C_Scenario and C_Scenario.GetCriteriaInfo)
-
-    if getCriteria and numCriteria and numCriteria > 0 then
-        for i = 1, numCriteria do
-            local ok, result = pcall(getCriteria, i)
-            if ok and result then
-                local desc, completed, quantity, totalQuantity, failed, isWeighted
-                if type(result) == "table" then
-                    desc = result.description or result.criteriaString or ""
-                    completed = result.completed
-                    quantity = result.quantity or 0
-                    totalQuantity = result.totalQuantity or 0
-                    failed = result.failed
-                    isWeighted = result.isWeightedProgress
-                else
-                    desc, _, completed, quantity, totalQuantity, _, _, _, _, _, _, failed = getCriteria(i)
-                end
-
-                if desc and desc ~= "" then
-                    total = total + 1
-                    if completed then done = done + 1 end
-                    local countStr = nil
-                    if isWeighted then
-                        countStr = string.format("%d%%", quantity)
-                    elseif totalQuantity and totalQuantity > 1 then
-                        countStr = string.format("%d/%d", quantity, totalQuantity)
-                    end
-
-                    local fullText = desc
-                    if countStr and not desc:find(countStr, 1, true) then
-                        fullText = desc .. " (" .. countStr .. ")"
-                    end
-
-                    local objEntry = AcquireTable()
-                    objEntry.text = fullText
-                    objEntry.finished = completed and true or false
-                    objEntry.numFulfilled = quantity
-                    objEntry.numRequired = totalQuantity
-                    table.insert(objs, objEntry)
-                end
+    if entry.objectives then
+        for _, obj in ipairs(entry.objectives) do
+            if obj.finished then return true end
+            if obj.numFulfilled and obj.numFulfilled > 0 then return true end
+            if obj.text then
+                local cur = obj.text:match("(%d+)/%d+") or obj.text:match("(%d+)%%")
+                if cur and tonumber(cur) and tonumber(cur) > 0 then return true end
             end
         end
     end
+    return false
+end
 
-    local entry = AcquireTable()
-    entry.questID            = -1
-    entry.title              = title
-    entry.isComplete         = (total > 0 and done == total)
-    entry.isFailed           = false
-    entry.isAutoComplete     = false
-    entry.isWarbandCompleted = false
-    entry.canFindGroup       = false
-    entry.objectives         = objs
-    entry.done               = done
-    entry.total              = total
-    entry.singleCountStr     = nil
-    entry.isWorldQuest       = false
-    entry.timeLeftText       = nil
-    entry.hasItem            = false
-    entry.isScenario         = true
-    entry.scenarioCategory   = category
-    return entry
+-- Helper: add a world quest/task to the world section (only if tracked or has progress)
+local function AddWorldQuest(qID, isExplicitlyWatched)
+    if qID and qID > 0 and not processedQuests[qID] then
+        local entry = BuildQuestEntry(qID, "world", nil)
+        if entry then
+            local isWatched = isExplicitlyWatched or (currentSuperTrackedID and currentSuperTrackedID == qID)
+            if isWatched or QuestHasProgress(entry) then
+                processedQuests[qID] = true
+                table.insert(sectionLists["world"], entry)
+            else
+                ReleaseTable(entry)
+            end
+        end
+    end
 end
 
 -- ─────────────────────────────────────────────────────────
 --  REFRESH (Zero Allocation Loop)
 -- ─────────────────────────────────────────────────────────
 function QL:DoRefresh()
-    if not self:IsShown() or State:IsActive() then return end
+    State:Update()
+    if State:IsActive() then
+        if self:IsShown() then self:Hide() end
+        return
+    end
+    if not self:IsShown() then return end
 
     local savedScroll = scrollBar:GetValue()
     ClearRows()
@@ -1251,51 +1349,7 @@ function QL:DoRefresh()
     end
     wipe(processedQuests)
 
-    -- Helper: check if a quest has any active progress
-    local function QuestHasProgress(entry)
-        if not entry then return false end
-        if entry.isComplete then return true end
-        if entry.done and entry.done > 0 then return true end
-        if entry.singleCountStr then
-            local cur = entry.singleCountStr:match("(%d+)/%d+") or entry.singleCountStr:match("(%d+)%%")
-            if cur and tonumber(cur) and tonumber(cur) > 0 then return true end
-        end
-        if entry.objectives then
-            for _, obj in ipairs(entry.objectives) do
-                if obj.finished then return true end
-                if obj.numFulfilled and obj.numFulfilled > 0 then return true end
-                if obj.text then
-                    local cur = obj.text:match("(%d+)/%d+") or obj.text:match("(%d+)%%")
-                    if cur and tonumber(cur) and tonumber(cur) > 0 then return true end
-                end
-            end
-        end
-        return false
-    end
-
-    -- Helper: add a world quest/task to the world section (only if tracked or has progress)
-    local function AddWorldQuest(qID, isExplicitlyWatched)
-        if qID and qID > 0 and not processedQuests[qID] then
-            local entry = BuildQuestEntry(qID, "world", nil)
-            if entry then
-                local isWatched = isExplicitlyWatched or (superTracked and superTracked == qID)
-                if isWatched or QuestHasProgress(entry) then
-                    processedQuests[qID] = true
-                    table.insert(sectionLists["world"], entry)
-                else
-                    ReleaseTable(entry)
-                end
-            end
-        end
-    end
-
-    -- 1. Delve / Scenario objectives
-    local scenEntry = BuildScenarioEntry()
-    if scenEntry then
-        table.insert(sectionLists["scenario"], scenEntry)
-    end
-
-    -- 2. Active local-area tasks & world events (GetTasksTable) — only if has progress
+    -- 1. Active local-area tasks & world events (GetTasksTable) — only if has progress
     if GetTasksTable then
         local ok, tasks = pcall(GetTasksTable)
         if ok and tasks then
@@ -1307,19 +1361,22 @@ function QL:DoRefresh()
 
     -- 3. In-zone World Quests and Bonus Objectives from current map (Outdoors only) — only if has progress
     local inInstance = _G.IsInInstance and _G.IsInInstance()
-    if not inInstance and cachedCurrentMapID and C_TaskQuest then
-        UpdateMapCache()
+    UpdateMapCache()
+    if not inInstance and cachedCurrentMapID and cachedCurrentMapID > 0 and C_TaskQuest then
         local taskQuests = nil
         if C_TaskQuest.GetQuestsOnMap then
-            taskQuests = C_TaskQuest.GetQuestsOnMap(cachedCurrentMapID)
+            local okTQ, res = pcall(C_TaskQuest.GetQuestsOnMap, cachedCurrentMapID)
+            if okTQ then taskQuests = res end
         elseif C_TaskQuest.GetQuestsForPlayerByMapID then
-            taskQuests = C_TaskQuest.GetQuestsForPlayerByMapID(cachedCurrentMapID)
+            local okTQ, res = pcall(C_TaskQuest.GetQuestsForPlayerByMapID, cachedCurrentMapID)
+            if okTQ then taskQuests = res end
         end
-        if taskQuests then
+        if taskQuests and type(taskQuests) == "table" then
             for _, task in ipairs(taskQuests) do
-                local qID = task.questID or task
-                if qID and type(qID) == "number" and qID > 0 then
-                    if C_TaskQuest.IsActive and C_TaskQuest.IsActive(qID) then
+                local qID = (type(task) == "table" and task.questID) or (type(task) == "number" and task)
+                if qID and qID > 0 then
+                    local okAct, isActive = pcall(C_TaskQuest.IsActive, qID)
+                    if okAct and isActive then
                         AddWorldQuest(qID, false)
                     end
                 end
@@ -1382,7 +1439,7 @@ function QL:DoRefresh()
     -- Smart Priority Sort within each active section
     for _, def in ipairs(SECTION_DEFS) do
         local list = sectionLists[def.id]
-        if #list > 1 and def.id ~= "scenario" then
+        if #list > 1 then
             table.sort(list, QuestSortComparator)
         end
     end
@@ -1442,33 +1499,87 @@ function QL:DoRefresh()
                         row.Dot:Hide()
                     end
 
-                    local itemTag = entry.hasItem and ITEM_TAG_STRING or ""
-                    local titleColor
-                    if isSuperTracked then
-                        titleColor = COLOR_SUPERTRACK
-                    elseif entry.isWarbandCompleted then
-                        titleColor = COLOR_WARBAND
+                    -- Left-side popout indicators (outside window on the left of dropdown icon)
+                    if row.LeftFS then
+                        row.LeftFS:ClearAllPoints()
+                        row.LeftFS:SetPoint("RIGHT", row, "LEFT", -6, 0)
+                        row.LeftFS:SetText("")
+                        row.LeftFS:Hide()
                     end
+
+                    if row.ItemBtn then
+                        row.ItemBtn:ClearAllPoints()
+                        row.ItemBtn:SetPoint("RIGHT", row, "LEFT", -6, 0)
+                        row.ItemBtn:Hide()
+                    end
+
+                    if entry.hasItem and entry.questLogIndex and row.ItemBtn and not InCombat() then
+                        local lIndex = entry.questLogIndex
+                        local link = entry.itemLink
+                        local tex = entry.itemTex
+                        local charges = entry.itemCharges
+
+                        if not tex and GetQuestLogSpecialItemInfo then
+                            local ok, l, t, ch = pcall(GetQuestLogSpecialItemInfo, lIndex)
+                            if ok then link, tex, charges = l, t, ch end
+                        end
+
+                        if tex or link then
+                            row.ItemBtn.questLogIndex = lIndex
+                            row.ItemBtn.itemLink = link
+                            row.ItemBtn.Icon:SetTexture(tex or 134400)
+                            row.ItemBtn.Count:SetText((charges and charges > 1) and tostring(charges) or "")
+                            row.ItemBtn:SetAttribute("item", link or ("item:" .. tostring(link)))
+                            row.ItemBtn:Show()
+
+                            if entry.isComplete and row.LeftFS then
+                                row.LeftFS:SetPoint("RIGHT", row.ItemBtn, "LEFT", -4, 0)
+                                if entry.isAutoTurnIn then
+                                    row.LeftFS:SetText("|cffff00ff[Turn In]|r")
+                                else
+                                    row.LeftFS:SetText("|cff44cc44[Complete]|r")
+                                end
+                                row.LeftFS:Show()
+                            end
+                        end
+                    elseif entry.isComplete and row.LeftFS then
+                        if entry.isAutoTurnIn then
+                            row.LeftFS:SetText("|cffff00ff[Turn In]|r")
+                        else
+                            row.LeftFS:SetText("|cff44cc44[Complete]|r")
+                        end
+                        row.LeftFS:Show()
+                    end
+
                     local rawTitle = entry.title or "Unknown Quest"
-                    local titleText = titleColor and (titleColor .. rawTitle .. COLOR_RESET) or rawTitle
                     local timeTag = (entry.isWorldQuest and entry.timeLeftText) and (" " .. COLOR_TIME .. "[" .. entry.timeLeftText .. "]" .. COLOR_RESET) or ""
 
                     local titleStr
                     if entry.isFailed then
-                        titleStr = itemTag .. COLOR_FAILED .. rawTitle .. COLOR_RESET .. timeTag
-                    elseif entry.isComplete and entry.isAutoComplete then
-                        titleStr = itemTag .. titleText .. timeTag .. " |cff00ff00[Click to Complete]|r"
+                        titleStr = COLOR_FAILED .. rawTitle .. COLOR_RESET .. timeTag
+                    elseif entry.isComplete and entry.isAutoTurnIn then
+                        titleStr = COLOR_COMPLETE .. rawTitle .. " [Turn In]" .. COLOR_RESET .. timeTag
                     elseif entry.isComplete then
-                        titleStr = itemTag .. titleText .. timeTag .. COMPLETE_SUFFIX
-                    elseif entry.singleCountStr then
-                        local isFin = (entry.done == entry.total)
-                        local col = isFin and COLOR_DONE_CNT or COLOR_UNDONE_CNT
-                        titleStr = itemTag .. titleText .. timeTag .. " " .. col .. "[" .. entry.singleCountStr .. "]" .. COLOR_RESET
-                    elseif entry.total > 0 then
-                        local col = (entry.done == entry.total) and COLOR_DONE_CNT or COLOR_UNDONE_CNT
-                        titleStr = itemTag .. titleText .. timeTag .. " " .. col .. "[" .. entry.done .. "/" .. entry.total .. "]" .. COLOR_RESET
+                        titleStr = rawTitle .. timeTag .. COMPLETE_SUFFIX
                     else
-                        titleStr = itemTag .. titleText .. timeTag
+                        local titleColor
+                        if isSuperTracked then
+                            titleColor = COLOR_SUPERTRACK
+                        elseif entry.isWarbandCompleted then
+                            titleColor = COLOR_WARBAND
+                        end
+                        local titleText = titleColor and (titleColor .. rawTitle .. COLOR_RESET) or rawTitle
+
+                        if entry.singleCountStr then
+                            local isFin = (entry.done == entry.total)
+                            local col = isFin and COLOR_DONE_CNT or COLOR_UNDONE_CNT
+                            titleStr = titleText .. timeTag .. " " .. col .. "[" .. entry.singleCountStr .. "]" .. COLOR_RESET
+                        elseif entry.total > 0 then
+                            local col = (entry.done == entry.total) and COLOR_DONE_CNT or COLOR_UNDONE_CNT
+                            titleStr = titleText .. timeTag .. " " .. col .. "[" .. entry.done .. "/" .. entry.total .. "]" .. COLOR_RESET
+                        else
+                            titleStr = titleText .. timeTag
+                        end
                     end
 
                     if row.lastTitleStr ~= titleStr then
@@ -1577,13 +1688,28 @@ function sfui.questlog.set_enabled(enabled)
         sfui.questlog.initialize()
     else
         QL:Hide()
-        local root = _G.ObjectiveTrackerFrame
-        if root then
-            if root.SetAlpha then root:SetAlpha(1) end
-            if root.Show then root:Show() end
-            if root.EnableMouse then root:EnableMouse(true) end
-        end
+        RestoreBlizzardTracker()
     end
+end
+
+-- ─── Mythic+ Handoff ─────────────────────────────────────
+-- Called by frames/mythic.lua when a M+ key starts so the quest log
+-- immediately hides and Blizzard's tracker remains suppressed.
+function sfui.questlog.on_mythic_start()
+    State._active = true
+    if QL:IsShown() then QL:Hide() end
+    if sfui.SuppressBlizzardTracker then
+        sfui.SuppressBlizzardTracker()
+    end
+end
+
+-- Forward-declare so on_mythic_end (defined here) can call it before line 1785.
+local CheckVisibilityAndRefresh
+
+-- Called by frames/mythic.lua when the key resets or the run ends.
+function sfui.questlog.on_mythic_end()
+    State._active = false
+    CheckVisibilityAndRefresh()
 end
 
 function sfui.questlog.toggle()
@@ -1603,6 +1729,32 @@ function sfui.questlog.toggle()
     end
 end
 
+-- Toggle drag-to-move on section headers.
+-- locked = true  → headers only collapse/expand (default, position saved).
+-- locked = false → headers also start QL:StartMoving() on drag.
+function sfui.questlog.set_locked(locked)
+    SfuiDB.questlogUnlocked = not locked
+    -- Nothing else to do — QL_IsUnlocked() is checked live in OnDragStart.
+end
+
+function sfui.questlog.reset_position()
+    if SfuiDB then
+        SfuiDB.questlogX  = nil
+        SfuiDB.questlogY  = nil
+        SfuiDB.mythicHudX = nil
+        SfuiDB.mythicHudY = nil
+    end
+    if QL then
+        QL:ClearAllPoints()
+        QL:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -10, -10)
+        UpdateQuestLogAnchor()
+    end
+    if SfuiMythicHUD then
+        SfuiMythicHUD:ClearAllPoints()
+        SfuiMythicHUD:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -10, -10)
+    end
+end
+
 function sfui.questlog.unhide_all()
     local state = GetQLState()
     state.hiddenQuests = {}
@@ -1612,13 +1764,24 @@ end
 function sfui.questlog.initialize()
     if not sfui.questlog.is_enabled() then
         QL:Hide()
-        local root = _G.ObjectiveTrackerFrame
-        if root then
-            if root.SetAlpha then root:SetAlpha(1) end
-            if root.Show then root:Show() end
-            if root.EnableMouse then root:EnableMouse(true) end
-        end
+        RestoreBlizzardTracker()
         return
+    end
+
+    -- One-time migration: wipe legacy hiddenQuests key from saved data.
+    -- Previously done in every GetQLState() call — now runs once on login/reload.
+    if SfuiDB and SfuiDB.questlog and SfuiDB.questlog.hiddenQuests ~= nil then
+        SfuiDB.questlog.hiddenQuests = nil
+    end
+
+    -- Restore saved drag position (default: TOPRIGHT -10, -10 from UIParent).
+    if SfuiDB.questlogX and SfuiDB.questlogY then
+        QL:ClearAllPoints()
+        QL:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT",
+            SfuiDB.questlogX, SfuiDB.questlogY)
+    else
+        QL:ClearAllPoints()
+        QL:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -10, -10)
     end
 
     State:Update()
@@ -1639,7 +1802,7 @@ end
 -- ─────────────────────────────────────────────────────────
 --  EVENTS
 -- ─────────────────────────────────────────────────────────
-local function CheckVisibilityAndRefresh()
+CheckVisibilityAndRefresh = function()
     if not sfui.questlog.is_enabled() then
         if QL:IsShown() then QL:Hide() end
         return
@@ -1678,7 +1841,9 @@ QL:SetScript("OnEvent", function(_, event, arg1, arg2)
     elseif event == "PLAYER_ENTERING_WORLD" then
         local state = GetQLState()
         state.hidden = false
-        CheckVisibilityAndRefresh()
+        -- Defer one frame so mythic.lua (loaded after us) fires its
+        -- PLAYER_ENTERING_WORLD handler first and sets _mode before we evaluate.
+        C_Timer.After(0, CheckVisibilityAndRefresh)
 
     elseif event == "SUPER_TRACKING_CHANGED" then
         SyncSuperTrackIndicator()
@@ -1753,6 +1918,7 @@ QL:SetScript("OnEvent", function(_, event, arg1, arg2)
     elseif event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS" then
         cachedCurrentMapID = nil
         cachedParentMapID  = nil
+        wipe(worldQuestCache)   -- world quest classification may change on zone transition
         UpdateMapCache()
         for qID in pairs(questProgressCache) do
             if IsWorldQuest(qID) or (C_QuestLog.IsQuestTask and C_QuestLog.IsQuestTask(qID)) then
@@ -1774,7 +1940,7 @@ QL:SetScript("OnEvent", function(_, event, arg1, arg2)
     elseif event == "SCENARIO_UPDATE" or event == "SCENARIO_CRITERIA_UPDATE" or event == "SCENARIO_POI_UPDATE"
         or event == "SCENARIO_SPELL_UPDATE" or event == "SCENARIO_CRITERIA_SHOW_STATE_UPDATE"
         or event == "SCENARIO_COMPLETED" or event == "ACTIVE_DELVE_DATA_UPDATE" then
-        Refresh:Request()
+        CheckVisibilityAndRefresh()
 
     else
         Refresh:Request()

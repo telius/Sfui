@@ -54,16 +54,9 @@ local function issecretvalue(val)
 end
 sfui.common.issecretvalue = issecretvalue
 
--- Dedicated Addon Tooltip (Zero global GameTooltip taint, zero UIWidgetManager registration)
-local SfuiTooltip = CreateFrame("GameTooltip", "SfuiTooltip", UIParent, "TooltipBackdropTemplate")
-if _G.TooltipDataHandlerMixin then
-    Mixin(SfuiTooltip, _G.TooltipDataHandlerMixin)
-elseif _G.GameTooltipDataMixin then
-    Mixin(SfuiTooltip, _G.GameTooltipDataMixin)
-end
-SfuiTooltip:SetFrameStrata("TOOLTIP")
-sfui.tooltip = SfuiTooltip
-sfui.common.tooltip = SfuiTooltip
+-- Standard Tooltip Reference
+sfui.tooltip = _G.GameTooltip
+sfui.common.tooltip = _G.GameTooltip
 
 -- Robust helper to check if an aura/ID is present, even if it's a secret value
 function sfui.common.HasAuraInstanceID(value)
@@ -529,10 +522,11 @@ function sfui.common.invalidate_panels_cache()
     _cachedPanelsSpecID = nil
 end
 
--- Get only the active (available) entries for a panel
-function sfui.common.get_active_panel_entries(panelConfig)
-    if not panelConfig or type(panelConfig.entries) ~= "table" then return {} end
-    local activeEntries = {}
+-- Get only the active (available) entries for a panel (reusable destination table support)
+function sfui.common.get_active_panel_entries(panelConfig, outTable)
+    local activeEntries = outTable or {}
+    _G.wipe(activeEntries)
+    if not panelConfig or type(panelConfig.entries) ~= "table" then return activeEntries end
     for _, entry in ipairs(panelConfig.entries) do
         local isKnown = true
         local typeHint = (type(entry) == "table" and entry.type) or "spell"
@@ -1004,14 +998,16 @@ function sfui.events.RegisterUpdate(arg1, arg2, arg3)
 end
 
 local function update_cached_spec_id()
-    -- Guard: spec data may not be loaded yet on early login frames.
-    -- Without this check, GetSpecialization() returns nil and we cache 0,
-    -- causing every module that calls get_current_spec_id() at startup to
-    -- receive an invalid spec until the next update event.
-    if C_SpecializationInfo.IsInitialized and not C_SpecializationInfo.IsInitialized() then return end
-    local spec = C_SpecializationInfo.GetSpecialization()
-    cachedSpecID = spec and select(1, C_SpecializationInfo.GetSpecializationInfo(spec)) or 0
-    sfui.common.invalidate_spec_color_cache()
+    local spec = (C_SpecializationInfo and C_SpecializationInfo.GetSpecialization and C_SpecializationInfo.GetSpecialization()) or (GetSpecialization and GetSpecialization())
+    if spec then
+        local specID = (C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo and select(1, C_SpecializationInfo.GetSpecializationInfo(spec))) or (GetSpecializationInfo and select(1, GetSpecializationInfo(spec)))
+        if specID and specID > 0 then
+            cachedSpecID = specID
+            sfui.common.invalidate_spec_color_cache()
+            return cachedSpecID
+        end
+    end
+    return cachedSpecID
 end
 
 sfui.events.RegisterEvent("PLAYER_LOGIN", function()
@@ -1039,8 +1035,7 @@ sfui.events.RegisterEvent("PLAYER_TALENT_UPDATE", function()
 end)
 
 function sfui.common.get_current_spec_id()
-    if cachedSpecID == 0 then update_cached_spec_id() end
-    return cachedSpecID
+    return update_cached_spec_id()
 end
 
 function sfui.common.update_widget_bar(widget_frame, icons_pool, labels_pool, source_data, get_details_func)

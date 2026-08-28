@@ -48,6 +48,26 @@ local STAT_MAP = {
     [4] = "ITEM_MOD_INTELLECT_SHORT",
 }
 
+local TANK_SPECS = {
+    [250] = true, -- Blood DK
+    [581] = true, -- Vengeance DH
+    [104] = true, -- Guardian Druid
+    [268] = true, -- Brewmaster Monk
+    [66]  = true, -- Protection Paladin
+    [73]  = true, -- Protection Warrior
+}
+
+local ARMOR_SLOTS = {
+    [1]  = true, -- Head
+    [3]  = true, -- Shoulder
+    [5]  = true, -- Chest
+    [6]  = true, -- Waist
+    [7]  = true, -- Legs
+    [8]  = true, -- Feet
+    [9]  = true, -- Wrist
+    [10] = true, -- Hands
+}
+
 sfui.highest.rules = {
     -- Death Knight
     [250] = { armor = 4, stat = 1, weaps = { ["2H"] = true } },
@@ -69,7 +89,7 @@ sfui.highest.rules = {
     -- Hunter
     [253] = { armor = 3, stat = 2, weaps = { ["Ranged"] = true } },
     [254] = { armor = 3, stat = 2, weaps = { ["Ranged"] = true } },
-    [255] = { armor = 3, stat = 2, weaps = { ["2H"] = true, ["1H_Dual"] = true } },
+    [255] = { armor = 3, stat = 2, weaps = { ["2H"] = true } },
     -- Mage
     [62] = { armor = 1, stat = 4, weaps = { ["2H"] = true, ["1H_Off"] = true } },
     [63] = { armor = 1, stat = 4, weaps = { ["2H"] = true, ["1H_Off"] = true } },
@@ -107,13 +127,10 @@ sfui.highest.rules = {
 -- Checks if the item matches the primary stat
 local function HasPrimaryStat(itemLink, primaryStatName)
     local stats = C_Item.GetItemStats(itemLink)
-    if not stats then return false end
-
     -- Fast-path mathematically sound API match
-    if stats[primaryStatName] then return true end
+    if stats and stats[primaryStatName] then return true end
 
-    -- Tooltip Fallback Check for Deceptive Base Items
-    -- (Items like event staves drop dynamically modified to intellect, but the base API forcibly returns agility)
+    -- Tooltip Fallback Check for Deceptive Base Items or un-cached stat structures
     local tooltipData = C_TooltipInfo and C_TooltipInfo.GetHyperlink(itemLink)
     if tooltipData and tooltipData.lines then
         local primaryString = ""
@@ -129,8 +146,8 @@ local function HasPrimaryStat(itemLink, primaryStatName)
             for _, line in ipairs(tooltipData.lines) do
                 local text = line.leftText
                 if text and type(text) == "string" then
-                    -- If the dynamic tooltip clearly broadcasts the primary stat, we know it's there
-                    if text:find(primaryString, 1, true) then
+                    -- If the dynamic tooltip clearly broadcasts the primary stat or main stat, we know it's there
+                    if text:find(primaryString, 1, true) or text:find("Primary Stat", 1, true) or text:find("Main Stat", 1, true) then
                         return true
                     end
                 end
@@ -138,12 +155,10 @@ local function HasPrimaryStat(itemLink, primaryStatName)
         end
     end
 
-    -- If there's literally NO primary stats on the item, we allow it (generic trinkets/rings)
-    -- We restrict this bypass to non-weapons, so casters don't equip old classic weapons equipped with only stamina/haste
+    -- If there's literally NO primary stats on the item, we allow it (generic trinkets/rings/necks/cloaks)
     local classID = select(6, GetItemInfoInstant(itemLink))
     if classID ~= 2 then
-        local hasAnyPrimary = stats["ITEM_MOD_STRENGTH_SHORT"] or stats["ITEM_MOD_AGILITY_SHORT"] or
-            stats["ITEM_MOD_INTELLECT_SHORT"]
+        local hasAnyPrimary = stats and (stats["ITEM_MOD_STRENGTH_SHORT"] or stats["ITEM_MOD_AGILITY_SHORT"] or stats["ITEM_MOD_INTELLECT_SHORT"])
         if not hasAnyPrimary then return true end
     end
 
@@ -174,9 +189,12 @@ local function pvpCacheSet(link, val)
 end
 
 local validationCache = {}
+local validationCacheCount = 0
+local VALIDATION_CACHE_MAX = 300
 
 function sfui.highest.ClearCache()
     _G.wipe(validationCache)
+    validationCacheCount = 0
 end
 
 -- Returns true, itemLevel, statVal, itemEquipLoc if the item is valid for the spec rules
@@ -215,10 +233,16 @@ local function IsItemValidForSpec_Internal(itemLink, specID)
 
     -- Weapon restriction rules
     if classID == 2 then
-        if itemEquipLoc == "INVTYPE_2HWEAPON" or itemEquipLoc == "INVTYPE_RANGED" or itemEquipLoc == "INVTYPE_RANGEDRIGHT" then
-            if not rule.weaps["2H"] and not rule.weaps["2H_Dual"] and not rule.weaps["Ranged"] then return false end
+        if itemEquipLoc == "INVTYPE_RANGED" or itemEquipLoc == "INVTYPE_RANGEDRIGHT" then
+            if not rule.weaps["Ranged"] then return false end
+        elseif itemEquipLoc == "INVTYPE_2HWEAPON" then
+            if not rule.weaps["2H"] and not rule.weaps["2H_Dual"] then return false end
         elseif itemEquipLoc == "INVTYPE_WEAPON" or itemEquipLoc == "INVTYPE_WEAPONMAINHAND" then
             if not rule.weaps["1H_Dual"] and not rule.weaps["1H_Off"] and not rule.weaps["1H_Shield"] then return false end
+        elseif itemEquipLoc == "INVTYPE_WEAPONOFFHAND" then
+            if not rule.weaps["1H_Dual"] and not rule.weaps["1H_Off"] then return false end
+        else
+            return false
         end
     elseif classID == 4 then
         if itemEquipLoc == "INVTYPE_SHIELD" then
@@ -245,6 +269,11 @@ function sfui.highest.IsItemValidForSpec(itemLink, specID)
         return c[1], c[2], c[3], c[4]
     end
     local isValid, itemLevel, statVal, itemEquipLoc = IsItemValidForSpec_Internal(itemLink, specID)
+    if validationCacheCount >= VALIDATION_CACHE_MAX then
+        _G.wipe(validationCache)
+        validationCacheCount = 0
+    end
+    validationCacheCount = validationCacheCount + 1
     validationCache[cacheKey] = { isValid, itemLevel, statVal, itemEquipLoc }
     return isValid, itemLevel, statVal, itemEquipLoc
 end
@@ -517,24 +546,6 @@ function sfui.highest.GetBestItems(isPvP)
         end
     end
 
-    -- Protect locked slots: remove them from consideration so the equipped item
-    -- is never touched by EquipHighestILvl regardless of what's in bags.
-    -- Covers trinkets (13,14), rings (11,12), neck (2), weapons (16,17).
-    local lockedSlotIDs = { 2, 11, 12, 13, 14, 16, 17 }
-    for _, slotID in ipairs(lockedSlotIDs) do
-        local link = GetInventoryItemLink("player", slotID)
-        if link then
-            local itemID = GetItemInfoInstant and GetItemInfoInstant(link)
-            local specGear = itemID and SfuiDB and SfuiDB.gear and SfuiDB.gear[specID]
-            local lockTable = specGear and (isPvP and specGear.locked_items_pvp or specGear.locked_items_pve)
-            -- Legacy fallback
-            if not lockTable and specGear then lockTable = specGear.locked_items end
-            if lockTable and lockTable[itemID] then
-                best[slotID] = nil
-            end
-        end
-    end
-
     -- Quad-Tier Engine: Hero Spec -> Pawn Math -> Manual Priority -> Default DB Priority
     local specDB = SfuiDB and SfuiDB.gear and SfuiDB.gear[specID]
     local hd = nil
@@ -607,14 +618,20 @@ function sfui.highest.GetBestItems(isPvP)
         end
     end
 
+    local isTank = TANK_SPECS[specID] == true
+    local armorIlvlPrio = (specDB and specDB.armor_ilvl_prio)
+    if armorIlvlPrio == nil then
+        armorIlvlPrio = isTank
+    end
+
     -- Precalculate scores to avoid heavy math directly inside table.sort
     for slotID, items in pairs(best) do
+        local isArmor = ARMOR_SLOTS[slotID] == true
+        local prioritizeIlvl = (isArmor and armorIlvlPrio)
+
         for _, itm in ipairs(items) do
-            local score = itm.ilvl * 10
-            if isPvP then
-                score = itm.ilvl *
-                    100 -- PvP gear tooltips return massive ilvls, this ensures it overrides base stat arrays
-            end
+            local baseMultiplier = isPvP and 100 or (prioritizeIlvl and 1000 or 10)
+            local score = itm.ilvl * baseMultiplier
 
             -- Feature 1: Tier Set Protection
             if itm.isEquipped then
@@ -630,7 +647,7 @@ function sfui.highest.GetBestItems(isPvP)
                 if itemStats then
                     -- Prismatic socket bonus
                     if itemStats["EMPTY_SOCKET_PRISMATIC"] then
-                        score = score + 150 -- +15 ilvl equivalent score for empty socket
+                        score = score + (prioritizeIlvl and 500 or 150)
                     end
 
                     -- Secondary stat weights derived directly from Pawn string parsing, or fallback to relative Tier weights
@@ -696,6 +713,36 @@ function sfui.highest.GetBestItems(isPvP)
 
     local finalPick = {}
 
+    -- Protect locked slots: retain equipped locked items directly in finalPick so
+    -- they are never replaced, and clear them from candidate consideration in best[slotID].
+    -- Covers trinkets (13,14), rings (11,12), neck (2), weapons (16,17).
+    local lockedSlotIDs = { 2, 11, 12, 13, 14, 16, 17 }
+    for _, slotID in ipairs(lockedSlotIDs) do
+        local link = GetInventoryItemLink("player", slotID)
+        if link then
+            local itemID = GetItemInfoInstant and GetItemInfoInstant(link)
+            local specGear = itemID and SfuiDB and SfuiDB.gear and SfuiDB.gear[specID]
+            local lockTable = specGear and (isPvP and specGear.locked_items_pvp or specGear.locked_items_pve)
+            -- Legacy fallback
+            if not lockTable and specGear then lockTable = specGear.locked_items end
+            if lockTable and lockTable[itemID] then
+                local _, _, _, itemEquipLoc = GetItemInfoInstant(link)
+                local effectiveILvl = GetDetailedItemLevelInfo(link) or 1
+                finalPick[slotID] = {
+                    link = link,
+                    ilvl = effectiveILvl,
+                    statVal = 0,
+                    is2H = ((itemEquipLoc == "INVTYPE_2HWEAPON" and not rule.weaps["2H_Dual"]) or itemEquipLoc == "INVTYPE_RANGED" or itemEquipLoc == "INVTYPE_RANGEDRIGHT"),
+                    isEquipped = true,
+                    physId = -slotID,
+                    itemEquipLoc = itemEquipLoc,
+                    score = 999999,
+                }
+                best[slotID] = nil
+            end
+        end
+    end
+
     -- Feature: Dynamic Tier Set Drafting
     local force_2set = specDB and specDB.force_2set
     local force_4set = specDB and (specDB.force_4set ~= false) and not specDB.force_2set
@@ -758,37 +805,60 @@ function sfui.highest.GetBestItems(isPvP)
         end
     end
 
-    -- Resolve Weapons first (combinatorics based on primary stat)
-    local best2H = nil
-    local best1H = nil
-    local bestOH = nil
+    -- Resolve Weapons (combinatorics based on primary stat)
+    if not finalPick[16] and not finalPick[17] then
+        local best2H = nil
+        local best1H = nil
+        local bestOH = nil
 
-    if best[16] then
-        for _, itm in ipairs(best[16]) do
-            if itm.is2H and not best2H then best2H = itm end
-            if not itm.is2H and not best1H then best1H = itm end
+        if best[16] then
+            for _, itm in ipairs(best[16]) do
+                if itm.is2H and not best2H then best2H = itm end
+                if not itm.is2H and not best1H then best1H = itm end
+            end
         end
-    end
-    if best[17] then
-        for _, itm in ipairs(best[17]) do
-            if not itm.is2H then
-                if not best1H or (best1H.physId ~= itm.physId) then
-                    bestOH = itm; break
+        if best[17] then
+            for _, itm in ipairs(best[17]) do
+                if not itm.is2H then
+                    if not best1H or (best1H.physId ~= itm.physId) then
+                        bestOH = itm; break
+                    end
                 end
             end
         end
-    end
 
-    local score2H = best2H and best2H.score or 0
-    if best2H then
-        -- A 2H weapon occupies two slots, so its base ilvl component must be doubled to compare
-        -- against the sum of a 1H + OH score (which organically adds two item levels together).
-        score2H = score2H + (best2H.ilvl * (isPvP and 100 or 10))
-    end
-    local scoreDual = (best1H and best1H.score or 0) + (bestOH and bestOH.score or 0)
+        local score2H = best2H and best2H.score or 0
+        if best2H then
+            -- A 2H weapon occupies two slots, so its base ilvl component must be doubled to compare
+            -- against the sum of a 1H + OH score (which organically adds two item levels together).
+            score2H = score2H + (best2H.ilvl * (isPvP and 100 or 10))
+        end
+        local scoreDual = (best1H and best1H.score or 0) + (bestOH and bestOH.score or 0)
 
-    if score2H > 0 or scoreDual > 0 then
-        if score2H > scoreDual then
+        local prioMH_OH = (specID == 62 or specID == 63 or specID == 64 or specID == 265 or specID == 266 or specID == 267 or specID == 258)
+        local choose2H = false
+
+        if best2H and (not best1H or not bestOH) then
+            choose2H = true
+        elseif best2H and best1H and bestOH then
+            if prioMH_OH then
+                -- For Mage, Warlock & Shadow Priest: prioritize MH + OH if stats/score are equal or better
+                -- 2H is only chosen if it genuinely beats the combined dual set beyond rounding margin
+                if score2H > (scoreDual + 1.0) then
+                    choose2H = true
+                else
+                    choose2H = false
+                end
+            else
+                if score2H > scoreDual then
+                    choose2H = true
+                else
+                    choose2H = false
+                end
+            end
+        end
+
+        if choose2H then
             finalPick[16] = best2H
             local currentOffhand = GetInventoryItemLink("player", 17)
             if currentOffhand then
@@ -797,6 +867,34 @@ function sfui.highest.GetBestItems(isPvP)
         else
             if best1H then finalPick[16] = best1H end
             if bestOH then finalPick[17] = bestOH end
+        end
+    elseif finalPick[16] and not finalPick[17] then
+        -- Main hand is locked; resolve offhand if mainhand is not 2H
+        if not finalPick[16].is2H and best[17] then
+            for _, itm in ipairs(best[17]) do
+                if not itm.is2H and (finalPick[16].physId ~= itm.physId) then
+                    local itemID = GetItemInfoInstant and GetItemInfoInstant(itm.link)
+                    local pickedID = finalPick[16].link and GetItemInfoInstant and GetItemInfoInstant(finalPick[16].link)
+                    if not (itemID and pickedID and itemID == pickedID) then
+                        finalPick[17] = itm
+                        break
+                    end
+                end
+            end
+        end
+    elseif not finalPick[16] and finalPick[17] then
+        -- Offhand is locked; resolve 1H mainhand
+        if best[16] then
+            for _, itm in ipairs(best[16]) do
+                if not itm.is2H and (finalPick[17].physId ~= itm.physId) then
+                    local itemID = GetItemInfoInstant and GetItemInfoInstant(itm.link)
+                    local pickedID = finalPick[17].link and GetItemInfoInstant and GetItemInfoInstant(finalPick[17].link)
+                    if not (itemID and pickedID and itemID == pickedID) then
+                        finalPick[16] = itm
+                        break
+                    end
+                end
+            end
         end
     end
 
@@ -825,7 +923,10 @@ function sfui.highest.GetBestItems(isPvP)
                             alreadyPicked = true; break
                         end
                         if itemID and GetItemInfoInstant and picked.link and GetItemInfoInstant(picked.link) == itemID then
-                            alreadyPicked = true; break
+                            local _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, isUnique = GetItemInfo(itm.link)
+                            if isUnique then
+                                alreadyPicked = true; break
+                            end
                         end
                     end
 
@@ -866,11 +967,8 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
 
     local totalToEquip = #equipQueue
 
-    -- Equip sequentially with small delays to avoid cursor collisions.
-    -- We do NOT call ClearCursor after EquipCursorItem: if the item triggers a
-    -- bind/tradeable confirmation dialog, Blizzard holds the item on the cursor
-    -- until the player confirms. Calling ClearCursor would dismiss the dialog.
-    local function equipNext(index)
+    -- Equip sequentially with lock detection to avoid dropped items or cursor collisions.
+    local function equipNext(index, retryCount)
         if index > #equipQueue then
             if totalToEquip > 0 then
                 if not silent then sfprint("Equipped " .. totalToEquip .. " upgrade(s)!") end
@@ -879,30 +977,56 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
             end
             return
         end
+
         local entry = equipQueue[index]
         local slotID, item = entry.slotID, entry.item
+        retryCount = retryCount or 0
+
         if item.isUnequip then
             if _G.ClearCursor then _G.ClearCursor() end
             if _G.PickupInventoryItem then _G.PickupInventoryItem(slotID) end
-            _G.C_Timer.After(0.1, function()
+            _G.C_Timer.After(0.08, function()
                 if _G.PutItemInBackpack then _G.PutItemInBackpack() end
+                _G.C_Timer.After(0.05, function() equipNext(index + 1) end)
             end)
-        elseif item.bag and item.slot then
-            if _G.ClearCursor then _G.ClearCursor() end
-            C_Container.PickupContainerItem(item.bag, item.slot)
-            if _G.EquipCursorItem then _G.EquipCursorItem(slotID) end
-            boeAttemptedAt[item.link] = _G.GetTime()
-            local watchBag, watchSlot, watchLink = item.bag, item.slot, item.link
-            _G.C_Timer.After(2, function()
-                local stillThere = _G.C_Container.GetContainerItemLink(watchBag, watchSlot)
-                if stillThere == watchLink then
-                    boeAttemptedAt[watchLink] = _G.GetTime() + 3570
+            return
+        end
+
+        if item.bag and item.slot then
+            local info = C_Container.GetContainerItemInfo(item.bag, item.slot)
+            if info and info.isLocked and retryCount < 10 then
+                -- Container slot is locked by a previous item swap in flight: wait 50ms and retry
+                _G.C_Timer.After(0.05, function() equipNext(index, retryCount + 1) end)
+                return
+            end
+
+            -- Ensure container item still matches what we expect
+            local currentLink = _G.C_Container.GetContainerItemLink(item.bag, item.slot)
+            if currentLink and currentLink == item.link then
+                if _G.ClearCursor then _G.ClearCursor() end
+                C_Container.PickupContainerItem(item.bag, item.slot)
+                if _G.CursorHasItem and _G.CursorHasItem() then
+                    if _G.EquipCursorItem then _G.EquipCursorItem(slotID) end
+                else
+                    EquipItemByName(item.link, slotID)
                 end
-            end)
+                boeAttemptedAt[item.link] = _G.GetTime()
+                local watchBag, watchSlot, watchLink = item.bag, item.slot, item.link
+                _G.C_Timer.After(2, function()
+                    local stillThere = _G.C_Container.GetContainerItemLink(watchBag, watchSlot)
+                    if stillThere == watchLink then
+                        boeAttemptedAt[watchLink] = _G.GetTime() + 3570
+                    end
+                end)
+            else
+                -- Bag slot contents shifted: equip by item link directly
+                EquipItemByName(item.link, slotID)
+            end
         else
             EquipItemByName(item.link, slotID)
         end
-        _G.C_Timer.After(0.15, function() equipNext(index + 1) end)
+
+        _G.C_Timer.After(0.08, function() equipNext(index + 1) end)
     end
 
     if totalToEquip > 0 then

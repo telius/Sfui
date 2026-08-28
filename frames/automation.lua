@@ -507,7 +507,7 @@ sfui.events.RegisterEvent("MERCHANT_SHOW", function()
 end)
 
 
-local function on_hammer_cast_finished(unit, _, spellID)
+local function on_hammer_cast_finished(event, unit, _, spellID)
     if unit == "player" and (spellID == 382404 or spellID == 382403) then
         currentTargetSlot = nil
         update_hammer_popup()
@@ -515,7 +515,7 @@ local function on_hammer_cast_finished(unit, _, spellID)
     end
 end
 
-local function on_hammer_cast_interrupted(unit, _, spellID)
+local function on_hammer_cast_interrupted(event, unit, _, spellID)
     if unit == "player" and (spellID == 382404 or spellID == 382403) then
         currentTargetSlot = nil
         update_hammer_popup()
@@ -543,7 +543,7 @@ end
 sfui.events.RegisterEvent("UPDATE_INVENTORY_DURABILITY", refreshHammer)
 sfui.events.RegisterEvent("PLAYER_REGEN_ENABLED", refreshHammer)
 
-sfui.events.RegisterEvent("GET_ITEM_INFO_RECEIVED", function(itemID, success)
+sfui.events.RegisterEvent("GET_ITEM_INFO_RECEIVED", function(event, itemID, success)
     if not success or not itemID then return end
 
     -- Only refresh if the received item is a known Master's Hammer

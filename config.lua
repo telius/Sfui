@@ -87,7 +87,7 @@ sfui.config = {
         [63] = { 0.25, 0.78, 0.92, 1 },      -- Fire
         [64] = { 0.25, 0.78, 0.92, 1 },      -- Frost
         -- Monk
-        [268] = { 0.00, 1.00, 0.59, 1 },     -- Brewmaster
+        [268] = { 0.90, 0.60, 0.15, 1 },     -- Brewmaster
         [269] = { 0.00, 1.00, 0.59, 1 },     -- Mistweaver
         [270] = { 0.00, 1.00, 0.59, 1 },     -- Windwalker
         -- Paladin
@@ -622,15 +622,25 @@ sfui.config = {
         questHeight = 17,
         objectiveHeight = 13,
         itemSize = 32,
-        throttle = 0.35,
+        throttle = 0.5,
         defaultHidden = false,
+        -- NOTE: "scenario" is absent — frames/mythic.lua owns dungeon/delve/instance objectives.
         sections = {
-            { id = "scenario",   label = "objectives",       color = { 0.85, 0.40, 1.00 } },
             { id = "important",  label = "important",        color = { 1.00, 0.40, 0.35 } },
             { id = "campaign",   label = "campaign",         color = { 0.90, 0.75, 0.10 } },
             { id = "world",      label = "world quests",     color = { 0.20, 0.85, 0.95 } },
             { id = "activities", label = "activities",       color = { 0.35, 0.90, 0.40 } },
             { id = "zone",       label = "quests",           color = { 1.00, 1.00, 1.00 } },
         },
+    },
+
+    -- ─── Mythic+ HUD ──────────────────────────────────────
+    -- Settings for the native M+ timer/objectives frame (frames/mythic.lua).
+    -- Runtime overrides are stored in SfuiDB to survive UI reloads.
+    mythic = {
+        enabled = true,     -- master toggle (user can opt-out in Options > objectives)
+        width   = 280,      -- HUD frame width in pixels
+        posX    = -10,      -- default TOPRIGHT x-offset from UIParent (matches quest log tracker)
+        posY    = -10,      -- default TOPRIGHT y-offset from UIParent (matches quest log tracker)
     },
 }

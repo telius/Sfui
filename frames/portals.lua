@@ -66,9 +66,7 @@ local FRAME_WIDTH       = ICONS_PER_ROW * (ICON_SIZE + ICON_SPACING_X) + ICON_SP
 -- This is the only reliable taint-free casting method from an addon frame.
 -- ========================
 local actionBtn         = CreateFrame("Button", "SfuiPortalsActionBtn", UIParent, "InsecureActionButtonTemplate")
-actionBtn:RegisterForClicks("AnyUp")
-actionBtn:SetAttribute("pressAndHoldAction", 1)
-actionBtn:SetPropagateMouseClicks(true)
+actionBtn:RegisterForClicks("AnyDown", "AnyUp")
 actionBtn:SetPropagateMouseMotion(true)
 actionBtn:SetFrameStrata("TOOLTIP")
 actionBtn:Hide()
@@ -88,14 +86,27 @@ local function is_engineer()
     return check(prof1) or check(prof2)
 end
 
--- Determine at load time which spellbook API to use (never changes)
-local _IsSpellKnown = (C_SpellBook and C_SpellBook.IsSpellInSpellBook)
-    and function(id) return C_SpellBook.IsSpellInSpellBook(id) end
-    or function(id) return C_Spell.IsSpellKnown and C_Spell.IsSpellKnown(id) or false end
-
 local function player_has_spell(spellID)
     if not spellID then return false end
-    return _IsSpellKnown(spellID)
+    if C_SpellBook and C_SpellBook.IsSpellKnownOrInSpellBook and C_SpellBook.IsSpellKnownOrInSpellBook(spellID) then
+        return true
+    end
+    if _G.IsPlayerSpell and _G.IsPlayerSpell(spellID) then
+        return true
+    end
+    if C_SpellBook and C_SpellBook.IsSpellKnown and C_SpellBook.IsSpellKnown(spellID, Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player or 1) then
+        return true
+    end
+    if C_SpellBook and C_SpellBook.IsSpellInSpellBook and C_SpellBook.IsSpellInSpellBook(spellID) then
+        return true
+    end
+    if C_Spell and C_Spell.IsSpellKnown and C_Spell.IsSpellKnown(spellID) then
+        return true
+    end
+    if C_Spell and C_Spell.IsSpellKnownOrOverridesKnown and C_Spell.IsSpellKnownOrOverridesKnown(spellID) then
+        return true
+    end
+    return false
 end
 
 -- Engineering toy visibility: just check toybox ownership.
@@ -181,9 +192,9 @@ local currentHoverFrame = nil
 
 -- arm_spell: left-click = spellID, right-click = portalID (optional, e.g. mage group portals)
 local function arm_spell(spellID, portalID, frame)
+    if InCombatLockdown() then return end
     currentHoverFrame = frame
     actionBtn:SetAttribute("type", "spell")
-    actionBtn:SetAttribute("typerelease", "spell")
     actionBtn:SetAttribute("spell", spellID)
     if portalID and player_has_spell(portalID) then
         actionBtn:SetAttribute("type2", "spell")
@@ -199,9 +210,9 @@ local function arm_spell(spellID, portalID, frame)
 end
 
 local function arm_toy(toyID, frame)
+    if InCombatLockdown() then return end
     currentHoverFrame = frame
     actionBtn:SetAttribute("type", "toy")
-    actionBtn:SetAttribute("typerelease", "toy")
     actionBtn:SetAttribute("toy", toyID)
     actionBtn:SetAttribute("type2", nil)
     actionBtn:SetAttribute("spell2", nil)
@@ -216,18 +227,56 @@ local function disarm()
         currentHoverFrame.resetHover()
     end
     currentHoverFrame = nil
-    actionBtn:Hide()
-    actionBtn:SetParent(UIParent)
-    actionBtn:ClearAllPoints()
+    if not InCombatLockdown() then
+        actionBtn:Hide()
+        actionBtn:SetParent(UIParent)
+        actionBtn:ClearAllPoints()
+    end
+end
+
+local function show_tooltip(owner, spellID, toyID, label, portalID, cdRem)
+    if not GameTooltip or not owner then return end
+    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    if spellID then
+        GameTooltip:SetSpellByID(spellID)
+        if cdRem and cdRem > 0 then
+            GameTooltip:AddLine("|cffff4444CD: " .. fmt_cd(cdRem) .. "|r")
+        end
+        if portalID and player_has_spell(portalID) then
+            GameTooltip:AddLine("Right-click: group portal", 0.6, 0.6, 0.6)
+        end
+    elseif toyID then
+        if GameTooltip.SetToyByItemID then
+            GameTooltip:SetToyByItemID(toyID)
+        else
+            GameTooltip:SetItemByID(toyID)
+        end
+        if cdRem and cdRem > 0 then
+            GameTooltip:AddLine("|cffff4444CD: " .. fmt_cd(cdRem) .. "|r")
+        end
+    end
+    if label then
+        GameTooltip:AddLine(label, 0.6, 0.6, 0.6)
+    end
+    GameTooltip:Show()
+end
+
+local function hide_tooltip()
+    if GameTooltip and GameTooltip:IsShown() then
+        GameTooltip:Hide()
+    end
 end
 
 -- Close portal frame after a cast
 actionBtn:HookScript("PostClick", function(self, button)
     if button == "LeftButton" or button == "RightButton" then
-        _G.C_Timer.After(0, function()
+        _G.C_Timer.After(0.05, function()
+            disarm()
+            hide_tooltip()
             if portalFrame then portalFrame:Hide() end
             if openLegacyMenu then
-                openLegacyMenu:Hide(); openLegacyMenu = nil
+                openLegacyMenu:Hide()
+                openLegacyMenu = nil
             end
         end)
     end
@@ -236,7 +285,7 @@ end)
 -- Safety: always clear highlight when mouse leaves the overlay button
 actionBtn:SetScript("OnLeave", function()
     disarm()
-    GameTooltip:Hide()
+    hide_tooltip()
 end)
 
 -- ========================
@@ -254,11 +303,21 @@ local function make_spell_icon(parent, spellID, label, x, y)
     -- Spell icon
     local tex = frame:CreateTexture(nil, "ARTWORK")
     tex:SetAllPoints()
-    local info = C_Spell.GetSpellInfo(spellID)
-    if info and info.iconID then
-        tex:SetTexture(info.iconID)
-        tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    local function update_icon()
+        local iconID = nil
+        if C_Spell and C_Spell.GetSpellTexture then
+            iconID = C_Spell.GetSpellTexture(spellID)
+        end
+        if not iconID and C_Spell and C_Spell.GetSpellInfo then
+            local info = C_Spell.GetSpellInfo(spellID)
+            iconID = info and info.iconID
+        end
+        if iconID then
+            tex:SetTexture(iconID)
+            tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        end
     end
+    update_icon()
     frame.tex = tex
 
     -- Native cooldown sweep
@@ -285,6 +344,9 @@ local function make_spell_icon(parent, spellID, label, x, y)
     end
 
     local function refresh()
+        if not tex:GetTexture() then
+            update_icon()
+        end
         local rem = spell_cd_remaining(spellID)
         if rem > 0 then
             local cdInfo = C_Spell.GetSpellCooldown(spellID)
@@ -305,19 +367,15 @@ local function make_spell_icon(parent, spellID, label, x, y)
     frame:SetScript("OnEnter", function(self)
         self:SetBackdropBorderColor(unpack(cfg.colors.cyan))
         arm_spell(spellID, nil, self) -- no portal for M+ icons
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetSpellByID(spellID)
         local rem = spell_cd_remaining(spellID)
-        if rem > 0 then
-            GameTooltip:AddLine("|cffff4444CD: " .. fmt_cd(rem) .. "|r")
-        end
-        if label then GameTooltip:AddLine(label, 0.6, 0.6, 0.6) end
-        GameTooltip:Show()
+        show_tooltip(self, spellID, nil, label, nil, rem)
     end)
     frame:SetScript("OnLeave", function(self)
-        refresh()
-        disarm()
-        GameTooltip:Hide()
+        if not actionBtn:IsShown() or actionBtn:GetParent() ~= self then
+            refresh()
+            disarm()
+            hide_tooltip()
+        end
     end)
 
     return frame
@@ -336,20 +394,41 @@ local function make_action_row(parent, spellID, portalID, toyID, name, icon, yPo
     frame:SetBackdropColor(unpack(cfg.colors.black))
     frame:SetBackdropBorderColor(unpack(cfg.colors.black))
 
-    if icon then
-        local ic = frame:CreateTexture(nil, "ARTWORK")
-        ic:SetSize(14, 14)
-        ic:SetPoint("LEFT", 4, 0)
-        ic:SetTexture(icon)
-        ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    end
+    local ic = frame:CreateTexture(nil, "ARTWORK")
+    ic:SetSize(14, 14)
+    ic:SetPoint("LEFT", 4, 0)
+    ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
     local label = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    label:SetPoint("LEFT", icon and 22 or 6, 0)
+    label:SetPoint("LEFT", 22, 0)
     label:SetPoint("RIGHT", -36, 0)
     label:SetJustifyH("LEFT")
     label:SetText(name)
     frame.label = label
+
+    local function update_row_icon()
+        local iconID = icon
+        if not iconID and spellID then
+            if C_Spell and C_Spell.GetSpellTexture then
+                iconID = C_Spell.GetSpellTexture(spellID)
+            end
+            if not iconID and C_Spell and C_Spell.GetSpellInfo then
+                local info = C_Spell.GetSpellInfo(spellID)
+                iconID = info and info.iconID
+            end
+        elseif not iconID and toyID then
+            iconID = C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(toyID)
+        end
+        if iconID then
+            ic:SetTexture(iconID)
+            ic:Show()
+            label:SetPoint("LEFT", 22, 0)
+        else
+            ic:Hide()
+            label:SetPoint("LEFT", 6, 0)
+        end
+    end
+    update_row_icon()
 
     local cdLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     cdLabel:SetPoint("RIGHT", -4, 0)
@@ -362,6 +441,9 @@ local function make_action_row(parent, spellID, portalID, toyID, name, icon, yPo
     grey:Hide()
 
     local function refresh()
+        if not ic:GetTexture() then
+            update_row_icon()
+        end
         local rem = spellID and spell_cd_remaining(spellID) or toy_cd_remaining(toyID)
         -- For toys, grey out if on cooldown only (IsToyUsable skipped — checks transient state)
         if rem > 0 then
@@ -386,25 +468,15 @@ local function make_action_row(parent, spellID, portalID, toyID, name, icon, yPo
         label:SetTextColor(unpack(cfg.colors.cyan))
         if spellID then arm_spell(spellID, portalID, self) end
         if toyID then arm_toy(toyID, self) end
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        if spellID then
-            GameTooltip:SetSpellByID(spellID)
-            local rem = spell_cd_remaining(spellID)
-            if rem > 0 then GameTooltip:AddLine("|cffff4444CD: " .. fmt_cd(rem) .. "|r") end
-            if portalID and player_has_spell(portalID) then
-                GameTooltip:AddLine("Right-click: group portal", 0.6, 0.6, 0.6)
-            end
-        elseif toyID then
-            GameTooltip:SetToyByItemID(toyID)
-            local rem = toy_cd_remaining(toyID)
-            if rem > 0 then GameTooltip:AddLine("|cffff4444CD: " .. fmt_cd(rem) .. "|r") end
-        end
-        GameTooltip:Show()
+        local rem = spellID and spell_cd_remaining(spellID) or toy_cd_remaining(toyID)
+        show_tooltip(self, spellID, toyID, nil, portalID, rem)
     end)
     frame:SetScript("OnLeave", function(self)
-        refresh()
-        disarm()
-        GameTooltip:Hide()
+        if not actionBtn:IsShown() or actionBtn:GetParent() ~= self then
+            refresh()
+            disarm()
+            hide_tooltip()
+        end
     end)
 
     return frame
@@ -429,6 +501,8 @@ local function make_legacy_dropdown(parent, group, yPos)
 
     -- Menu (parented to UIParent so it floats above our frame)
     local menu = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    parent.legacyMenus = parent.legacyMenus or {}
+    tinsert(parent.legacyMenus, menu)
     menu:SetSize(menuWidth, 6 + #opts * 20)
     menu:SetFrameStrata("TOOLTIP")
     menu:SetBackdrop(BACKDROP_MENU)
@@ -473,14 +547,15 @@ local function make_legacy_dropdown(parent, group, yPos)
         row:SetScript("OnEnter", function(self)
             fs:SetTextColor(unpack(cfg.colors.cyan))
             arm_spell(spellID, nil, self) -- no portal for legacy dropdown rows
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetSpellByID(spellID)
-            GameTooltip:Show()
+            local rem = spell_cd_remaining(spellID)
+            show_tooltip(self, spellID, nil, nil, nil, rem)
         end)
         row:SetScript("OnLeave", function(self)
-            refresh_row()
-            disarm()
-            GameTooltip:Hide()
+            if not actionBtn:IsShown() or actionBtn:GetParent() ~= self then
+                refresh_row()
+                disarm()
+                hide_tooltip()
+            end
         end)
 
         rowY = rowY - 20
@@ -675,6 +750,26 @@ local function build_portals_frame()
         end
     end)
 
+    -- Live throttled ticker for real-time cooldown sweeps and countdowns
+    local updateElapsed = 0
+    portalFrame:SetScript("OnUpdate", function(self, elapsed)
+        updateElapsed = updateElapsed + elapsed
+        if updateElapsed >= 1.0 then
+            updateElapsed = 0
+            if self.refreshable then
+                for _, btn in ipairs(self.refreshable) do
+                    if btn.refresh then btn.refresh() end
+                end
+            end
+            if openLegacyMenu and openLegacyMenu:IsShown() then
+                local children = { openLegacyMenu:GetChildren() }
+                for _, child in ipairs(children) do
+                    if child.refresh then child.refresh() end
+                end
+            end
+        end
+    end)
+
     -- Close any open legacy dropdown when portal window is dismissed
     portalFrame:SetScript("OnHide", function()
         if openLegacyMenu then
@@ -699,6 +794,7 @@ end
 -- Public API
 -- ========================
 function sfui.portals.Toggle()
+    if InCombatLockdown() then return end
     if not portalFrame then build_portals_frame() end
     if portalFrame:IsShown() then
         portalFrame:Hide()
@@ -711,6 +807,12 @@ local function invalidate_portals_frame()
     -- Nil out the cached frame so it fully rebuilds next open,
     -- picking up any newly learned spells or acquired toys.
     if portalFrame then
+        if portalFrame.legacyMenus then
+            for _, m in ipairs(portalFrame.legacyMenus) do
+                m:Hide()
+                m:SetParent(nil)
+            end
+        end
         portalFrame:Hide()
         portalFrame:SetParent(nil)
         portalFrame = nil
@@ -723,6 +825,7 @@ function sfui.portals.initialize()
     local eventFrame = CreateFrame("Frame")
     eventFrame:RegisterEvent("SPELLS_CHANGED")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     eventFrame:SetScript("OnEvent", function(self, event)
         if event == "PLAYER_ENTERING_WORLD" then
             -- Always rebuild on login/reload to reflect current character
@@ -730,6 +833,12 @@ function sfui.portals.initialize()
         elseif event == "SPELLS_CHANGED" and portalFrame then
             -- Only invalidate if already built (avoids work before first open)
             invalidate_portals_frame()
+        elseif event == "PLAYER_REGEN_DISABLED" then
+            if portalFrame and portalFrame:IsShown() then
+                portalFrame:Hide()
+            end
+            disarm()
+            hide_tooltip()
         end
     end)
 end

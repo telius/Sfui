@@ -114,8 +114,8 @@ end
 
 local function InvalidateSpecCache() specsCache = nil end
 
-local function SpecName(specID)
-    if specID == 0 then return "— off —" end
+local function SpecName(specID, isDefault)
+    if specID == 0 then return isDefault and "Current Specialization" or "— off —" end
     local _, name = GetSpecializationInfoByID(specID)
     return name or ("Spec " .. specID)
 end
@@ -138,13 +138,17 @@ end
 
 -- ─── Auto-swap engine ─────────────────────────────────────────────────────────
 
+local _dungeonToJournalEncounter = {}
+local _journalToDungeonEncounter = {}
+
 local function ApplyLootSpec(specID, reason)
     if specID == nil then return end
     if GetLootSpecialization() == specID then return end
     SetLootSpecialization(specID)
     if reason then
+        local displayName = (specID == 0) and "Current Spec" or SpecName(specID)
         sfui.common.print(string.format(
-            "loot spec → |cff00ffff%s|r (%s)", SpecName(specID), reason))
+            "loot spec → |cff00ffff%s|r (%s)", displayName, reason))
     end
 end
 
@@ -156,14 +160,25 @@ end
 local function GetActiveMPlusSpec()
     local mapID = C_ChallengeMode.GetActiveChallengeMapID
         and C_ChallengeMode.GetActiveChallengeMapID()
-    if not mapID then return nil end
-    local specID = DB().dungeons[mapID]
-    return (specID and specID ~= 0) and specID or nil
+    if mapID and mapID > 0 then
+        local specID = DB().dungeons[mapID]
+        return (specID and specID ~= 0) and specID or nil
+    end
+    return nil
 end
 
 local function GetActiveDelveSpec()
-    local _, t = IsInInstance()
-    if t == "scenario" then
+    local isInst, t = IsInInstance()
+    local isDelve = (t == "scenario")
+    if not isDelve and C_Scenario and C_Scenario.GetInfo then
+        local ok, _, _, _, _, _, _, _, _, _, scenType = pcall(C_Scenario.GetInfo)
+        if ok and scenType == 8 then isDelve = true end
+    end
+    if not isDelve and C_DelvesUI and C_DelvesUI.HasActiveDelve then
+        local ok, hasDelve = pcall(C_DelvesUI.HasActiveDelve)
+        if ok and hasDelve then isDelve = true end
+    end
+    if isDelve then
         local specID = DB().dungeons["delves"]
         return (specID and specID ~= 0) and specID or nil
     end
@@ -173,25 +188,17 @@ end
 -- True when we should hold the applied spec rather than restore on loot/zone.
 -- Raid: hold until next encounter or leaving.
 -- M+:  hold until the end-of-run chest is looted or the player leaves.
---      After CHALLENGE_MODE_COMPLETED, GetActiveChallengeMapID() returns nil
---      so IsInActiveMPlus() becomes false — chest LOOT_CLOSED restores correctly.
 -- Delve: hold until leaving the scenario.
 local function IsInManagedInstance()
     local _, t = IsInInstance()
     if t == "raid" then return true end
-    -- Active M+: "party" instance with a running challenge map
     if t == "party" and C_ChallengeMode.GetActiveChallengeMapID
-        and C_ChallengeMode.GetActiveChallengeMapID() then
+        and (C_ChallengeMode.GetActiveChallengeMapID() or 0) > 0 then
         return true
     end
-    if t == "scenario" then return true end
+    if t == "scenario" or GetActiveDelveSpec() ~= nil then return true end
     return false
 end
-
-local GetRaidData
-local GetDungeonData
-
-
 
 -- Set when we apply a non-default spec; cleared on restore.
 -- Not persisted — resets to false on every reload/login (Lua state is fresh).
@@ -199,43 +206,82 @@ local specApplied = false
 
 -- ─── Events ───────────────────────────────────────────────────────────────────
 
-sfui.events.RegisterEvent("ENCOUNTER_START", function(_, encounterID)
+sfui.events.RegisterEvent("ENCOUNTER_START", function(_, encounterID, encounterName)
     local db = DB()
     if not db.enabled then return end
     local specID = 0
     local _, instanceType = IsInInstance()
-    
+
     if instanceType == "none" then
         local wEntry = db.bosses["worldbosses"]
         if type(wEntry) == "table" and wEntry.spec and wEntry.spec ~= 0 then
             specID = wEntry.spec
         end
     end
-    
+
     if specID == 0 then
-        local entry  = db.bosses[encounterID]
+        -- 1. Check direct encounterID
+        local entry = db.bosses[encounterID]
+        -- 2. Check mapped journal encounterID
+        if not entry and _dungeonToJournalEncounter[encounterID] then
+            entry = db.bosses[_dungeonToJournalEncounter[encounterID]]
+        end
+        -- 3. Dynamic lookup from EncounterJournal if mapping cache is cold
+        if not entry then
+            for keyID, bEntry in pairs(db.bosses) do
+                if type(keyID) == "number" then
+                    local ok, _, _, _, _, _, _, dID = pcall(EJ_GetEncounterInfo, keyID)
+                    if ok and dID and dID == encounterID then
+                        entry = bEntry
+                        _dungeonToJournalEncounter[encounterID] = keyID
+                        _journalToDungeonEncounter[keyID] = encounterID
+                        break
+                    end
+                end
+            end
+        end
+
         specID = type(entry) == "table" and entry.spec or (type(entry) == "number" and entry) or 0
     end
+
     if specID ~= 0 then
         specApplied = true
-        ApplyLootSpec(specID, "encounter")
+        ApplyLootSpec(specID, encounterName or "encounter")
     else
         local _, instanceType = IsInInstance()
-        if instanceType == "raid" and specApplied then
+        if instanceType == "raid" and (specApplied or GetLootSpecialization() ~= db.defaultSpec) then
             specApplied = false
             RestoreDefault("unconfigured encounter")
         end
     end
 end)
 
-sfui.events.RegisterEvent("ENCOUNTER_END", function(_, encounterID, _, _, _, success)
+sfui.events.RegisterEvent("ENCOUNTER_END", function(_, encounterID, encounterName, _, _, success)
     if success == 0 then return end -- wipe, don't warn
     local db = DB()
     local entry = db.bosses[encounterID]
+    if not entry and _dungeonToJournalEncounter[encounterID] then
+        entry = db.bosses[_dungeonToJournalEncounter[encounterID]]
+    end
+    if not entry then
+        for keyID, bEntry in pairs(db.bosses) do
+            if type(keyID) == "number" then
+                local ok, _, _, _, _, _, _, dID = pcall(EJ_GetEncounterInfo, keyID)
+                if ok and dID and dID == encounterID then
+                    entry = bEntry
+                    break
+                end
+            end
+        end
+    end
+
     if type(entry) == "table" and entry.warn then
-        local bossName
-        if EJ_GetEncounterInfo then
-            bossName = EJ_GetEncounterInfo(encounterID)
+        local bossName = encounterName
+        if not bossName or bossName == "" then
+            local jID = _dungeonToJournalEncounter[encounterID] or encounterID
+            if EJ_GetEncounterInfo then
+                bossName = EJ_GetEncounterInfo(jID)
+            end
         end
         bossName = bossName or ("Boss " .. encounterID)
         sfui.common.print(string.format(
@@ -243,14 +289,9 @@ sfui.events.RegisterEvent("ENCOUNTER_END", function(_, encounterID, _, _, _, suc
     end
 end)
 
-
 sfui.events.RegisterEvent("LOOT_CLOSED", function()
     local db = DB()
     if not db.enabled then return end
-    -- Inside a managed instance (raid or active M+) hold the spec so it is
-    -- correct for every subsequent loot window (trash, coins, boss body).
-    -- After the M+ timer ends IsInManagedInstance() becomes false, so closing
-    -- the end-of-run chest lands here and correctly restores the default.
     if IsInManagedInstance() then return end
     specApplied = false
     RestoreDefault("loot closed")
@@ -263,32 +304,68 @@ sfui.events.RegisterEvent("CHALLENGE_MODE_START", function()
     if specID then
         specApplied = true
         ApplyLootSpec(specID, "M+ start")
+    else
+        C_Timer.After(0.2, function()
+            local sID = GetActiveMPlusSpec()
+            if sID then
+                specApplied = true
+                ApplyLootSpec(sID, "M+ start")
+            end
+        end)
     end
 end)
 
--- CHALLENGE_MODE_COMPLETED is intentionally NOT hooked: it fires when the
--- timer stops, before the end-of-run chest is available. Restore is deferred
--- to LOOT_CLOSED (chest opened) or PLAYER_ENTERING_WORLD (left without looting).
-
-sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", function()
-    if not SfuiDB then return end   -- saved-variables not yet loaded
+local function CheckZoneLootSpec(reason)
+    if not SfuiDB then return end
     local db = DB()
     if not db.enabled then return end
+
     local mplusSpec = GetActiveMPlusSpec()
     if mplusSpec then
         specApplied = true
-        ApplyLootSpec(mplusSpec, "entered M+ instance")
+        ApplyLootSpec(mplusSpec, reason or "entered M+ instance")
         return
     end
+
     local delveSpec = GetActiveDelveSpec()
     if delveSpec then
         specApplied = true
-        ApplyLootSpec(delveSpec, "entered delve")
+        ApplyLootSpec(delveSpec, reason or "entered delve")
         return
     end
-    if not IsInManagedInstance() and specApplied then
-        specApplied = false
-        RestoreDefault("left instance")
+
+    if not IsInManagedInstance() then
+        if specApplied or (GetLootSpecialization() ~= db.defaultSpec and db.defaultSpec ~= nil) then
+            specApplied = false
+            RestoreDefault(reason or "left instance")
+        end
+    end
+end
+
+sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", function()
+    CheckZoneLootSpec("entered zone")
+    C_Timer.After(0.5, function()
+        CheckZoneLootSpec("entered zone")
+    end)
+end)
+
+sfui.events.RegisterEvent("ZONE_CHANGED_NEW_AREA", function()
+    CheckZoneLootSpec("zone changed")
+end)
+
+sfui.events.RegisterEvent("SCENARIO_UPDATE", function()
+    local delveSpec = GetActiveDelveSpec()
+    if delveSpec and not specApplied then
+        specApplied = true
+        ApplyLootSpec(delveSpec, "delve active")
+    end
+end)
+
+sfui.events.RegisterEvent("ACTIVE_DELVE_DATA_UPDATE", function()
+    local delveSpec = GetActiveDelveSpec()
+    if delveSpec and not specApplied then
+        specApplied = true
+        ApplyLootSpec(delveSpec, "delve active")
     end
 end)
 
@@ -301,7 +378,7 @@ end)
 
 -- ─── EJ data ──────────────────────────────────────────────────────────────────
 local raidDataCache = nil
-GetRaidData = function()
+local function GetRaidData()
     if raidDataCache then return raidDataCache end
 
     if not EJ_GetInstanceByIndex then
@@ -319,22 +396,30 @@ GetRaidData = function()
         if not instanceID then break end
         local raid = { name = name, instanceID = instanceID, bosses = {} }
 
-        -- MUST use securecall to prevent our addon from silently hijacking the
-        -- Encounter Journal C++ state. If we do this unsecurely, the next time
-        -- the user hovers an EJ Item Button, the tooltip will spread our taint
-        -- directly into the GameTooltip money frame processor and crash.
         securecall(EJ_SelectInstance, instanceID)
         local encIdx = 1
         while true do
-            -- EJ_GetEncounterInfoByIndex: name, description, bossID, rootSectionID, link
-            local encName, _, bossID = EJ_GetEncounterInfoByIndex(encIdx)
+            -- EJ_GetEncounterInfoByIndex: name, description, bossID, rootSectionID, link, instanceID, dungeonEncounterID, instanceImage
+            local encName, _, bossID, _, _, _, dungeonEncounterID = EJ_GetEncounterInfoByIndex(encIdx)
             if not bossID or bossID == 0 then break end
+
+            if not dungeonEncounterID or dungeonEncounterID == 0 then
+                local _, _, _, _, _, _, dID = EJ_GetEncounterInfo(bossID)
+                dungeonEncounterID = dID
+            end
+
+            if dungeonEncounterID and dungeonEncounterID > 0 then
+                _dungeonToJournalEncounter[dungeonEncounterID] = bossID
+                _journalToDungeonEncounter[bossID] = dungeonEncounterID
+            end
+
             -- EJ_GetCreatureInfo: id, name, description, displayInfo, iconImage, uiModelSceneID
             local _, _, _, _, iconImage = EJ_GetCreatureInfo(1, bossID)
             table.insert(raid.bosses, {
-                name        = encName,
-                encounterID = bossID,
-                icon        = iconImage,
+                name               = encName,
+                encounterID        = bossID,
+                dungeonEncounterID = dungeonEncounterID,
+                icon               = iconImage,
             })
             encIdx = encIdx + 1
         end
@@ -344,27 +429,11 @@ GetRaidData = function()
     if oldInstance then securecall(EJ_SelectInstance, oldInstance) end
     raidDataCache = raids
 
-    -- Option A: Prune orphaned data from previous seasons
-    local db = DB()
-    if db then
-        local validBosses = {}
-        for _, raid in ipairs(raids) do
-            for _, boss in ipairs(raid.bosses) do
-                validBosses[boss.encounterID] = true
-            end
-        end
-        for encID in pairs(db.bosses) do
-            if encID ~= "worldbosses" and not validBosses[encID] then
-                db.bosses[encID] = nil
-            end
-        end
-    end
-
     return raids
 end
 
 local dungeonDataCache = nil
-GetDungeonData = function()
+local function GetDungeonData()
     if dungeonDataCache then return dungeonDataCache end
 
     if not EJ_GetInstanceByIndex then
@@ -402,18 +471,6 @@ GetDungeonData = function()
     end
     table.sort(dungeons, function(a, b) return a.name < b.name end)
     dungeonDataCache = dungeons
-
-    -- Option A: Prune orphaned M+ data from previous seasons
-    local db = DB()
-    if db then
-        local validDungs = {}
-        for _, dung in ipairs(dungeons) do
-            validDungs[dung.mapID] = true
-        end
-        for mapID in pairs(db.dungeons) do
-            if mapID ~= "delves" and not validDungs[mapID] then db.dungeons[mapID] = nil end
-        end
-    end
 
     return dungeons
 end

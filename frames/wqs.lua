@@ -80,7 +80,9 @@ end
 local function ReleaseTable(t)
     if not t or type(t) ~= "table" then return end
     wipe(t)
-    table.insert(tablePool, t)
+    if #tablePool < 200 then
+        table.insert(tablePool, t)
+    end
 end
 
 -- State Management Helpers
@@ -232,8 +234,8 @@ local function ScanQuestRewards(self, questID)
                         allRewardsCached = false
                         if C_Item and C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
                     else
-                        local info = { GetItemInfo(itemID) }
-                        if info[14] == 4 then isWarbound = true end -- LE_ITEM_BIND_TO_BNET
+                        local bindType = select(14, GetItemInfo(itemID))
+                        if bindType == 4 then isWarbound = true end -- LE_ITEM_BIND_TO_BNET
                     end
                 end
 
@@ -258,8 +260,8 @@ local function ScanQuestRewards(self, questID)
 
                 local ilvlText = ""
                 if common.SafeGT(ilvl, 1) then
-                    local info = { GetItemInfo(itemID) }
-                    if info[12] == 2 or info[12] == 4 then -- Weapon or Armor
+                    local classID = select(12, GetItemInfo(itemID))
+                    if classID == 2 or classID == 4 then -- Weapon or Armor
                         local isUpgrade, isOffSpec = IsUpgrade(itemLink, ilvl)
                         if isUpgrade then
                             questHasUpgrade = true

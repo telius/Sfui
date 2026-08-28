@@ -83,7 +83,7 @@ do
     end
 
     local function OnIconLeave(self)
-        if sfui.tooltip then sfui.tooltip:Hide() end
+        if GameTooltip then GameTooltip:Hide() end
     end
 
     local function OnItemIconEnter(self)

@@ -179,15 +179,7 @@ local CURRENCIES = {
         }
     },
     -- 12.0.5 / 12.1 Currencies and Items
-    {
-        isGroup = true,
-        label = "VoidCore",
-        items = {
-            { id = 3418,   icon = 0 },                -- Nebulous Voidcore
-            { id = 268650, icon = 0, isItem = true }, -- Ascendant Voidshard
-            { id = 268552, icon = 0, isItem = true }, -- Ascendant Voidcore
-        }
-    },
+    { id = 3418,   label = "VoidCore", icon = 0 },                -- Nebulous Voidcore
     { id = 3405,   label = "Accolade", icon = 0 },                -- Field Accolade
     { id = 3373,   label = "Pearl",    icon = 0 },                -- Angler Pearls
     { id = 267051, label = "Particle", icon = 0, isItem = true }, -- Dark Particle
@@ -552,7 +544,7 @@ function sfui.alts.PerformSync(isLogout)
 
     local seasonDungeonNames = {}
     if maps and #maps > 0 then
-        local currentRuns = C_MythicPlus.GetRunHistory(false, true) or {}
+        local currentRuns = (C_MythicPlus.GetRunHistory and C_MythicPlus.GetRunHistory(true, true)) or {}
         for _, mID in ipairs(maps) do
             local intimeInfo, overtimeInfo = C_MythicPlus.GetSeasonBestForMap(mID)
             local bestLevel = 0
@@ -1012,6 +1004,15 @@ function sfui.alts.CreateFrame()
     frame:SetScript("OnDragStart", frame.StartMoving)
     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
     frame:SetScript("OnHide", function() CloseDropDownMenus() end)
+    frame:SetScript("OnShow", function()
+        if C_MythicPlus and C_MythicPlus.RequestMapInfo then C_MythicPlus.RequestMapInfo() end
+        if C_MythicPlus and C_MythicPlus.RequestRewards then C_MythicPlus.RequestRewards() end
+        if C_WeeklyRewards and C_WeeklyRewards.OnUIInteract then C_WeeklyRewards.OnUIInteract() end
+        if RequestRaidInfo then RequestRaidInfo() end
+        sfui.alts.RefreshDynamicCategories()
+        sfui.alts.PerformSync()
+        sfui.alts.UpdateUI(true)
+    end)
 
     frame:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -2279,13 +2280,13 @@ function sfui.alts.Toggle()
         frame:Hide()
     else
         sfui.alts.CheckWeeklyResets()
-        -- Force a server sync for the latest Vault data before making the UI visible
+        if C_MythicPlus and C_MythicPlus.RequestMapInfo then C_MythicPlus.RequestMapInfo() end
+        if C_MythicPlus and C_MythicPlus.RequestRewards then C_MythicPlus.RequestRewards() end
         if C_WeeklyRewards and C_WeeklyRewards.OnUIInteract then C_WeeklyRewards.OnUIInteract() end
+        if RequestRaidInfo then RequestRaidInfo() end
+        sfui.alts.PerformSync()
+        needsSync = false
         frame:Show()
-        if needsSync then
-            sfui.alts.PerformSync()
-            needsSync = false
-        end
         sfui.alts.UpdateUI(true)
     end
 end
@@ -2307,11 +2308,21 @@ function sfui.alts.initialize()
     eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     eventFrame:RegisterEvent("PLAYER_LEAVING_WORLD")
     eventFrame:RegisterEvent("CHALLENGE_MODE_MAPS_UPDATE")
+    eventFrame:RegisterEvent("CHALLENGE_MODE_LEADERS_UPDATE")
     eventFrame:RegisterEvent("MYTHIC_PLUS_NEW_WEEKLY_RECORD")
+    eventFrame:RegisterEvent("MYTHIC_PLUS_CURRENT_AFFIX_UPDATE")
+    eventFrame:RegisterEvent("UPDATE_INSTANCE_INFO")
 
     eventFrame:SetScript("OnEvent", function(_, event, ...)
         if event == "PLAYER_ENTERING_WORLD" then
             leavingWorld = false
+        end
+
+        if event == "CHALLENGE_MODE_MAPS_UPDATE" or event == "CHALLENGE_MODE_LEADERS_UPDATE" or event == "MYTHIC_PLUS_NEW_WEEKLY_RECORD" or event == "MYTHIC_PLUS_CURRENT_AFFIX_UPDATE" or event == "UPDATE_INSTANCE_INFO" then
+            sfui.alts.PerformSync()
+            if frame and frame:IsShown() then
+                sfui.alts.UpdateUI(true)
+            end
         end
 
 
