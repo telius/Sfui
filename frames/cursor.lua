@@ -93,3 +93,11 @@ function sfui.cursor.toggle(enabled)
         f:SetScript("OnUpdate", nil)
     end
 end
+
+function sfui.cursor_debug_info()
+    return {
+        enabled = SfuiDB and SfuiDB.enableCursorRing or false,
+        frameCreated = f ~= nil,
+        frameShown = f and f:IsShown() or false,
+    }
+end

@@ -67,11 +67,14 @@ sfui.default_stats[71] = { "C", "H", "M", "V" } -- Arms
 sfui.default_stats[72] = { "M", "H", "C", "V" } -- Fury
 sfui.default_stats[73] = { "H", "C", "V", "M" } -- Protection
 
--- Default fallback if an unknown spec ID is encountered
+-- Static fallback so __index never allocates a new table
+local _defaultStatOrder = { "H", "M", "C", "V" }
+
 setmetatable(sfui.default_stats, {
     __index = function(t, k)
         local nk = tonumber(k)
         if nk and rawget(t, nk) then return rawget(t, nk) end
-        return { "H", "M", "C", "V" }
+        return _defaultStatOrder
     end
 })
+

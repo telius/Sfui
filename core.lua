@@ -66,6 +66,11 @@ function sfui.slash_command_handler(msg)
         else
             sfui.common.print("sfui: quest log not available.")
         end
+    elseif msg:match("^mem") or msg:match("^memory") or msg == "gc" then
+        local sub = msg:match("^mem%s*(.*)$") or msg:match("^memory%s*(.*)$") or msg
+        if SlashCmdList["SFMEM"] then
+            SlashCmdList["SFMEM"](sub)
+        end
     end
 end
 

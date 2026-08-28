@@ -916,11 +916,22 @@ local central_event_frame = CreateFrame("Frame")
 central_event_frame:SetScript("OnEvent", function(self, event, ...)
     local cbs = eventCallbacks[event]
     if cbs then
+        local memProfiling = (sfui.mem and sfui.mem.IsWatcherActive and sfui.mem.IsWatcherActive())
+        local memBefore = memProfiling and collectgarbage("count") or 0
+
         for _, cb in ipairs(cbs) do
             -- Catch errors to prevent one bad callback from breaking all others listening to this event
             local ok, err = pcall(cb, event, ...)
             if not ok then
                 print("|cff6600ffsfui|r: Event callback error (" .. tostring(event) .. "):", err)
+            end
+        end
+
+        if memProfiling then
+            local memAfter = collectgarbage("count")
+            local delta = memAfter - memBefore
+            if delta > 0 or true then
+                sfui.mem.RecordAllocation(event, delta > 0 and delta or 0)
             end
         end
     end
@@ -929,17 +940,26 @@ end)
 local updateTimer = 0
 central_event_frame:SetScript("OnUpdate", function(self, elapsed)
     updateTimer = updateTimer + elapsed
+    local memProfiling = (sfui.mem and sfui.mem.IsWatcherActive and sfui.mem.IsWatcherActive())
+
     for _, data in ipairs(updateCallbacks) do
         data.elapsed = data.elapsed + elapsed
         if data.elapsed >= data.interval then
+            local memBefore = memProfiling and collectgarbage("count") or 0
             local ok, err = pcall(data.callback, data.elapsed)
             if not ok then
                 print("|cff6600ffsfui|r: Update callback error:", err)
+            end
+            if memProfiling then
+                local memAfter = collectgarbage("count")
+                local delta = memAfter - memBefore
+                sfui.mem.RecordAllocation(data.name or "UpdateLoop", delta > 0 and delta or 0)
             end
             data.elapsed = 0
         end
     end
 end)
+
 
 -- Register an event callback
 function sfui.events.RegisterEvent(event, callback)
@@ -1001,13 +1021,11 @@ local function update_cached_spec_id()
     local spec = (C_SpecializationInfo and C_SpecializationInfo.GetSpecialization and C_SpecializationInfo.GetSpecialization()) or (GetSpecialization and GetSpecialization())
     if spec then
         local specID = (C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo and select(1, C_SpecializationInfo.GetSpecializationInfo(spec))) or (GetSpecializationInfo and select(1, GetSpecializationInfo(spec)))
-        if specID and specID > 0 then
+        if specID and specID > 0 and specID ~= cachedSpecID then
             cachedSpecID = specID
             sfui.common.invalidate_spec_color_cache()
-            return cachedSpecID
         end
     end
-    return cachedSpecID
 end
 
 sfui.events.RegisterEvent("PLAYER_LOGIN", function()
@@ -1035,8 +1053,10 @@ sfui.events.RegisterEvent("PLAYER_TALENT_UPDATE", function()
 end)
 
 function sfui.common.get_current_spec_id()
-    return update_cached_spec_id()
+    if cachedSpecID == 0 then update_cached_spec_id() end
+    return cachedSpecID
 end
+
 
 function sfui.common.update_widget_bar(widget_frame, icons_pool, labels_pool, source_data, get_details_func)
     if not widget_frame then return end

@@ -354,3 +354,10 @@ frame:SetScript("OnEvent", function(self, event)
         UpdateBar()
     end
 end)
+
+function sfui.vehicle_debug_info()
+    return {
+        frameCreated = frame ~= nil,
+        frameShown = frame and frame:IsShown() or false,
+    }
+end

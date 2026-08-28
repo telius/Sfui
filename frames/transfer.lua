@@ -143,3 +143,10 @@ f:SetScript("OnEvent", function(_, event, interactionType)
         end
     end
 end)
+
+function sfui.transfer_debug_info()
+    return {
+        queueSize = #scanQueue,
+        active = processingTicker ~= nil,
+    }
+end

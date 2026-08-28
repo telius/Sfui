@@ -723,3 +723,11 @@ frame:SetScript("OnEvent", function(self, event, ...)
         end
     end
 end)
+
+function sfui.minimap_debug_info()
+    return {
+        isInitialized = isInitialized,
+        buttonCount = button_bar and button_bar.buttons and #button_bar.buttons or 0,
+        autoZoomActive = zoom_timer ~= nil,
+    }
+end

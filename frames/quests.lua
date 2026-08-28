@@ -173,20 +173,26 @@ function State:IsActive() return self._active end
 local Refresh = {}
 local _refreshPending = false
 
+-- Named callback to avoid closure allocation on every C_Timer.After.
+-- QUEST_LOG_UPDATE fires frequently (even idle), so each expiry would
+-- otherwise create a new closure.
+local function _OnRefreshTimer()
+    _refreshPending = false
+    State:Update()
+    if _G.InCombatLockdown() or State:IsActive() then return end
+    if QL and QL.IsShown and QL:IsShown() then
+        QL:DoRefresh()
+    end
+end
+
 function Refresh:Request()
     State:Update()
     if _G.InCombatLockdown() or State:IsActive() then return end
     if _refreshPending then return end
     _refreshPending = true
-    C_Timer.After(THROTTLE, function()
-        _refreshPending = false
-        State:Update()
-        if _G.InCombatLockdown() or State:IsActive() then return end
-        if QL and QL.IsShown and QL:IsShown() then
-            QL:DoRefresh()
-        end
-    end)
+    C_Timer.After(THROTTLE, _OnRefreshTimer)
 end
+
 
 -- ─── Blizzard Root Tracker Suppression (Taint-Free) ─────────
 -- Off-screen positioning + alpha 0 + secure StateDriver completely prevents
@@ -194,6 +200,7 @@ end
 -- keeping execution 100% taint-free.
 local _stateDriverRegistered = false
 local _blizzardOriginalPoints = nil
+local _blizzardTrackerSuppressed = false
 
 local function SuppressBlizzardTracker()
     local root = _G.ObjectiveTrackerFrame
@@ -207,16 +214,19 @@ local function SuppressBlizzardTracker()
         end
     end
 
-    if root.ClearAllPoints and root.SetPoint then
-        root:ClearAllPoints()
-        root:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -9999, -9999)
-    end
-    if root.SetAlpha then root:SetAlpha(0) end
-    if root.EnableMouse then root:EnableMouse(false) end
+    if not _blizzardTrackerSuppressed then
+        if root.ClearAllPoints and root.SetPoint then
+            root:ClearAllPoints()
+            root:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -9999, -9999)
+        end
+        if root.SetAlpha then root:SetAlpha(0) end
+        if root.EnableMouse then root:EnableMouse(false) end
 
-    if _G.RegisterStateDriver and not _stateDriverRegistered then
-        _G.RegisterStateDriver(root, "visibility", "hide")
-        _stateDriverRegistered = true
+        if _G.RegisterStateDriver and not _stateDriverRegistered then
+            _G.RegisterStateDriver(root, "visibility", "hide")
+            _stateDriverRegistered = true
+        end
+        _blizzardTrackerSuppressed = true
     end
 end
 
@@ -224,6 +234,8 @@ local function RestoreBlizzardTracker()
     local root = _G.ObjectiveTrackerFrame
     if not root then return end
     if _G.InCombatLockdown and _G.InCombatLockdown() then return end
+
+    _blizzardTrackerSuppressed = false
 
     if _G.UnregisterStateDriver and _stateDriverRegistered then
         _G.UnregisterStateDriver(root, "visibility")
@@ -282,6 +294,7 @@ local function UpdateMapCache()
     end
 end
 
+local MAX_TABLE_POOL = 100
 local tablePool = {}
 local function AcquireTable()
     local t = table.remove(tablePool) or {}
@@ -290,10 +303,29 @@ local function AcquireTable()
 end
 local function ReleaseTable(t)
     if type(t) ~= "table" then return end
+    if t._syntheticObjs and t.objectives then
+        for _, obj in ipairs(t.objectives) do
+            if type(obj) == "table" then
+                wipe(obj)
+                if #tablePool < MAX_TABLE_POOL then
+                    table.insert(tablePool, obj)
+                end
+            end
+        end
+        wipe(t.objectives)
+        if #tablePool < MAX_TABLE_POOL then
+            table.insert(tablePool, t.objectives)
+        end
+        t._syntheticObjs = nil
+    end
     t.objectives = nil
     wipe(t)
-    table.insert(tablePool, t)
+    if #tablePool < MAX_TABLE_POOL then
+        table.insert(tablePool, t)
+    end
 end
+
+
 
 -- Static section lists to eliminate table allocation on refresh
 -- NOTE: "scenario" key removed — mythic.lua owns dungeon/delve/scenario display.
@@ -1000,8 +1032,9 @@ local function AcquireRow()
 
             -- 2. Standard Quest: Open in Map & Quest Log details + SuperTrack
             if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then
-                pcall(function() C_SuperTrack.SetSuperTrackedQuestID(s.questID) end)
+                pcall(C_SuperTrack.SetSuperTrackedQuestID, s.questID)
             end
+
             if C_QuestLog.SetSelectedQuest then
                 pcall(C_QuestLog.SetSelectedQuest, s.questID)
             end
@@ -1112,11 +1145,20 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
         if ok and v and #v > 0 then objs = v end
     end
 
+    local isSynthetic = false
     if not objs or #objs == 0 then
         if C_TaskQuest and C_TaskQuest.GetQuestProgressBarInfo then
             local ok, pct = pcall(C_TaskQuest.GetQuestProgressBarInfo, questID)
             if ok and pct and pct > 0 then
-                objs = { { text = string_format("%d%%", pct), finished = (pct >= 100), numFulfilled = pct, numRequired = 100 } }
+                local sObj = AcquireTable()
+                sObj.text = string_format("%d%%", pct)
+                sObj.finished = (pct >= 100)
+                sObj.numFulfilled = pct
+                sObj.numRequired = 100
+                local sList = AcquireTable()
+                table.insert(sList, sObj)
+                objs = sList
+                isSynthetic = true
             end
         end
     end
@@ -1274,6 +1316,7 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
     entry.isWarbandCompleted = isWarbandCompleted
     entry.canFindGroup       = canFindGroup
     entry.objectives         = objs
+    entry._syntheticObjs     = isSynthetic
     entry.done               = done
     entry.total              = total
     entry.singleCountStr     = singleCountStr
@@ -1285,6 +1328,7 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
     entry.itemCharges        = itemCharges
     entry.isScenario         = false
     return entry
+
 end
 
 -- Helper: check if a quest has any active progress
@@ -1757,7 +1801,9 @@ end
 
 function sfui.questlog.unhide_all()
     local state = GetQLState()
-    state.hiddenQuests = {}
+    if state.hiddenQuests then
+        wipe(state.hiddenQuests)
+    end
     Refresh:Request()
 end
 
@@ -1918,7 +1964,8 @@ QL:SetScript("OnEvent", function(_, event, arg1, arg2)
     elseif event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS" then
         cachedCurrentMapID = nil
         cachedParentMapID  = nil
-        wipe(worldQuestCache)   -- world quest classification may change on zone transition
+        wipe(worldQuestCache)      -- world quest classification may change on zone transition
+        wipe(warbandCompleteCache) -- warband completion status cleared on zone transition
         UpdateMapCache()
         for qID in pairs(questProgressCache) do
             if IsWorldQuest(qID) or (C_QuestLog.IsQuestTask and C_QuestLog.IsQuestTask(qID)) then
@@ -1926,6 +1973,7 @@ QL:SetScript("OnEvent", function(_, event, arg1, arg2)
             end
         end
         CheckVisibilityAndRefresh()
+
 
     elseif event == "PLAYER_REGEN_DISABLED" then
         inCombat = true
@@ -1989,3 +2037,22 @@ SlashCmdList["SFQL"] = function(msg)
     end
     sfui.questlog.toggle()
 end
+
+function sfui.questlog_debug_info()
+    local pCount, wCount, wqCount = 0, 0, 0
+    for _ in pairs(questProgressCache) do pCount = pCount + 1 end
+    for _ in pairs(warbandCompleteCache) do wCount = wCount + 1 end
+    for _ in pairs(worldQuestCache) do wqCount = wqCount + 1 end
+
+    return {
+        tablePool  = #tablePool,
+        rowPool    = #rowPool,
+        objPool    = #objPool,
+        activeRows = #activeRows,
+        activeObjs = #activeObjs,
+        progCache  = pCount,
+        wbCache    = wCount,
+        wqCache    = wqCount,
+    }
+end
+

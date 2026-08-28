@@ -1212,3 +1212,13 @@ end)
 
 tinsert(UISpecialFrames, "SfuiMerchantFrame")
 frame:Hide()
+
+function sfui.merchant_debug_info()
+    local pCount = 0
+    for _ in pairs(tablePool) do pCount = pCount + 1 end
+    return {
+        tablePool = pCount,
+        frameCreated = frame ~= nil,
+        frameShown = frame and frame:IsShown() or false,
+    }
+end

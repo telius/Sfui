@@ -663,3 +663,12 @@ sfui.events.RegisterEvent("ADDON_LOADED", function(event, addon)
         init_auction_house_automation()
     end
 end)
+
+function sfui.automation_debug_info()
+    return {
+        autoRelease = SfuiDB and SfuiDB.auto_release or false,
+        autoRoleCheck = SfuiDB and SfuiDB.auto_role_check or false,
+        autoSignLfg = SfuiDB and SfuiDB.auto_sign_lfg or false,
+        skipCinematics = SfuiDB and SfuiDB.skipCinematics or false,
+    }
+end

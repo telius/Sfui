@@ -842,3 +842,10 @@ function sfui.portals.initialize()
         end
     end)
 end
+
+function sfui.portals_debug_info()
+    return {
+        frameCreated = portalFrame ~= nil,
+        frameShown = portalFrame and portalFrame:IsShown() or false,
+    }
+end

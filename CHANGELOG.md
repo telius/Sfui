@@ -1,5 +1,10 @@
 ## v12.1.0-7 (2026-08-28)
 
+### Features & Diagnostics
+- **Interactive Memory Profiler & Pool Inspector (`frames/mem.lua`)**: Added a flat, minimalist Dark Glass diagnostic GUI accessible via `/sfmem`, `/sfui mem`, or the **debug** tab in the `/sfui` Options window. Includes live real-time allocation rate meters (`KB/s`), on-demand GC reporting, 10s/30s profiling runs, a live module card grid detailing frame pools/caches across all 18 modules in `frames/`, and an allocation leaderboard table.
+- **Zero-Allocation Update Loops (`trackedbars.lua`, `trackedicons.lua`, `bars.lua`)**: Eliminated 200+ KB/s background allocation churn by replacing polling loops with secret-safe event dirty flags, adding fast-exit guards when 0 bars are shown, hoisting dynamic comparator/filter closures, and converting mount speed glide monitoring into dynamic tickers.
+- **WoW 12.0.1+ Secret Value & Taint Safety**: Hardened `FontString:GetText()` and `UNIT_AURA` payloads with `issecretvalue()` guards to prevent tainted comparison errors in Patch 12.0+.
+
 ### Bug Fixes & Performance
 - **City & Idle Memory Leak Fix (`trackedicons.lua`, `trackedbars.lua`, `common.lua`)**: Fixed central event argument signatures for `UNIT_AURA` and `UNIT_SPELLCAST_SUCCEEDED`. Added strict player-only unit filtering, preventing nearby player and NPC aura updates in populated cities from triggering continuous icon layout updates and table churn.
 - **Table Allocation & Scratch Pooling**: Added reusable destination table support to `sfui.common.get_active_panel_entries` and hoisted scratch tables in `trackedicons.lua` and `trackedbars.lua`.

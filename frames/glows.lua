@@ -285,3 +285,9 @@ function sfui.glows.set_glow_alpha(icon, alpha)
         glowFrame:SetAlpha(alpha)
     end
 end
+
+function sfui.glows_debug_info()
+    return {
+        lcgAvailable = LCG ~= nil,
+    }
+end

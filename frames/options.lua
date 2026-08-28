@@ -1272,7 +1272,15 @@ function sfui.create_options_panel()
     form_id_value:SetPoint("LEFT", form_id_label, "RIGHT", 5, 0)
 
     local debug_refresh_button = CreateFlatButton(debug_panel, "refresh", 100, 22)
-    debug_refresh_button:SetPoint("BOTTOM", debug_panel, "BOTTOM", 0, 10)
+    debug_refresh_button:SetPoint("BOTTOMLEFT", debug_panel, "BOTTOMLEFT", 10, 10)
+
+    local memory_button = CreateFlatButton(debug_panel, "memory profiler", 130, 22)
+    memory_button:SetPoint("LEFT", debug_refresh_button, "RIGHT", 10, 0)
+    memory_button:SetScript("OnClick", function()
+        if sfui.mem and sfui.mem.ToggleGUI then
+            sfui.mem.ToggleGUI()
+        end
+    end)
 
     -- Update update_debug_info to include pet warning status
     local original_update_debug_info = update_debug_info

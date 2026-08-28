@@ -29,47 +29,43 @@ local IsShiftKeyDown = _G.IsShiftKeyDown
 local function show_tooltip(owner, anchor, title, lines)
     local tip = sfui.tooltip or _G.GameTooltip
     if not tip or not owner then return end
-    pcall(function()
-        tip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
-        if title then
-            tip:SetText(title)
-        end
-        if lines then
-            for _, line in ipairs(lines) do
-                if type(line) == "table" then
-                    tip:AddLine(line[1], line[2], line[3], line[4], line[5])
-                else
-                    tip:AddLine(line)
-                end
+    tip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
+    if title then
+        tip:SetText(title)
+    end
+    if lines then
+        for _, line in ipairs(lines) do
+            if type(line) == "table" then
+                tip:AddLine(line[1], line[2], line[3], line[4], line[5])
+            else
+                tip:AddLine(line)
             end
         end
-        tip:Show()
-    end)
+    end
+    tip:Show()
 end
 
 local function show_item_tooltip(owner, itemID, anchor, extraLines)
     local tip = sfui.tooltip or _G.GameTooltip
     if not tip or not owner or not itemID then return end
-    pcall(function()
-        tip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
-        tip:SetItemByID(itemID)
-        if extraLines then
-            for _, line in ipairs(extraLines) do
-                if type(line) == "table" then
-                    tip:AddLine(line[1], line[2], line[3], line[4], line[5])
-                else
-                    tip:AddLine(line)
-                end
+    tip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
+    tip:SetItemByID(itemID)
+    if extraLines then
+        for _, line in ipairs(extraLines) do
+            if type(line) == "table" then
+                tip:AddLine(line[1], line[2], line[3], line[4], line[5])
+            else
+                tip:AddLine(line)
             end
         end
-        tip:Show()
-    end)
+    end
+    tip:Show()
 end
 
 local function hide_tooltip()
     if sfui.tooltip then sfui.tooltip:Hide() end
     if _G.GameTooltip and _G.GameTooltip:IsShown() then
-        pcall(function() _G.GameTooltip:Hide() end)
+        _G.GameTooltip:Hide()
     end
 end
 
@@ -149,6 +145,13 @@ local function setAutoEquipEnabled(val)
     SfuiDB.gear.auto_equip_highest = val
 end
 
+local function _OnUpdateCastTimer()
+    updateScheduled = false
+    if sfui.gear and sfui.gear.Update then
+        sfui.gear.Update()
+    end
+end
+
 local function TryEquipSet(setName)
     if not setName or setName == "" then return false end
     local setID = C_EquipmentSet.GetEquipmentSetID(setName)
@@ -167,7 +170,7 @@ local function TryEquipSet(setName)
             -- Defers the update; guard prevents stacking timers during casts
             if not updateScheduled then
                 updateScheduled = true
-                C_Timer.After(0.25, function() updateScheduled = false; sfui.gear.Update() end)
+                C_Timer.After(0.25, _OnUpdateCastTimer)
             end
             return false
         end
@@ -547,7 +550,7 @@ function sfui.gear.Update(force)
     if UnitCastingInfo("player") or UnitChannelInfo("player") then
         if not updateScheduled then
             updateScheduled = true
-            C_Timer.After(0.25, function() updateScheduled = false; sfui.gear.Update(force) end)
+            C_Timer.After(0.25, _OnUpdateCastTimer)
         end
         return
     end
@@ -598,6 +601,12 @@ sfui.events.RegisterEvent("PLAYER_EQUIPMENT_CHANGED", function()
     scanEquippedForChanges()
 end)
 
+local function _OnRegenRetryTimer()
+    if gearEquipQueue and not InCombatLockdown() then
+        sfui.gear.handle_player_regen()
+    end
+end
+
 function sfui.gear.handle_player_regen()
     if gearEquipQueue then
         if not UnitCastingInfo("player") and not UnitChannelInfo("player") and not UnitIsDeadOrGhost("player") then
@@ -612,11 +621,7 @@ function sfui.gear.handle_player_regen()
         elseif regenRetries < 5 then
             -- Still casting post-combat: retry up to 5 times (10 s total) then give up
             regenRetries = regenRetries + 1
-            C_Timer.After(2, function()
-                if gearEquipQueue and not InCombatLockdown() then
-                    sfui.gear.handle_player_regen()
-                end
-            end)
+            C_Timer.After(2, _OnRegenRetryTimer)
         else
             -- Give up: discard the queued set equip
             gearEquipQueue = nil
@@ -624,6 +629,30 @@ function sfui.gear.handle_player_regen()
             sfui.events.UnregisterEvent("PLAYER_REGEN_ENABLED", sfui.gear.handle_player_regen)
         end
     end
+end
+
+local function _OnBagUpdateTimer()
+    bagUpdatePending = false
+    -- Fix 1: respect manual-edit pause (CharacterFrame open / explicit pause)
+    if autoEquipPaused() then return end
+    -- Fix 2: if a gear set is configured AND equipped, don't override it
+    if isGearSetEquipped() then return end
+    
+    local shouldEquip = isAutoEquipEnabled()
+    if shouldEquip and sfui.highest and sfui.highest.EquipHighestILvl
+        and not InCombatLockdown()
+        and not UnitCastingInfo("player")
+        and not UnitChannelInfo("player")
+        and not UnitIsDeadOrGhost("player") then
+        local isPvP = false
+        local _, instanceType = GetInstanceInfo()
+        if instanceType == "pvp" or instanceType == "arena" or (instanceType == "none" and C_PvP.IsWarModeDesired()) then
+            isPvP = true
+        end
+        sfui.highest.EquipHighestILvl(isPvP, true)
+    end
+    -- UpdateStatUI shifted securely into the debounce block
+    if sfui.gear.UpdateStatUI then sfui.gear.UpdateStatUI() end
 end
 
 sfui.events.RegisterEvent("BAG_UPDATE_DELAYED", function()
@@ -636,37 +665,33 @@ sfui.events.RegisterEvent("BAG_UPDATE_DELAYED", function()
     -- you are actively trying to organize your inventory.
     if not bagUpdatePending then
         bagUpdatePending = true
-        C_Timer.After(2, function()
-            bagUpdatePending = false
-            -- Fix 1: respect manual-edit pause (CharacterFrame open / explicit pause)
-            if autoEquipPaused() then return end
-            -- Fix 2: if a gear set is configured AND equipped, don't override it
-            if isGearSetEquipped() then return end
-            
-            local shouldEquip = isAutoEquipEnabled()
-            if shouldEquip and sfui.highest and sfui.highest.EquipHighestILvl
-                and not InCombatLockdown()
-                and not UnitCastingInfo("player")
-                and not UnitChannelInfo("player")
-                and not UnitIsDeadOrGhost("player") then
-                local isPvP = false
-                local _, instanceType = GetInstanceInfo()
-                if instanceType == "pvp" or instanceType == "arena" or (instanceType == "none" and C_PvP.IsWarModeDesired()) then
-                    isPvP = true
-                end
-                sfui.highest.EquipHighestILvl(isPvP, true)
-            end
-            -- UpdateStatUI shifted securely into the debounce block
-            if sfui.gear.UpdateStatUI then sfui.gear.UpdateStatUI() end
-        end)
+        C_Timer.After(2, _OnBagUpdateTimer)
     end
 end)
+
+local function _OnPlayerFlagsTimer()
+    if sfui.gear and sfui.gear.Update then
+        sfui.gear.Update()
+    end
+end
 
 sfui.events.RegisterEvent("PLAYER_FLAGS_CHANGED", function(event, unit)
     if unit ~= "player" then return end
     local delay = (cfg and cfg.gear and cfg.gear.updateDelay) or 3
-    C_Timer.After(delay, function() sfui.gear.Update() end)
+    C_Timer.After(delay, _OnPlayerFlagsTimer)
 end)
+
+local function doSpecSwap()
+    if InCombatLockdown and InCombatLockdown() then return end
+    local _, instanceType = GetInstanceInfo()
+    local isWarMode = C_PvP.IsWarModeDesired()
+    local isPvP = (instanceType == "pvp" or instanceType == "arena") or (instanceType == "none" and isWarMode)
+
+    sfui.gear.Update(true)
+    if sfui.highest and sfui.highest.EquipHighestILvl then
+        sfui.highest.EquipHighestILvl(isPvP, true)
+    end
+end
 
 local function handle_spec_change(event, unit)
     if (event == "PLAYER_SPECIALIZATION_CHANGED" or event == "UNIT_SPELLCAST_SUCCEEDED") and unit and unit ~= "player" then return end
@@ -678,18 +703,6 @@ local function handle_spec_change(event, unit)
     
     -- Force clear manual edit pause
     manualEditUntil = 0
-    
-    local function doSpecSwap()
-        if InCombatLockdown and InCombatLockdown() then return end
-        local _, instanceType = GetInstanceInfo()
-        local isWarMode = C_PvP.IsWarModeDesired()
-        local isPvP = (instanceType == "pvp" or instanceType == "arena") or (instanceType == "none" and isWarMode)
-
-        sfui.gear.Update(true)
-        if sfui.highest and sfui.highest.EquipHighestILvl then
-            sfui.highest.EquipHighestILvl(isPvP, true)
-        end
-    end
 
     -- Execute immediately and schedule staggered sync ticks
     doSpecSwap()
@@ -712,17 +725,22 @@ sfui.events.RegisterEvent("PLAYER_TALENT_UPDATE", function()
     end
 end)
 
+local function _OnZoneChangeTimer()
+    zoneUpdateQueue = false
+    if sfui.gear and sfui.gear.Update then
+        sfui.gear.Update()
+    end
+end
+
 local function handle_zone_change()
     if not zoneUpdateQueue then
         zoneUpdateQueue = true
-        C_Timer.After(0.5, function() 
-            zoneUpdateQueue = false
-            sfui.gear.Update() 
-        end)
+        C_Timer.After(0.5, _OnZoneChangeTimer)
     end
 end
 sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", handle_zone_change)
 sfui.events.RegisterEvent("ZONE_CHANGED_NEW_AREA", handle_zone_change)
+
 
 -- B2: ADDON_LOADED registration removed (InitToggleHook called at login via PLAYER_LOGIN)
 
@@ -1521,3 +1539,14 @@ sfui.events.RegisterEvent("PLAYER_LOGIN", function()
         end
     end
 end)
+
+function sfui.gear_debug_info()
+    local eqCount = 0
+    for _ in pairs(lastEquippedItems) do eqCount = eqCount + 1 end
+
+    return {
+        equippedCache = eqCount,
+        lastEquipped  = eqCount,
+    }
+end
+

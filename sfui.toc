@@ -52,3 +52,5 @@ frames/lootspec.lua
 frames/highest.lua
 frames/quests.lua
 frames/mythic.lua
+frames/mem.lua
+

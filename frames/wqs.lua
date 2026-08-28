@@ -403,11 +403,9 @@ function WQS:Initialize()
         btn:SetScript("OnEnter", function(s)
             local tip = sfui.tooltip
             if tip then
-                pcall(function()
-                    tip:SetOwner(s, "ANCHOR_TOP")
-                    tip:SetText(tooltipText)
-                    tip:Show()
-                end)
+                tip:SetOwner(s, "ANCHOR_TOP")
+                tip:SetText(tooltipText)
+                tip:Show()
             end
         end)
         btn:SetScript("OnLeave", function()
@@ -441,12 +439,10 @@ function WQS:Initialize()
     pinBtn:SetScript("OnEnter", function(s)
         local tip = sfui.tooltip
         if tip then
-            pcall(function()
-                tip:SetOwner(s, "ANCHOR_TOP")
-                tip:SetText("Toggle Detach/Pin Frame")
-                tip:AddLine("When detached, frame stays visible and can be dragged.", 1, 1, 1, true)
-                tip:Show()
-            end)
+            tip:SetOwner(s, "ANCHOR_TOP")
+            tip:SetText("Toggle Detach/Pin Frame")
+            tip:AddLine("When detached, frame stays visible and can be dragged.", 1, 1, 1, true)
+            tip:Show()
         end
     end)
     pinBtn:SetScript("OnLeave", function()
@@ -623,7 +619,11 @@ function WQS:RegisterEvents()
     self:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
     self:RegisterEvent("ITEM_DATA_LOAD_RESULT")
     self:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
-    self:RegisterEvent("UNIT_INVENTORY_CHANGED")
+    if self.RegisterUnitEvent then
+        self:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
+    else
+        self:RegisterEvent("UNIT_INVENTORY_CHANGED")
+    end
 end
 
 function WQS:UnregisterEvents()
@@ -645,6 +645,13 @@ function WQS:AttachToMap()
     self:SetSize(620, 200)
 end
 
+local function _OnMapShowDeferred()
+    if WorldMapFrame and WorldMapFrame:IsShown() and not (SfuiDB and SfuiDB.wqsState and SfuiDB.wqsState.detached) then
+        WQS:Show()
+        WQS:Refresh()
+    end
+end
+
 function WQS:SetupMapHooks()
     if not WorldMapFrame or self.mapHooksDone then return end
     self.mapHooksDone = true
@@ -653,12 +660,7 @@ function WQS:SetupMapHooks()
         if not (SfuiDB and SfuiDB.wqsState and SfuiDB.wqsState.detached) then
             -- Defer to next tick so Blizzard's WorldMapFrame:Show() and MapCanvas pin
             -- creation (SetPropagateMouseClicks) complete in a 100% untainted context.
-            C_Timer.After(0, function()
-                if WorldMapFrame and WorldMapFrame:IsShown() and not (SfuiDB and SfuiDB.wqsState and SfuiDB.wqsState.detached) then
-                    self:Show()
-                    self:Refresh()
-                end
-            end)
+            C_Timer.After(0, _OnMapShowDeferred)
         end
     end)
     hooksecurefunc(WorldMapFrame, "Hide", function()
@@ -666,6 +668,7 @@ function WQS:SetupMapHooks()
             self:Hide()
         end
     end)
+
 
     -- Map Highlight Frame (Red Ring)
     if not self.MapHighlight then
@@ -790,35 +793,37 @@ function WQS:CreateRow()
         row.Highlight:SetColorTexture(1, 1, 1, 0.05)
         row.Highlight:Hide()
 
+        local function _ShowWQSTooltip(s)
+            local tip = sfui.tooltip
+            if not tip then return end
+            tip:SetOwner(s, "ANCHOR_RIGHT")
+            local success = false
+            if tip.SetWorldQuestByID then
+                local ok, res = pcall(tip.SetWorldQuestByID, tip, s.questID)
+                if ok and res then success = true end
+            end
+            if not success and tip.SetQuestLogItem then
+                pcall(tip.SetQuestLogItem, tip, "reward", 1, s.questID)
+            end
+
+            local numObjs = GetNumQuestLeaderBoards(s.questID)
+            if common.SafeGT(numObjs, 0) then
+                tip:AddLine(" ")
+                for i = 1, numObjs do
+                    local text, _, finished = GetQuestLogLeaderBoard(i, s.questID)
+                    if text then
+                        local r, g, b = 1, 1, 1
+                        if finished then r, g, b = 0.5, 0.5, 0.5 end
+                        tip:AddLine("- " .. text, r, g, b, true)
+                    end
+                end
+            end
+            tip:Show()
+        end
+
         row:SetScript("OnEnter", function(s)
             s.Highlight:Show()
-            local tip = sfui.tooltip
-            if tip then
-                pcall(function()
-                    tip:SetOwner(s, "ANCHOR_RIGHT")
-                    local success = false
-                    if tip.SetWorldQuestByID then
-                        success = pcall(tip.SetWorldQuestByID, tip, s.questID)
-                    end
-                    if not success then
-                        pcall(tip.SetQuestLogItem, tip, "reward", 1, s.questID)
-                    end
-
-                    local numObjs = GetNumQuestLeaderBoards(s.questID)
-                    if common.SafeGT(numObjs, 0) then
-                        tip:AddLine(" ")
-                        for i = 1, numObjs do
-                            local text, _, finished = GetQuestLogLeaderBoard(i, s.questID)
-                            if text then
-                                local r, g, b = 1, 1, 1
-                                if finished then r, g, b = 0.5, 0.5, 0.5 end
-                                tip:AddLine("- " .. text, r, g, b, true)
-                            end
-                        end
-                    end
-                    tip:Show()
-                end)
-            end
+            _ShowWQSTooltip(s)
 
             -- Map Highlight — anchor to ScrollContainer position without touching canvas
             if WorldMapFrame and sfui.wqs.MapHighlight and s.posX and s.posY and WorldMapFrame:GetMapID() == s.mapID then
@@ -877,16 +882,20 @@ function WQS:ClearRows()
     end
 end
 
+local function _OnWQSRefreshTimer()
+    refreshTimer = nil
+    if WQS and WQS.DoRefresh then
+        WQS:DoRefresh()
+    end
+end
+
 function WQS:Refresh()
     if not self:IsShown() then return end
     if InCombatLockdown and InCombatLockdown() then return end
     if IsInInstance and IsInInstance() then return end
     if refreshTimer then return end
 
-    refreshTimer = C_Timer.After(0.3, function()
-        self:DoRefresh()
-        refreshTimer = nil
-    end)
+    refreshTimer = C_Timer.After(0.3, _OnWQSRefreshTimer)
 end
 
 local function UpdateHeader(btn, mode, text)
@@ -1117,3 +1126,18 @@ function WQS:DisplayQuestRow(qData, offset, stripeCount, mapID)
 end
 
 WQS:Initialize()
+
+function sfui.wqs_debug_info()
+    local rCount, eqCount = 0, 0
+    for _ in pairs(rewardDataCache) do rCount = rCount + 1 end
+    for _ in pairs(equippedCache) do eqCount = eqCount + 1 end
+
+    return {
+        tablePool     = #tablePool,
+        framePool     = #framePool,
+        activeFrames  = #activeFrames,
+        rewardCache   = rCount,
+        equippedCache = eqCount,
+    }
+end
+

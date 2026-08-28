@@ -411,6 +411,16 @@ do
         return rune_bar
     end
 
+    -- Pre-allocated comparator to avoid closure allocation on every table.sort call
+    local function runeInfoComparator(a, b)
+        if a.ready and not b.ready then return true end
+        if not a.ready and b.ready then return false end
+        if not a.ready and not b.ready then
+            return a.expiration < b.expiration
+        end
+        return a.id < b.id
+    end
+
     local function update_rune_bar()
         local secResource = common.get_secondary_resource()
         if secResource ~= Enum.PowerType.Runes then
@@ -455,15 +465,8 @@ do
             entry.expiration = (not ready) and (start + duration) or 0
         end
 
-        table.sort(runeInfo, function(a, b)
-            if a.ready and not b.ready then return true end
-            if not a.ready and b.ready then return false end
-            if not a.ready and not b.ready then
-                return a.expiration < b.expiration
-            end
-            -- Both ready, order by ID to keep stable
-            return a.id < b.id
-        end)
+        table.sort(runeInfo, runeInfoComparator)
+
 
         local specColor = common.get_class_or_spec_color()
 
@@ -664,14 +667,16 @@ do
         bar.TextValue:SetPoint("CENTER")
         bar.lastSpeed = 0 -- Cache for change detection
 
-        -- Speed requires polling as there is no gliding speed event
-        bar:SetScript("OnUpdate", function(self, elapsed)
+        -- Speed requires polling as there is no gliding speed event.
+        -- OnUpdate is installed/removed dynamically by update_mount_speed_bar_internal
+        -- to avoid permanent 20fps polling when not dragonflying.
+        bar._onUpdate = function(self, elapsed)
             self.timer = (self.timer or 0) + elapsed
             if self.timer > 0.05 then -- Throttled to 20fps
                 self.timer = 0
                 update_mount_speed_bar_internal()
             end
-        end)
+        end
 
         mount_speed_bar = bar
         return bar
@@ -680,10 +685,23 @@ do
     update_mount_speed_bar_internal = function()
         local cfg = sfui.config.mountSpeedBar
         if not cfg.enabled or not is_dragonflying() then
-            if mount_speed_bar then mount_speed_bar.backdrop:Hide() end
+            if mount_speed_bar then
+                mount_speed_bar.backdrop:Hide()
+                if mount_speed_bar._onUpdateActive then
+                    mount_speed_bar:SetScript("OnUpdate", nil)
+                    mount_speed_bar._onUpdateActive = false
+                end
+            end
             return
         end
         local bar = mount_speed_bar or get_mount_speed_bar()
+
+        -- Install OnUpdate only when actually dragonflying
+        if not bar._onUpdateActive then
+            bar:SetScript("OnUpdate", bar._onUpdate)
+            bar._onUpdateActive = true
+        end
+
         local _, _, forwardSpeed = C_PlayerInfo.GetGlidingInfo()
         if not forwardSpeed then return end
         local speed = forwardSpeed * 14.286
@@ -708,6 +726,7 @@ do
             end
         end
     end
+
 
     sfui.bars.update_mount_speed_bar = update_mount_speed_bar_internal
 
@@ -750,16 +769,6 @@ do
             if not should_throttle("visibility") then
                 update_bar_visibility()
             end
-        elseif event == "UNIT_POWER_UPDATE" and (not unit or unit == "player") then
-            if not should_throttle("bar_minus_1") then
-                update_bar_minus_1()
-                update_bar1()
-            end
-        elseif (event == "UNIT_HEALTH" or event == "UNIT_ABSORB_AMOUNT_CHANGED") and (not unit or unit == "player") then
-            if not should_throttle("bar0") then
-                local max, current = UnitHealthMax("player"), UnitHealth("player")
-                update_bar0(current, max)
-            end
         elseif event == "SPELL_UPDATE_CHARGES" then
             update_vigor_bar()
         elseif event == "RUNE_POWER_UPDATE" then
@@ -769,11 +778,30 @@ do
         end
     end
 
+    -- High-frequency unit events: use a dedicated frame with RegisterUnitEvent
+    -- so only "player" fires are dispatched. In cities, UNIT_HEALTH fires
+    -- hundreds of times/sec for nearby NPCs — the central dispatcher would
+    -- run pcall+ipairs on every one of those, wasting CPU and generating GC pressure.
+    local playerUnitFrame = CreateFrame("Frame")
+    playerUnitFrame:RegisterUnitEvent("UNIT_HEALTH", "player")
+    playerUnitFrame:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
+    playerUnitFrame:RegisterUnitEvent("UNIT_ABSORB_AMOUNT_CHANGED", "player")
+    playerUnitFrame:SetScript("OnEvent", function(_, event, unit, ...)
+        if event == "UNIT_POWER_UPDATE" then
+            if not should_throttle("bar_minus_1") then
+                update_bar_minus_1()
+                update_bar1()
+            end
+        else -- UNIT_HEALTH or UNIT_ABSORB_AMOUNT_CHANGED
+            if not should_throttle("bar0") then
+                local max, current = UnitHealthMax("player"), UnitHealth("player")
+                update_bar0(current, max)
+            end
+        end
+    end)
+
     sfui.events.RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", on_event)
     sfui.events.RegisterEvent("UPDATE_SHAPESHIFT_FORM", on_event)
-    sfui.events.RegisterEvent("UNIT_POWER_UPDATE", on_event)
-    sfui.events.RegisterEvent("UNIT_HEALTH", on_event)
-    sfui.events.RegisterEvent("UNIT_ABSORB_AMOUNT_CHANGED", on_event)
     sfui.events.RegisterEvent("PLAYER_CAN_GLIDE_CHANGED", on_event)
     sfui.events.RegisterEvent("PLAYER_IS_GLIDING_CHANGED", on_event)
     sfui.events.RegisterEvent("SPELL_UPDATE_CHARGES", on_event)
@@ -783,4 +811,18 @@ do
     sfui.events.RegisterEvent("RUNE_POWER_UPDATE", on_event)
     sfui.events.RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED", on_event)
     sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", on_event)
+
+    function sfui.bars_debug_info()
+        return {
+            bar0Created = bar0 ~= nil,
+            bar0Shown = bar0 and bar0:IsShown() or false,
+            bar1Created = bar1 ~= nil,
+            bar1Shown = bar1 and bar1:IsShown() or false,
+            barMinus1Created = bar_minus_1 ~= nil,
+            barMinus1Shown = bar_minus_1 and bar_minus_1:IsShown() or false,
+            vigorCreated = vigor_bar ~= nil,
+            mountSpeedActive = mount_speed_bar and mount_speed_bar:GetScript("OnUpdate") ~= nil or false,
+            runeBarCreated = rune_bar ~= nil,
+        }
+    end
 end

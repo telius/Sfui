@@ -720,3 +720,14 @@ sfui.events.RegisterEvent("PLAYER_LOGIN", function()
         _G.OverlayPlayerCastingBarFrame:Hide()
     end
 end)
+
+function sfui.castbar_debug_info()
+    local pBar = sfui.castbar.bars and sfui.castbar.bars["player"]
+    local tBar = sfui.castbar.bars and sfui.castbar.bars["target"]
+    return {
+        playerBarCreated = pBar ~= nil,
+        playerBarShown = pBar and pBar:IsShown() or false,
+        targetBarCreated = tBar ~= nil,
+        targetBarShown = tBar and tBar:IsShown() or false,
+    }
+end

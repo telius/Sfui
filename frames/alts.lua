@@ -2408,4 +2408,19 @@ function sfui.alts.initialize()
         end
     end
     SLASH_SFUIALTS1 = "/alts"
+
+    function sfui.alts_debug_info()
+        local altCount = 0
+        if SfuiDB and SfuiDB.alts then
+            for _ in pairs(SfuiDB.alts) do altCount = altCount + 1 end
+        end
+        return {
+            columnPool = #columnPool,
+            cellPool = #cellPool,
+            tablePool = #tablePool,
+            trackedAlts = altCount,
+            frameCreated = frame ~= nil,
+            frameShown = frame and frame:IsShown() or false,
+        }
+    end
 end

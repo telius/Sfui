@@ -453,6 +453,8 @@ local function AttachedSort(a, b)
     return nA_name < nB_name
 end
 
+local _numShownBars = 0
+
 local function UpdateLayout()
     local cfg = sfui.config.trackedBars
     local globalDB = SfuiDB and SfuiDB.trackedBars or {}
@@ -472,6 +474,8 @@ local function UpdateLayout()
             end
         end
     end
+
+    _numShownBars = #standardBars + #attachedBars
 
     -- Update container/child icon sizes if changed globally
     local iconSize = globalDB.iconSize or cfg.icon_size or 20
@@ -1235,6 +1239,7 @@ end
 -- (exp - GetTime()) so we never touch a secret with an operator.
 -- Secret dur/exp → full bar SetValue(1), no crash, no pcall hiding.
 local function UpdateBarsState()
+    if _numShownBars == 0 then return end
     if not BuffBarCooldownViewer or not BuffBarCooldownViewer.itemFramePool then return end
 
     for blizzFrame in BuffBarCooldownViewer.itemFramePool:EnumerateActive() do
@@ -1243,7 +1248,7 @@ local function UpdateBarsState()
 
             local myBar = bars[blizzFrame.cooldownID]
             if myBar and myBar:IsShown() and blizzFrame.Bar then
-                local config = GetTrackedBarConfig(blizzFrame.cooldownID)
+                local config = myBar._config or GetTrackedBarConfig(blizzFrame.cooldownID)
                 local isStackMode = config and config.stackMode or false
 
                 if not isStackMode then
@@ -1253,10 +1258,16 @@ local function UpdateBarsState()
                     myBar.status:SetValue(blizzFrame.Bar:GetValue())
 
                     if blizzFrame.Bar.Duration then
-                        local durText = blizzFrame.Bar.Duration:GetText() or ""
-                        if durText ~= myBar._lastDurationText then
-                            myBar._lastDurationText = durText
+                        local durText = blizzFrame.Bar.Duration:GetText()
+                        if issecretvalue and issecretvalue(durText) then
                             myBar.time:SetText(durText)
+                        elseif durText then
+                            if durText ~= myBar._lastDurationText then
+                                myBar._lastDurationText = durText
+                                myBar.time:SetText(durText)
+                            end
+                        else
+                            myBar.time:SetText("")
                         end
                     end
                 end
@@ -1267,6 +1278,25 @@ end
 
 -- Event-driven stack count updates using new UNIT_AURA updateInfo (12.0.1.65867+)
 
+
+local _syncThrottle = 0
+local function _OnTrackedBarsUpdate(elapsed)
+    -- 1. Visual Updates (Smooth, higher frequency based on config)
+    if _numShownBars > 0 and BuffBarCooldownViewer and BuffBarCooldownViewer.itemFramePool then
+        UpdateBarsState()
+    end
+
+    -- 2. Structure/Visibility Sync (Throttled, lower frequency)
+    if sfui.trackedbars.isDirty then
+        _syncThrottle = _syncThrottle + elapsed
+        -- 0.05s delay allows grouping multiple events (e.g. entering world/combat) into one redraw
+        if _syncThrottle > 0.05 then
+            sfui.trackedbars.isDirty = false
+            _syncThrottle = 0
+            ProcessBlizzardSync()
+        end
+    end
+end
 
 function sfui.trackedbars.initialize()
     if container then return end
@@ -1325,24 +1355,7 @@ function sfui.trackedbars.initialize()
     end)
 
     -- Throttled OnUpdate for smooth bar progress AND structure updates
-    local syncThrottle = 0
-    sfui.events.RegisterUpdate(cfg.updateThrottle or 0.05, function(elapsed)
-        -- 1. Visual Updates (Smooth, higher frequency based on config)
-        if BuffBarCooldownViewer and BuffBarCooldownViewer.itemFramePool then
-            pcall(UpdateBarsState)
-        end
-
-        -- 2. Structure/Visibility Sync (Throttled, lower frequency)
-        if sfui.trackedbars.isDirty then
-            syncThrottle = syncThrottle + elapsed
-            -- 0.05s delay allows grouping multiple events (e.g. entering world/combat) into one redraw
-            if syncThrottle > 0.05 then
-                sfui.trackedbars.isDirty = false
-                syncThrottle = 0
-                ProcessBlizzardSync()
-            end
-        end
-    end)
+    sfui.events.RegisterUpdate("TrackedBars", cfg.updateThrottle or 0.05, _OnTrackedBarsUpdate)
 
     -- Event-driven updates
     -- Hook into Blizzard's frames for instant updates (ArcUI approach)
@@ -1443,4 +1456,19 @@ function sfui.trackedbars.initialize()
             end)
         end)
     end
+end
+
+function sfui.trackedbars_debug_info()
+    local barCount = 0
+    for _ in pairs(bars) do barCount = barCount + 1 end
+    local cacheCount = 0
+    for _ in pairs(configCache) do cacheCount = cacheCount + 1 end
+    return {
+        activeBars = barCount,
+        shownBars = _numShownBars,
+        barPool = #barPool,
+        configPool = #configPool,
+        configCache = cacheCount,
+        isDirty = sfui.trackedbars.isDirty or false,
+    }
 end

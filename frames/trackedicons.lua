@@ -19,16 +19,14 @@ local tinsert = table.insert
 local panels = {} -- Active icon panels
 local _needsStateUpdate = true -- Start dirty for initial render
 local _needsLayoutUpdate = true
-local _burstTimer = 0          -- Brief burst period after events for smooth transitions
 local _layoutCooldown = 0
 
 -- Helper: Mark icons as needing a state refresh
-local function MarkDirty(burstDuration, needsLayout)
+local function MarkDirty(needsLayout)
     _needsStateUpdate = true
     if needsLayout then
         _needsLayoutUpdate = true
     end
-    _burstTimer = math.max(_burstTimer, burstDuration or 0.5)
 end
 sfui.trackedicons.MarkDirty = MarkDirty
 local issecretvalue = sfui.common.issecretvalue
@@ -112,8 +110,15 @@ end
 
 sfui.trackedicons.StopGlow = sfui.glows.stop_glow
 
+local _activeGlowCount = 0
+
 -- Local wrapper to ensure state cleanup
 local function StopGlow(icon)
+    if icon._glowActive then
+        if _activeGlowCount > 0 then
+            _activeGlowCount = _activeGlowCount - 1
+        end
+    end
     sfui.glows.stop_glow(icon)
     -- Do NOT clear _glowStartTime here, as it breaks the timeout logic (infinite restart loop)
     -- _glowStartTime is cleared explicitly when the icon is no longer ready.
@@ -123,6 +128,9 @@ end
 
 
 local function StartGlow(icon, cfg)
+    if not icon._glowActive then
+        _activeGlowCount = _activeGlowCount + 1
+    end
     sfui.glows.start_glow(icon, cfg)
     icon._glowActive = true
     -- Track config for comparison without allocating a new table
@@ -198,6 +206,14 @@ end
 local scratchParent = CreateFrame("Frame")
 scratchParent:Hide()
 local scratchCooldown = CreateFrame("Cooldown", nil, scratchParent, "CooldownFrameTemplate")
+
+local function IsFallbackNeeded(val)
+    -- Secret values can sometimes be "secret strings" in 11.0.
+    -- issecretvalue provides the official C++ level check. If it is secret,
+    -- it is a valid value, not an empty string, and must not be compared.
+    if issecretvalue(val) then return false end
+    return val == ""
+end
 
 local function UpdateIconCooldown(icon, activeID, resolvedType)
     -- count starts as "" for spells (GetSpellDisplayCount returns "") and as 0
@@ -302,14 +318,6 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
             if ok_dc and dc ~= nil then
                 displayStr = dc
             end
-        end
-
-        local function IsFallbackNeeded(val)
-            -- Secret values can sometimes be "secret strings" in 11.0.
-            -- issecretvalue provides the official C++ level check. If it is secret,
-            -- it is a valid value, not an empty string, and must not be compared.
-            if issecretvalue(val) then return false end
-            return val == ""
         end
 
         -- 2. Try SpellChargeInfo (CooldownViewer priority for >1 charge spells)
@@ -569,13 +577,17 @@ local function UpdateIconState(icon, panelConfig)
         -- C_UnitAuras.GetPlayerAuraBySpellID — safe to compare directly.
         -- This mirrors Blizzard's CooldownViewer RefreshApplications (CooldownViewer.lua:1258).
         local displayCount = count
-        if icon.type ~= "item" and activeID and activeID ~= 0 and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        local isAuraType = (icon.type == "buff" or icon.type == "debuff" or (icon.entry and (icon.entry.type == "buff" or icon.entry.type == "debuff")))
+        if (isAuraType or linkedSpellIDs) and icon.type ~= "item" and activeID and activeID ~= 0 and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
             local aura = nil
-            local ok_aura, baseAura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, activeID)
-            
-            if ok_aura and baseAura then
-                aura = baseAura
-            elseif linkedSpellIDs then
+            if isAuraType then
+                local ok_aura, baseAura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, activeID)
+                if ok_aura and baseAura then
+                    aura = baseAura
+                end
+            end
+
+            if not aura and linkedSpellIDs then
                 -- Try resolving linked auras (e.g., Marrowrend tracking -> Bone Shield aura)
                 for _, linkedID in ipairs(linkedSpellIDs) do
                     local ok_linked, linkedAura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, linkedID)
@@ -587,9 +599,6 @@ local function UpdateIconState(icon, panelConfig)
             end
 
             if aura and aura.applications and (issecretvalue(aura.applications) or (type(aura.applications) == "number" and aura.applications > 1)) then
-                -- Aura applications: Show instead of the spell display count so that
-                -- buff stacks (e.g. Maelstrom Weapon) display correctly on tracked icons,
-                -- matching CooldownViewer behavior. Handles secret values safely in combat.
                 displayCount = aura.applications
             end
         end
@@ -687,6 +696,12 @@ function sfui.trackedicons.ApplyIconBorderStyle(icon, panelConfig)
 
     local showBorder = GetIconValue(nil, panelConfig, "showBorder", false)
     local squareIcons = GetIconValue(nil, panelConfig, "squareIcons", false)
+
+    if icon._lastShowBorder == showBorder and icon._lastSquareIcons == squareIcons then
+        return
+    end
+    icon._lastShowBorder = showBorder
+    icon._lastSquareIcons = squareIcons
 
     -- TexCoord: square crops the round WoW icon edges
     if squareIcons then
@@ -1423,21 +1438,6 @@ function sfui.trackedicons.initialize()
         sfui.common.hide_blizzard_cooldown_viewers()
     end
 
-    -- (State variables and MarkDirty moved to module level)
-    local _burstTimer = 0          -- Brief burst period after events for smooth transitions
-
-    -- Helper: Mark icons as needing a state refresh
-    -- Helper: Mark icons as needing a state refresh
-    local _layoutCooldown = 0
-    local function MarkDirty(burstDuration, needsLayout)
-        _needsStateUpdate = true
-        if needsLayout then
-            _needsLayoutUpdate = true
-        end
-        _burstTimer = math.max(_burstTimer, burstDuration or 0.5)
-    end
-
-
     -- Helper: Update only icon states (no layout rebuild) using cached panel.config
     local function UpdateAllIconStates()
         for _, panel in pairs(panels) do
@@ -1467,26 +1467,26 @@ function sfui.trackedicons.initialize()
     -- Event handling
     sfui.events.RegisterEvent("PLAYER_REGEN_ENABLED", function()
         sfui.trackedicons.Update()
-        MarkDirty(1.0) -- Longer burst for combat transitions
+        MarkDirty()
     end)
     sfui.events.RegisterEvent("PLAYER_REGEN_DISABLED", function()
         sfui.trackedicons.Update()
-        MarkDirty(1.0) -- Longer burst for combat transitions
+        MarkDirty()
     end)
     sfui.events.RegisterEvent("PLAYER_TARGET_CHANGED", function()
-        MarkDirty(0.5, true)
+        MarkDirty(true)
     end)
     sfui.events.RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED", function()
         sfui.trackedicons.Update()
-        MarkDirty(1.0) -- Longer burst for combat transitions
+        MarkDirty()
     end)
     sfui.events.RegisterEvent("UPDATE_SHAPESHIFT_FORM", function()
         sfui.trackedicons.Update()
-        MarkDirty(1.0) -- Longer burst for combat transitions
+        MarkDirty()
     end)
     sfui.events.RegisterEvent("UPDATE_STEALTH", function()
         sfui.trackedicons.Update()
-        MarkDirty(1.0) -- Longer burst for combat transitions
+        MarkDirty()
     end)
 
     sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", function()
@@ -1495,7 +1495,7 @@ function sfui.trackedicons.initialize()
             sfui.common.SyncTrackedSpells()
         end
         sfui.trackedicons.Update()
-        MarkDirty(2.0) -- Longer burst for world entry
+        MarkDirty(true)
     end)
     sfui.events.RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", function()
         sfui.common.ensure_panels_initialized()
@@ -1503,7 +1503,7 @@ function sfui.trackedicons.initialize()
             sfui.common.SyncTrackedSpells()
         end
         sfui.trackedicons.Update()
-        MarkDirty(2.0) -- Longer burst for world entry
+        MarkDirty(true)
     end)
     sfui.events.RegisterEvent("PLAYER_TALENT_UPDATE", function()
         sfui.common.ensure_panels_initialized()
@@ -1511,7 +1511,7 @@ function sfui.trackedicons.initialize()
             sfui.common.SyncTrackedSpells()
         end
         sfui.trackedicons.Update()
-        MarkDirty(2.0) -- Longer burst for world entry
+        MarkDirty(true)
     end)
     -- 12.0.5+: fires when the system forces a spec change (arena PvP loadout lock,
     -- talent reset, etc.) — treat identically to PLAYER_SPECIALIZATION_CHANGED.
@@ -1521,9 +1521,9 @@ function sfui.trackedicons.initialize()
             sfui.common.SyncTrackedSpells()
         end
         sfui.trackedicons.Update()
-        MarkDirty(2.0)
+        MarkDirty(true)
     end)
-    sfui.events.RegisterEvent("SPELLS_CHANGED", function() MarkDirty() end)
+    sfui.events.RegisterEvent("SPELLS_CHANGED", function() MarkDirty(true) end)
 
     -- Soul fragments, charges, resource-gated display counts.
     -- SPELL_UPDATE_CHARGES fires when any spell's GetSpellDisplayCount value changes
@@ -1533,8 +1533,7 @@ function sfui.trackedicons.initialize()
     end)
 
     -- UNIT_POWER_UPDATE covers soul fragments (Fury power type for VDH) and other
-    -- resource pools that gate GetSpellDisplayCount values. Keep the burst very short
-    -- so we don't continuously hammer UpdateAllIconStates while out of combat.
+    -- resource pools that gate GetSpellDisplayCount values.
     -- Filter to 'player' only: args are (event, unit, powerType).
     sfui.events.RegisterEvent("UNIT_POWER_UPDATE", function(event, unit)
         if unit == "player" then
@@ -1542,19 +1541,14 @@ function sfui.trackedicons.initialize()
         end
     end)
 
-
     -- Real-time events that require immediate structural/GCD sync
     sfui.events.RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit)
         if unit == "player" then
-            MarkDirty(0.5, true)
+            _needsStateUpdate = true
         end
     end)
 
     sfui.events.RegisterEvent("SPELL_UPDATE_COOLDOWN", function()
-        -- Only mark state dirty — do NOT extend the burst timer.
-        -- SPELL_UPDATE_COOLDOWN fires on every GCD tick while idle.
-        -- Extending _burstTimer here keeps UpdateAllIconStates running
-        -- at 10fps continuously while out of combat, causing ~0.2MB/s GC pressure.
         _needsStateUpdate = true
     end)
 
@@ -1562,28 +1556,15 @@ function sfui.trackedicons.initialize()
         _needsStateUpdate = true
     end)
 
-    -- 11.0 C_UnitAuras Event Migration
+    -- 11.0+ C_UnitAuras Event Migration (Secret-safe in 12.0+)
     sfui.events.RegisterEvent("UNIT_AURA", function(event, unit, updateInfo)
-        if unit ~= "player" then return end
-
-        if updateInfo then
-            local needsFullUpdate = false
-
-            if updateInfo.addedAuras and #updateInfo.addedAuras > 0 then
-                needsFullUpdate = true
-            end
-            if updateInfo.removedAuraInstanceIDs and #updateInfo.removedAuraInstanceIDs > 0 then
-                needsFullUpdate = true
-            end
-
-            MarkDirty(0.5, needsFullUpdate)
-        else
-            MarkDirty(0.5, not InCombatLockdown())
+        if unit == "player" then
+            _needsStateUpdate = true
         end
     end)
 
     sfui.events.RegisterEvent("TRAIT_CONFIG_UPDATED", function()
-        MarkDirty(0.5, not InCombatLockdown())
+        MarkDirty(not InCombatLockdown())
     end)
 
     -- 12.0.5+: fires when Blizzard switches the aura data provider (e.g. into M+ obfuscated
@@ -1614,12 +1595,12 @@ function sfui.trackedicons.initialize()
             end
         end
         -- Force a full update on both entry and exit so icons reflect real state ASAP.
-        MarkDirty(1.0, true)
+        MarkDirty(true)
     end)
 
-    -- OnUpdate: Only process when dirty or during burst period (for smooth glow/alpha transitions)
+    -- OnUpdate: Only process when dirty (zero CPU/allocations when idle)
     local blizzSyncTimer = 0
-    sfui.events.RegisterUpdate(0.1, function(elapsed)
+    local function _OnTrackedIconsUpdate(elapsed)
         if sfui.trackedicons.blizzSyncDirty then
             blizzSyncTimer = blizzSyncTimer + elapsed
             if blizzSyncTimer > 0.1 then
@@ -1629,27 +1610,22 @@ function sfui.trackedicons.initialize()
             end
         end
 
-        -- Decrement burst and layout timers
-        if _burstTimer > 0 then
-            _burstTimer = _burstTimer - 0.1
-        end
         if _layoutCooldown > 0 then
-            _layoutCooldown = _layoutCooldown - 0.1
+            _layoutCooldown = _layoutCooldown - elapsed
         end
 
-        -- Only update if dirty flag set or burst timer active or any glows are running
+        -- Only update when explicitly dirty
         if _needsLayoutUpdate and _layoutCooldown <= 0 then
             _needsLayoutUpdate = false
             _needsStateUpdate = false
             _layoutCooldown = 0.5 -- 500ms throttle for layout updates
             wipe(_cdInfoCache)
             sfui.trackedicons.Update()
-        elseif _needsStateUpdate or _burstTimer > 0 then
+        elseif _needsStateUpdate then
             _needsStateUpdate = false
-            wipe(_cdInfoCache)
             UpdateAllIconStates()
-        else
-            -- Even when idle, check icons with active glows for timeout
+        elseif _activeGlowCount > 0 then
+            -- Even when idle, check icons with active glows for timeout (skip when no glows active)
             for _, panel in pairs(panels) do
                 if panel.icons then
                     for _, icon in pairs(panel.icons) do
@@ -1663,7 +1639,9 @@ function sfui.trackedicons.initialize()
                 end
             end
         end
-    end)
+    end
+
+    sfui.events.RegisterUpdate("TrackedIcons", 0.1, _OnTrackedIconsUpdate)
 
     -- Initial setup
     sfui.common.ensure_panels_initialized()
@@ -1680,4 +1658,23 @@ function sfui.trackedicons.initialize()
     end
 
     sfui.trackedicons.Update()
+end
+
+function sfui.trackedicons_debug_info()
+    local pCount = 0
+    local iCount = 0
+    for _, p in pairs(panels) do
+        pCount = pCount + 1
+        if p.icons then
+            for _ in pairs(p.icons) do iCount = iCount + 1 end
+        end
+    end
+    return {
+        panels = pCount,
+        icons = iCount,
+        activeGlows = _activeGlowCount,
+        cdCache = _cdInfoCacheCount,
+        needsState = _needsStateUpdate,
+        needsLayout = _needsLayoutUpdate,
+    }
 end

@@ -114,19 +114,25 @@ local _lastTimerPhase = -1 -- 0=ontime(>25%), 1=yellow, 2=red, 3=overtime
 local _lastTimerText  = "" -- skip SetText when string unchanged
 local _lastChestText  = "" -- skip SetText when string unchanged
 local _lastDeathText  = "" -- skip SetText when string unchanged
+local _lastDeaths     = -1
+local _lastTimeLost   = -1
 
 local _playerList     = {} -- list of { unit = ..., guid = ..., name = ..., class = ... }
 local _playerClasses  = {} -- Name -> Class
 local _playerDeaths   = {} -- Name -> deathCount
 
 local function CacheGroupMembers()
-    wipe(_playerList)
     wipe(_playerClasses)
+    local idx = 0
+
     local pGUID = UnitGUID("player")
     local pName = UnitName("player")
     local _, pClass = UnitClass("player")
     if pGUID and pName then
-        table_insert(_playerList, { unit = "player", guid = pGUID, name = pName, class = pClass })
+        idx = idx + 1
+        local entry = _playerList[idx]
+        if not entry then entry = {}; _playerList[idx] = entry end
+        entry.unit = "player"; entry.guid = pGUID; entry.name = pName; entry.class = pClass
         _playerClasses[pName] = pClass
     end
     for i = 1, 4 do
@@ -135,9 +141,16 @@ local function CacheGroupMembers()
         local name = UnitName(unit)
         local _, class = UnitClass(unit)
         if guid and name then
-            table_insert(_playerList, { unit = unit, guid = guid, name = name, class = class })
+            idx = idx + 1
+            local entry = _playerList[idx]
+            if not entry then entry = {}; _playerList[idx] = entry end
+            entry.unit = unit; entry.guid = guid; entry.name = name; entry.class = class
             _playerClasses[name] = class
         end
+    end
+    -- Nil out stale entries beyond current count
+    for i = idx + 1, #_playerList do
+        _playerList[i] = nil
     end
 end
 
@@ -186,17 +199,22 @@ local currencyPool         = {}
 local spellPool            = {}
 local staticDeathBreakdown = {}
 local deathBreakdownPool   = {}
+local MAX_DELVE_POOL_SIZE  = 30
 
 local function ReleaseDelveSubTables(info)
     for i = #info.currencies, 1, -1 do
         local c = table.remove(info.currencies, i)
         wipe(c)
-        table.insert(currencyPool, c)
+        if #currencyPool < MAX_DELVE_POOL_SIZE then
+            table.insert(currencyPool, c)
+        end
     end
     for i = #info.spells, 1, -1 do
         local s = table.remove(info.spells, i)
         wipe(s)
-        table.insert(spellPool, s)
+        if #spellPool < MAX_DELVE_POOL_SIZE then
+            table.insert(spellPool, s)
+        end
     end
 end
 
@@ -726,6 +744,8 @@ local function BuildHUDFrame()
     MF.deathText:SetJustifyH("RIGHT")
     MF.deathText:SetText("")
 
+    local function deathSortComparator(a, b) return a.count > b.count end
+
     deathFrame:SetScript("OnEnter", function(self)
         local okd, deaths, timeLostSec = pcall(C_ChallengeMode.GetDeathCount)
         if okd and deaths and deaths > 0 then
@@ -742,7 +762,9 @@ local function BuildHUDFrame()
                     for i = #staticDeathBreakdown, 1, -1 do
                         local obj = table.remove(staticDeathBreakdown, i)
                         wipe(obj)
-                        table.insert(deathBreakdownPool, obj)
+                        if #deathBreakdownPool < 20 then
+                            table.insert(deathBreakdownPool, obj)
+                        end
                     end
                     for name, count in pairs(_playerDeaths) do
                         local obj = table.remove(deathBreakdownPool) or {}
@@ -751,7 +773,7 @@ local function BuildHUDFrame()
                         obj.class = _playerClasses[name]
                         table.insert(staticDeathBreakdown, obj)
                     end
-                    table.sort(staticDeathBreakdown, function(a, b) return a.count > b.count end)
+                    table.sort(staticDeathBreakdown, deathSortComparator)
                     for _, p in ipairs(staticDeathBreakdown) do
                         local colorCode = "ffffffff"
                         if p.class and _G.RAID_CLASS_COLORS and _G.RAID_CLASS_COLORS[p.class] then
@@ -768,6 +790,7 @@ local function BuildHUDFrame()
     deathFrame:SetScript("OnLeave", function()
         if GameTooltip then GameTooltip:Hide() end
     end)
+
 
     -- Separator 1 (between header/delve/timer and bosses)
     local sep1 = MakeSep(MF)
@@ -976,6 +999,14 @@ local function BuildAffixRow(affixes)
             frame:SetScript("OnLeave", function()
                 if GameTooltip then GameTooltip:Hide() end
             end)
+            frame:SetScript("OnEnter", function(self)
+                if GameTooltip then
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    if self.affixName then GameTooltip:SetText(self.affixName) end
+                    if self.affixDesc then GameTooltip:AddLine(self.affixDesc, nil, nil, nil, true) end
+                    GameTooltip:Show()
+                end
+            end)
             af = { frame = frame, icon = icon }
             MF.affixes[i] = af
         end
@@ -989,14 +1020,7 @@ local function BuildAffixRow(affixes)
         af.icon:SetTexture(ok and fileDataID or nil)
         af.frame.affixName = ok and name or nil
         af.frame.affixDesc = ok and desc or nil
-        af.frame:SetScript("OnEnter", function(self)
-            if GameTooltip then
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                if self.affixName then GameTooltip:SetText(self.affixName) end
-                if self.affixDesc then GameTooltip:AddLine(self.affixDesc, nil, nil, nil, true) end
-                GameTooltip:Show()
-            end
-        end)
+
 
         xOff = xOff + size + gap
     end
@@ -1635,26 +1659,33 @@ local function UpdateTimer()
         end
     end
 
-    -- Death counter
+    -- Death counter (only format and resize when count or time lost changes)
     local okd, deaths, timeLost = pcall(C_ChallengeMode.GetDeathCount)
-    local newDeathStr = ""
     if okd and deaths and deaths > 0 then
         local tl = timeLost or (deaths * 5)
-        local lostMin = math_floor(tl / 60)
-        local lostSec = tl % 60
-        local lostStr = (lostMin > 0 and (lostSec > 0 and string_format("+%dm %ds", lostMin, lostSec) or string_format("+%dm", lostMin))) or
-        string_format("+%ds", lostSec)
-        newDeathStr = string_format("|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_8:12:12:0:0|t |cffff4444%d (%s)|r", deaths, lostStr)
-        if MF.deathFrame then
-            MF.deathFrame:SetWidth(MF.deathText:GetStringWidth() + 16)
-            MF.deathFrame:Show()
+        if deaths ~= _lastDeaths or tl ~= _lastTimeLost then
+            _lastDeaths = deaths
+            _lastTimeLost = tl
+            local lostMin = math_floor(tl / 60)
+            local lostSec = tl % 60
+            local lostStr = (lostMin > 0 and (lostSec > 0 and string_format("+%dm %ds", lostMin, lostSec) or string_format("+%dm", lostMin))) or
+            string_format("+%ds", lostSec)
+            local newDeathStr = string_format("|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_8:12:12:0:0|t |cffff4444%d (%s)|r", deaths, lostStr)
+            _lastDeathText = newDeathStr
+            MF.deathText:SetText(newDeathStr)
+            if MF.deathFrame then
+                MF.deathFrame:SetWidth(MF.deathText:GetStringWidth() + 16)
+                MF.deathFrame:Show()
+            end
         end
     else
-        if MF.deathFrame then MF.deathFrame:Hide() end
-    end
-    if newDeathStr ~= _lastDeathText then
-        _lastDeathText = newDeathStr
-        MF.deathText:SetText(newDeathStr)
+        if _lastDeaths ~= 0 then
+            _lastDeaths = 0
+            _lastTimeLost = 0
+            _lastDeathText = ""
+            MF.deathText:SetText("")
+            if MF.deathFrame then MF.deathFrame:Hide() end
+        end
     end
 end
 
@@ -1682,6 +1713,8 @@ local function InitRun()
     _lastTimerText  = ""
     _lastChestText  = ""
     _lastDeathText  = ""
+    _lastDeaths     = -1
+    _lastTimeLost   = -1
     CacheGroupMembers()
 
     local ok1, mapID          = pcall(C_ChallengeMode.GetActiveChallengeMapID)
@@ -1696,13 +1729,14 @@ local function InitRun()
         _timeLimit = 0
     end
 
+    local EMPTY_TABLE = {}
     MF.levelText:SetTextColor(1, 0.82, 0, 1)
     if ok2 and level and level > 0 then
         MF.levelText:SetText(string_format("+%d", level))
-        BuildAffixRow(affixes or {})
+        BuildAffixRow(affixes or EMPTY_TABLE)
     else
         MF.levelText:SetText("+?")
-        BuildAffixRow({})
+        BuildAffixRow(EMPTY_TABLE)
     end
 
     -- Detect active timer ID
@@ -1733,6 +1767,9 @@ local function InitDungeon()
     _lastTimerPhase = -1
     _lastTimerText  = ""
     _lastDeathText  = ""
+    _lastDeaths     = -1
+    _lastTimeLost   = -1
+
 
     -- Instance info
     local instName, _, _, diffName
@@ -1773,16 +1810,18 @@ local function InitDungeon()
 end
 
 -- ─── Ticker ───────────────────────────────────────────────
+local function _OnMythicTicker()
+    if _mode == nil or not MF or not MF:IsShown() then
+        if _ticker then _ticker:Cancel() end
+        _ticker = nil
+        return
+    end
+    if _mode == "mythic" then UpdateTimer() end
+end
+
 local function StartTicker()
     if _ticker then return end
-    _ticker = C_Timer.NewTicker(TICKER_RATE, function()
-        if _mode == nil or not MF or not MF:IsShown() then
-            if _ticker then _ticker:Cancel() end
-            _ticker = nil
-            return
-        end
-        if _mode == "mythic" then UpdateTimer() end
-    end)
+    _ticker = C_Timer.NewTicker(TICKER_RATE, _OnMythicTicker)
 end
 
 local function StopTicker()
@@ -1864,6 +1903,12 @@ function sfui.mythic.ResetPosition()
     end
 end
 
+local function _OnInitRunDeferred()
+    if _mode == "mythic" and MF and MF:IsShown() then
+        InitRun()
+    end
+end
+
 local function CheckScenarioState()
     if _isPreview then return end
     local isMPlus = false
@@ -1880,11 +1925,7 @@ local function CheckScenarioState()
                 sfui.questlog.on_mythic_start()
             end
             ShowHUD()
-            C_Timer.After(0.4, function()
-                if _mode == "mythic" and MF and MF:IsShown() then
-                    InitRun()
-                end
-            end)
+            C_Timer.After(0.4, _OnInitRunDeferred)
         else
             UpdateInstanceState()
         end
@@ -2015,13 +2056,17 @@ end
 
 -- ─── Event-Driven State Update (Coalesced & Throttled) ────
 local _stateUpdatePending = false
+-- Named callback to avoid closure allocation on every C_Timer.After call.
+-- UPDATE_UI_WIDGET fires very frequently (even in cities), so each expiry
+-- would otherwise create a new closure.
+local function _OnStateUpdateTimer()
+    _stateUpdatePending = false
+    CheckScenarioState()
+end
 local function RequestStateUpdate(delay)
     if _stateUpdatePending then return end
     _stateUpdatePending = true
-    C_Timer.After(delay or 0.4, function()
-        _stateUpdatePending = false
-        CheckScenarioState()
-    end)
+    C_Timer.After(delay or 0.4, _OnStateUpdateTimer)
 end
 
 -- ─── Event Frame ──────────────────────────────────────────
@@ -2068,6 +2113,7 @@ ev:SetScript("OnEvent", function(self, event, ...)
     elseif event == "SCENARIO_CRITERIA_UPDATE" or event == "SCENARIO_UPDATE" or
         event == "ACTIVE_DELVE_DATA_UPDATE" or event == "UPDATE_UI_WIDGET" or
         event == "SCENARIO_COMPLETED" then
+        if event == "UPDATE_UI_WIDGET" and _mode == nil then return end
         RequestStateUpdate(0.4)
     elseif event == "CHALLENGE_MODE_DEATH_COUNT_UPDATED" then
         if _mode == "mythic" then UpdateTimer() end
@@ -2127,3 +2173,19 @@ Reg("PLAYER_ENTERING_WORLD")
 Reg("ZONE_CHANGED_NEW_AREA")
 Reg("WORLD_STATE_TIMER_START")
 Reg("WORLD_STATE_TIMER_STOP")
+
+function sfui.mythic_debug_info()
+    local deathCount = 0
+    for _ in pairs(_playerDeaths) do deathCount = deathCount + 1 end
+
+    return {
+        spellPool    = #spellPool,
+        currencyPool = #currencyPool,
+        deathPool    = #deathBreakdownPool,
+        playerList   = #_playerList,
+        playerDeaths = deathCount,
+        badgePool    = (MF and MF.delveBadges and #MF.delveBadges) or 0,
+        bossRowPool  = (MF and MF.bossRows and #MF.bossRows) or 0,
+    }
+end
+

@@ -154,4 +154,11 @@ do
         end)
         update_visibility()
     end
+
+    function sfui.currency_debug_info()
+        return {
+            currencyFrameCreated = _G.sfui_currency_frame ~= nil,
+            itemFrameCreated = _G.sfui_item_frame ~= nil,
+        }
+    end
 end
