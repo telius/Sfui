@@ -619,13 +619,13 @@ sfui.config = {
         enabled = true,
         width = 280,
         sectionHeight = 20,
-        questHeight = 17,
+        questHeight = 20,
         objectiveHeight = 13,
         itemSize = 32,
         throttle = 0.5,
         defaultHidden = false,
-        -- NOTE: "scenario" is absent — frames/mythic.lua owns dungeon/delve/instance objectives.
         sections = {
+            { id = "scenario",     label = "world event",      color = { 1.00, 0.60, 0.10 } },
             { id = "important",    label = "important",        color = { 1.00, 0.40, 0.35 } },
             { id = "campaign",     label = "campaign",         color = { 0.90, 0.75, 0.10 } },
             { id = "world",        label = "world quests",     color = { 0.20, 0.85, 0.95 } },

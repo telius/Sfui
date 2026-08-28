@@ -80,7 +80,7 @@ local QR_Weekly = (QR and QR.Weekly) or 2
 -- Layout constants from config
 local FRAME_W    = qcfg.width or 280
 local SECT_H     = qcfg.sectionHeight or 20
-local QUEST_H    = qcfg.questHeight or 17
+local QUEST_H    = qcfg.questHeight or 20
 local OBJ_H      = qcfg.objectiveHeight or 13
 local PAD_X      = 8
 local OBJ_INDENT = 14
@@ -103,8 +103,7 @@ local COLOR_RESET       = "|r"
 
 -- Section definitions (display order)
 local SECTION_DEFS = qcfg.sections or {
-    -- NOTE: "scenario" (dungeon/delve/instance objectives) is intentionally absent.
-    -- frames/mythic.lua owns that display in both M+ and regular dungeon mode.
+    { id = "scenario",     label = "world event",      color = { 1.00, 0.60, 0.10 } },
     { id = "important",    label = "important",        color = { 1.00, 0.40, 0.35 } },
     { id = "campaign",     label = "campaign",         color = { 0.90, 0.75, 0.10 } },
     { id = "world",        label = "world quests",     color = { 0.20, 0.85, 0.95 } },
@@ -142,16 +141,9 @@ local function _IsChallengeActive()
 end
 
 function State:Update()
-    -- mythic.lua owns the display whenever it is active (M+, dungeon, delve, scenario).
+    -- mythic.lua owns the display whenever it is active in an instance (M+, dungeon, delve).
     -- Check this first so we never race against mythic.lua's event registration order.
     if sfui.mythic and sfui.mythic.IsActive and sfui.mythic.IsActive() then
-        self._active = true; return
-    end
-
-    -- Also self-detect: if we are in any scenario (dungeon/delve/story scenario)
-    -- we hide and let mythic.lua take over, even before it has fired its own events.
-    local C_Sc = _G.C_Scenario
-    if C_Sc and C_Sc.IsInScenario and C_Sc.IsInScenario() then
         self._active = true; return
     end
 
@@ -160,7 +152,7 @@ function State:Update()
 
     if _G.GetInstanceInfo then
         local ok2, _, _, difficultyID = pcall(_G.GetInstanceInfo)
-        if ok2 and difficultyID == 8 then self._active = true; return end
+        if ok2 and (difficultyID == 8 or difficultyID == 208) then self._active = true; return end
     end
 
     self._active = false
@@ -205,12 +197,10 @@ local _trackerHookApplied = false
 local function ApplyBlizzardTrackerSuppression()
     local root = _G.ObjectiveTrackerFrame
     if not root then return end
-    if InCombat() then return end
 
     pcall(function()
         if root.SetAlpha then root:SetAlpha(0) end
         if root.EnableMouse then root:EnableMouse(false) end
-        if root.Hide then root:Hide() end
     end)
 end
 
@@ -224,7 +214,6 @@ local function EnsureBlizzardTrackerHook()
             if sfui.questlog and sfui.questlog.is_enabled and sfui.questlog.is_enabled() then
                 if self.SetAlpha then self:SetAlpha(0) end
                 if self.EnableMouse then self:EnableMouse(false) end
-                if self.Hide then self:Hide() end
             end
         end)
     end)
@@ -233,7 +222,6 @@ end
 local function SuppressBlizzardTracker()
     local root = _G.ObjectiveTrackerFrame
     if not root then return end
-    if InCombat() then return end
 
     EnsureBlizzardTrackerHook()
     ApplyBlizzardTrackerSuppression()
@@ -323,8 +311,8 @@ end
 
 
 -- Static section lists to eliminate table allocation on refresh
--- NOTE: "scenario" key removed — mythic.lua owns dungeon/delve/scenario display.
 local sectionLists = {
+    scenario     = {},
     world        = {},
     campaign     = {},
     important    = {},
@@ -333,6 +321,7 @@ local sectionLists = {
     achievements = {},
 }
 local renderedSectionQuests = {
+    scenario     = {},
     world        = {},
     campaign     = {},
     important    = {},
@@ -349,18 +338,24 @@ local function GetQLState()
         SfuiDB.questlog = {
             collapsed      = {},
             expandedQuests = {},
+            hiddenQuests   = {},
             hidden         = false,
         }
     end
     SfuiDB.questlog.expandedQuests = SfuiDB.questlog.expandedQuests or {}
+    SfuiDB.questlog.hiddenQuests   = SfuiDB.questlog.hiddenQuests or {}
     SfuiDB.questlog.collapsed      = SfuiDB.questlog.collapsed or {}
-    -- hiddenQuests wipe moved to initialize() — was wrongly running on every GetQLState call
     if SfuiDB.questlog.hidden == nil then SfuiDB.questlog.hidden = false end
     return SfuiDB.questlog
 end
 
 local function UntrackQuest(questID)
     if not questID or questID <= 0 then return end
+
+    local state = GetQLState()
+    if state.hiddenQuests then
+        state.hiddenQuests[questID] = true
+    end
 
     -- Remove from Blizzard's watch list (source of truth).
     -- DoRefresh will see IsQuestWatched = false and drop it from the panel.
@@ -380,8 +375,6 @@ local function UntrackQuest(questID)
         if C_QuestLog.RemoveWorldQuestWatch then
             pcall(C_QuestLog.RemoveWorldQuestWatch, questID)
         end
-        -- QUEST_WATCH_LIST_CHANGED fires immediately; DoRefresh picks up the change.
-        -- No need to call DoRefresh manually.
     end
 end
 
@@ -888,6 +881,7 @@ local function AcquireRow()
     if not row then
         row = CreateFrame("Button", nil, content)
         row:SetHeight(QUEST_H)
+        row:SetHitRectInsets(0, 0, -1, -1)
         row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
         -- Hover-only tint (subtle)
@@ -995,7 +989,7 @@ local function AcquireRow()
         row.FindGroupBtn = findGroupBtn
 
         row:SetScript("OnEnter", function(s)
-            s.HLTex:SetColorTexture(1, 1, 1, 0.05)
+            s.HLTex:SetColorTexture(1, 1, 1, 0.10)
             if s.isAchievement and s.achievementID then
                 SfuiQuestTooltip:SetOwner(s, "ANCHOR_LEFT")
                 SfuiQuestTooltip:ClearLines()
@@ -1028,11 +1022,9 @@ local function AcquireRow()
                 SfuiQuestTooltip:SetOwner(s, "ANCHOR_LEFT")
                 SfuiQuestTooltip:ClearLines()
 
-                if s.questID == -1 then
-                    SfuiQuestTooltip:AddLine(s.questTitle or "Delve / Scenario", 1, 1, 1)
-                    if s.scenarioCategory then
-                        SfuiQuestTooltip:AddLine(s.scenarioCategory, 0.85, 0.40, 1.00)
-                    end
+                if s.isScenario or s.questID == -1 then
+                    SfuiQuestTooltip:AddLine(s.questTitle or "World Event", 1.00, 0.60, 0.10)
+                    SfuiQuestTooltip:AddLine("Active World Event / Scenario", 0.85, 0.85, 0.85)
                     SfuiQuestTooltip:AddLine(" ")
                     SfuiQuestTooltip:AddLine("|cff888888Right-click / Arrow: Collapse/Expand objectives|r", 1, 1, 1)
                     SfuiQuestTooltip:Show()
@@ -1065,7 +1057,7 @@ local function AcquireRow()
                 SfuiQuestTooltip:AddLine(" ")
                 SfuiQuestTooltip:AddLine("|cff888888Left-click: Track & Show on Map|r", 1, 1, 1)
                 SfuiQuestTooltip:AddLine("|cff888888Right-click / Arrow: Collapse/Expand objectives|r", 1, 1, 1)
-                SfuiQuestTooltip:AddLine("|cff888888Shift-click: Untrack from Quest Log|r", 1, 1, 1)
+                SfuiQuestTooltip:AddLine("|cff888888Shift-click: Link Quest to Chat / Untrack|r", 1, 1, 1)
                 if s.canFindGroup then
                     SfuiQuestTooltip:AddLine("|cff00ff88Eye Button: Find Group in Group Finder|r", 1, 1, 1)
                 end
@@ -1120,11 +1112,12 @@ local function AcquireRow()
 
             if not s.questID then return end
 
-            if s.questID == -1 then
+            if s.isScenario or s.questID == -1 then
                 if btn == "RightButton" then
                     local state = GetQLState()
                     state.expandedQuests = state.expandedQuests or {}
-                    state.expandedQuests[-1] = not state.expandedQuests[-1]
+                    local k = s.questID or -1
+                    state.expandedQuests[k] = not state.expandedQuests[k]
                     Refresh:Request()
                 elseif _G.ToggleWorldMap then
                     if not InCombat() then
@@ -1286,6 +1279,7 @@ local function AcquireObjRow()
     if not obj then
         obj = CreateFrame("Frame", nil, content)
         obj:SetHeight(OBJ_H)
+        obj:EnableMouse(false)
 
         -- Text objective FontString (top)
         local fs = obj:CreateFontString(nil, "OVERLAY")
@@ -1299,6 +1293,7 @@ local function AcquireObjRow()
 
         -- Sleek borderless flat progress bar (positioned underneath objective text)
         local bar = CreateFrame("StatusBar", nil, obj, "BackdropTemplate")
+        bar:EnableMouse(false)
         bar:SetPoint("TOPLEFT",     fs,  "BOTTOMLEFT",  0, -2)
         bar:SetPoint("BOTTOMRIGHT", obj, "BOTTOMRIGHT", -PAD_X, 0)
         bar:SetStatusBarTexture([[Interface\Buttons\WHITE8x8]])
@@ -1463,7 +1458,7 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
             state.expandedQuests[questID] = false
         end
 
-        if state.hiddenQuests then
+        if state.hiddenQuests and isComplete then
             state.hiddenQuests[questID] = nil
         end
         if forcedSectionID and state.collapsed then
@@ -1587,12 +1582,25 @@ local function QuestHasProgress(entry)
     return false
 end
 
--- Helper: add a world quest/task to the world section (only if tracked or has progress)
+-- Helper: add a world quest/task to the world section (only if tracked or has progress, respecting hidden state)
 local function AddWorldQuest(qID, isExplicitlyWatched)
     if qID and qID > 0 and not processedQuests[qID] then
+        local state = GetQLState()
+        local isSuperTracked = (currentSuperTrackedID and currentSuperTrackedID == qID)
+
+        -- Explicit manual watching or supertracking unhides the quest
+        if isExplicitlyWatched or isSuperTracked then
+            if state.hiddenQuests then state.hiddenQuests[qID] = nil end
+        end
+
+        -- If explicitly hidden and not watched/supertracked, skip it
+        if state.hiddenQuests and state.hiddenQuests[qID] then
+            return
+        end
+
         local entry = BuildQuestEntry(qID, "world", nil)
         if entry then
-            local isWatched = isExplicitlyWatched or (currentSuperTrackedID and currentSuperTrackedID == qID)
+            local isWatched = isExplicitlyWatched or isSuperTracked
             if isWatched or QuestHasProgress(entry) then
                 processedQuests[qID] = true
                 table.insert(sectionLists["world"], entry)
@@ -1600,6 +1608,195 @@ local function AddWorldQuest(qID, isExplicitlyWatched)
                 ReleaseTable(entry)
             end
         end
+    end
+end
+
+local function GetScenarioCriteriaSafe(criteriaIndex, stepID)
+    if stepID and C_ScenarioInfo and C_ScenarioInfo.GetCriteriaInfoByStep then
+        local ok, info = pcall(C_ScenarioInfo.GetCriteriaInfoByStep, stepID, criteriaIndex)
+        if ok and info and type(info) == "table" then
+            info.description = info.description or info.criteriaString or info.string
+            return info
+        end
+    end
+    if C_ScenarioInfo and C_ScenarioInfo.GetCriteriaInfo then
+        local ok, info = pcall(C_ScenarioInfo.GetCriteriaInfo, criteriaIndex)
+        if ok and info and type(info) == "table" then
+            info.description = info.description or info.criteriaString or info.string
+            return info
+        end
+    end
+    if C_Scenario and C_Scenario.GetCriteriaInfo then
+        local ok, desc, cType, comp, quant, totQuant, flags, assetID, quantStr, critID, dur, el, isWeight = pcall(C_Scenario.GetCriteriaInfo, criteriaIndex)
+        if ok and desc and desc ~= "" then
+            return {
+                description = desc,
+                criteriaType = cType,
+                completed = comp,
+                quantity = quant,
+                totalQuantity = totQuant,
+                flags = flags,
+                assetID = assetID,
+                quantityString = quantStr,
+                criteriaID = critID,
+                duration = dur,
+                elapsed = el,
+                isWeightedProgress = isWeight,
+            }
+        end
+    end
+    if stepID and C_Scenario and C_Scenario.GetCriteriaInfoByStep then
+        local ok, desc, cType, comp, quant, totQuant, flags, assetID, quantStr, critID, dur, el, isWeight = pcall(C_Scenario.GetCriteriaInfoByStep, stepID, criteriaIndex)
+        if ok and desc and desc ~= "" then
+            return {
+                description = desc,
+                criteriaType = cType,
+                completed = comp,
+                quantity = quant,
+                totalQuantity = totQuant,
+                flags = flags,
+                assetID = assetID,
+                quantityString = quantStr,
+                criteriaID = critID,
+                duration = dur,
+                elapsed = el,
+                isWeightedProgress = isWeight,
+            }
+        end
+    end
+    return nil
+end
+
+local function ScanWorldEventScenario(list)
+    local inInst = _G.IsInInstance and _G.IsInInstance()
+    if inInst then return end
+
+    local C_Sc = _G.C_Scenario
+    if not C_Sc or not C_Sc.IsInScenario or not C_Sc.IsInScenario() then return end
+
+    local name, currentStage, numStages, flags, isComplete, _, _, scenarioType = C_Sc.GetInfo()
+    if not name or name == "" or isComplete then return end
+
+    local stageName, stageDescription, numCriteria, _, _, _, _, _, _, weightedProgress = C_Sc.GetStepInfo()
+    local title
+    if numStages and numStages > 1 and currentStage and currentStage > 0 then
+        title = string_format("%s (Stage %d/%d)", stageName or name, currentStage, numStages)
+    else
+        title = stageName or name
+    end
+
+    local objs = AcquireTable()
+    local done, total = 0, 0
+
+    -- 1. Criteria scan
+    if numCriteria and numCriteria > 0 then
+        for i = 1, numCriteria do
+            local info = GetScenarioCriteriaSafe(i, currentStage)
+            local desc = info and (info.description or info.criteriaString or info.string)
+            if desc and desc ~= "" then
+                local sObj = AcquireTable()
+                local isComp = info.completed == true
+                sObj.finished = isComp
+                if isComp then done = done + 1 end
+                total = total + 1
+
+                if info.quantity and info.totalQuantity and info.totalQuantity > 1 then
+                    sObj.text = string_format("%s (%d/%d)", desc, info.quantity, info.totalQuantity)
+                    sObj.numFulfilled = info.quantity
+                    sObj.numRequired = info.totalQuantity
+                elseif info.isWeightedProgress or (info.criteriaType == 8) then
+                    local cur = info.quantity or 0
+                    local req = (info.totalQuantity and info.totalQuantity > 0) and info.totalQuantity or 100
+                    local pct = math_min(100, math_max(0, math_floor((cur / req) * 100)))
+                    sObj.text = string_format("%s (%d%%)", desc, pct)
+                    sObj.type = "progressbar"
+                    sObj.numFulfilled = pct
+                    sObj.numRequired = 100
+                    sObj.finished = (pct >= 100)
+                else
+                    sObj.text = desc
+                end
+                table.insert(objs, sObj)
+            end
+        end
+    end
+
+    -- 2. Scenario Widgets Scan (World Events like Community Feast, Theater Troupe, Superbloom, Time Rifts, etc.)
+    local scannedWidgets = AcquireTable()
+    local function ScanContainerWidgets(container)
+        if not container or not container.widgetFrames then return end
+        for _, wFrame in pairs(container.widgetFrames) do
+            local wID = wFrame.widgetID or (wFrame.GetWidgetID and wFrame:GetWidgetID())
+            if wID and not scannedWidgets[wID] and C_UIWidgetManager then
+                scannedWidgets[wID] = true
+                if C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo then
+                    local ok, wInfo = pcall(C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo, wID)
+                    if ok and wInfo and wInfo.shownState == 1 and wInfo.text and wInfo.text ~= "" and not issecretvalue(wInfo.text) then
+                        local sObj = AcquireTable()
+                        sObj.text = wInfo.text
+                        sObj.finished = false
+                        table.insert(objs, sObj)
+                        total = total + 1
+                    end
+                end
+                if C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo then
+                    local ok, sInfo = pcall(C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo, wID)
+                    if ok and sInfo and sInfo.shownState == 1 and sInfo.barMax and sInfo.barMax > 0 then
+                        local cur = sInfo.barValue or 0
+                        local maxVal = sInfo.barMax
+                        local pct = math_min(100, math_max(0, math_floor((cur / maxVal) * 100)))
+                        local barLabel = sInfo.barValueText or (sInfo.text and sInfo.text ~= "" and sInfo.text) or name
+                        local sObj = AcquireTable()
+                        sObj.text = string_format("%s (%d%%)", barLabel, pct)
+                        sObj.type = "progressbar"
+                        sObj.numFulfilled = pct
+                        sObj.numRequired = 100
+                        sObj.finished = (pct >= 100)
+                        table.insert(objs, sObj)
+                        total = total + 1
+                    end
+                end
+            end
+        end
+    end
+
+    ScanContainerWidgets(_G.UIWidgetTopCenterContainerFrame)
+    ScanContainerWidgets(_G.UIWidgetBelowMinimapContainerFrame)
+    ReleaseTable(scannedWidgets)
+
+    -- 3. Fallback: Stage Description if no criteria or widgets found
+    if #objs == 0 and stageDescription and stageDescription ~= "" then
+        local sObj = AcquireTable()
+        sObj.text = stageDescription
+        sObj.finished = false
+        table.insert(objs, sObj)
+        total = 1
+    end
+
+    if #objs > 0 or (name and name ~= "") then
+        local entry = AcquireTable()
+        entry.questID            = 99990000 + (currentStage or 1)
+        entry.questLogIndex      = nil
+        entry.title              = title
+        entry.isComplete         = (isComplete == true)
+        entry.isFailed           = false
+        entry.isAutoComplete     = false
+        entry.isAutoTurnIn       = false
+        entry.isWarbandCompleted = false
+        entry.isMeta             = false
+        entry.canFindGroup       = false
+        entry.objectives         = objs
+        entry._syntheticObjs     = true
+        entry.done               = done
+        entry.total              = total
+        entry.singleCountStr     = nil
+        entry.isWorldQuest       = false
+        entry.timeLeftText       = nil
+        entry.isScenario         = true
+
+        table.insert(list, entry)
+    else
+        ReleaseTable(objs)
     end
 end
 
@@ -1623,41 +1820,23 @@ function QL:DoRefresh()
     currentSuperTrackedID = superTracked
 
     for _, def in ipairs(SECTION_DEFS) do
+        if not sectionLists[def.id] then sectionLists[def.id] = {} end
+        if not renderedSectionQuests[def.id] then renderedSectionQuests[def.id] = {} end
         wipe(sectionLists[def.id])
     end
     wipe(processedQuests)
 
-    -- 1. Active local-area tasks & world events (GetTasksTable) — only if has progress
+    -- 0. Active Outdoor World Event / Scenario
+    if sectionLists["scenario"] then
+        ScanWorldEventScenario(sectionLists["scenario"])
+    end
+
+    -- 1. Active local-area tasks & bonus objectives in player's immediate area (GetTasksTable)
     if GetTasksTable then
         local ok, tasks = pcall(GetTasksTable)
         if ok and tasks then
             for i = 1, #tasks do
                 AddWorldQuest(tasks[i], false)
-            end
-        end
-    end
-
-    -- 3. In-zone World Quests and Bonus Objectives from current map (Outdoors only) — only if has progress
-    local inInstance = _G.IsInInstance and _G.IsInInstance()
-    UpdateMapCache()
-    if not inInstance and cachedCurrentMapID and cachedCurrentMapID > 0 and C_TaskQuest then
-        local taskQuests = nil
-        if C_TaskQuest.GetQuestsOnMap then
-            local okTQ, res = pcall(C_TaskQuest.GetQuestsOnMap, cachedCurrentMapID)
-            if okTQ then taskQuests = res end
-        elseif C_TaskQuest.GetQuestsForPlayerByMapID then
-            local okTQ, res = pcall(C_TaskQuest.GetQuestsForPlayerByMapID, cachedCurrentMapID)
-            if okTQ then taskQuests = res end
-        end
-        if taskQuests and type(taskQuests) == "table" then
-            for _, task in ipairs(taskQuests) do
-                local qID = (type(task) == "table" and task.questID) or (type(task) == "number" and task)
-                if qID and qID > 0 then
-                    local okAct, isActive = pcall(C_TaskQuest.IsActive, qID)
-                    if okAct and isActive then
-                        AddWorldQuest(qID, false)
-                    end
-                end
             end
         end
     end
@@ -1774,6 +1953,7 @@ function QL:DoRefresh()
                     row.isAutoComplete     = entry.isAutoComplete
                     row.isComplete         = entry.isComplete
                     row.canFindGroup       = entry.canFindGroup
+                    row.isScenario         = entry.isScenario
 
                     if entry.canFindGroup then
                         row.FindGroupBtn:Show()
@@ -1826,6 +2006,8 @@ function QL:DoRefresh()
                         else
                             titleStr = baseText
                         end
+                    elseif entry.isScenario then
+                        titleStr = "|cffffaa00" .. rawTitle .. COLOR_RESET
                     elseif entry.isFailed then
                         titleStr = COLOR_FAILED .. rawTitle .. COLOR_RESET .. timeTag
                     elseif entry.isComplete and entry.isAutoTurnIn then
@@ -2101,11 +2283,6 @@ function sfui.questlog.initialize()
         return
     end
 
-    -- One-time migration: wipe legacy hiddenQuests key from saved data.
-    -- Previously done in every GetQLState() call — now runs once on login/reload.
-    if SfuiDB and SfuiDB.questlog and SfuiDB.questlog.hiddenQuests ~= nil then
-        SfuiDB.questlog.hiddenQuests = nil
-    end
 
     -- Restore saved drag position (default: TOPRIGHT -10, -10 from UIParent).
     local posX = SfuiDB and (SfuiDB.questlogX or SfuiDB.mythicHudX)
@@ -2312,9 +2489,11 @@ Reg("ACHIEVEMENT_EARNED")
 Reg("SCENARIO_UPDATE")
 Reg("SCENARIO_CRITERIA_UPDATE")
 Reg("SCENARIO_POI_UPDATE")
+Reg("SCENARIO_POIS_UPDATED")
 Reg("SCENARIO_SPELL_UPDATE")
 Reg("SCENARIO_CRITERIA_SHOW_STATE_UPDATE")
 Reg("SCENARIO_COMPLETED")
+Reg("UPDATE_UI_WIDGET")
 Reg("ACTIVE_DELVE_DATA_UPDATE")
 Reg("CHALLENGE_MODE_START")
 Reg("CHALLENGE_MODE_COMPLETED")

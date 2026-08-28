@@ -1422,14 +1422,13 @@ local function InitToggleHook()
         end
     end)
 
-    CharacterFrame:HookScript("OnShow", function()
-        -- Fix 1: pause auto-equip for 10s so player can edit gear sets without interference
+    toggleBtn:SetScript("OnShow", function()
         if sfui.gear.pauseAutoEquip then sfui.gear.pauseAutoEquip(10) end
         if SfuiGearManagerFrame and SfuiDB.gear and SfuiDB.gear.auto_open ~= false then
             SfuiGearManagerFrame:Show()
         end
     end)
-    CharacterFrame:HookScript("OnHide", function()
+    toggleBtn:SetScript("OnHide", function()
         if SfuiGearManagerFrame and SfuiDB.gear and SfuiDB.gear.auto_open ~= false then
             SfuiGearManagerFrame:Hide()
         end

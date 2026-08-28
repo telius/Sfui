@@ -2705,17 +2705,19 @@ local function CheckScenarioState()
     end
 
     local inScenario = false
-    if C_Scenario and C_Scenario.IsInScenario then
-        local ok, inScen = pcall(C_Scenario.IsInScenario)
-        if ok and inScen then inScenario = true end
-    end
-    if not inScenario and C_DelvesUI and C_DelvesUI.HasActiveDelve then
-        local ok, hasDelve = pcall(C_DelvesUI.HasActiveDelve)
-        if ok and hasDelve then inScenario = true end
-    end
-    if not inScenario and _G.IsInInstance then
-        local ok, _, instType = pcall(_G.IsInInstance)
-        if ok and instType == "scenario" then inScenario = true end
+    if inInst then
+        if C_Scenario and C_Scenario.IsInScenario then
+            local ok, inScen = pcall(C_Scenario.IsInScenario)
+            if ok and inScen then inScenario = true end
+        end
+        if not inScenario and C_DelvesUI and C_DelvesUI.HasActiveDelve then
+            local ok, hasDelve = pcall(C_DelvesUI.HasActiveDelve)
+            if ok and hasDelve then inScenario = true end
+        end
+        if not inScenario and _G.IsInInstance then
+            local ok, _, instType = pcall(_G.IsInInstance)
+            if ok and instType == "scenario" then inScenario = true end
+        end
     end
 
     if inScenario then

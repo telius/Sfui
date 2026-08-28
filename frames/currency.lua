@@ -1,34 +1,34 @@
 local addonName, addon = ...
-local GameTooltip = sfui.tooltip or _G.GameTooltip
+sfui = sfui or {}
+
+local CharacterFrame = _G.CharacterFrame
+local PaperDollFrame = _G.PaperDollFrame or _G.CharacterFrame
+
 do
     local widget_frame, icons, value_labels = nil, {}, {}
 
-    local function OnCurrencyIconEnter(self)
-        if not GameTooltip or not self.id then return end
-        pcall(function()
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetCurrencyByID(self.id)
-            GameTooltip:Show()
-        end)
-    end
-
-    local function OnIconLeave(self)
-        if GameTooltip then GameTooltip:Hide() end
-    end
-
-    local function get_currency_details(currencyID)
-        local currencyInfo = C_CurrencyInfo.GetCurrencyInfo(currencyID)
-        if not currencyInfo then return nil end
+    local function get_currency_details(currency_id)
+        local info = C_CurrencyInfo.GetCurrencyInfo(currency_id)
+        if not info then return nil end
         return {
-            texture = currencyInfo.iconFileID,
-            quantity = currencyInfo.quantity,
-            on_mouseup = nil,
-            on_enter = OnCurrencyIconEnter,
-            on_leave = OnIconLeave,
+            texture = info.iconFileID,
+            quantity = info.quantity,
+            on_enter = function(self)
+                if not GameTooltip then return end
+                pcall(function()
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetCurrencyByID(currency_id)
+                    GameTooltip:Show()
+                end)
+            end,
+            on_leave = function()
+                if GameTooltip then GameTooltip:Hide() end
+            end
         }
     end
 
     function sfui.update_currency_display()
+        if not widget_frame or not widget_frame:IsShown() then return end
         local source_data = {}
         local i = 1
         while true do
@@ -41,9 +41,9 @@ do
     end
 
     function sfui.create_currency_frame()
-        if widget_frame then return end
+        if widget_frame or not CharacterFrame then return end
         local c = sfui.config.currency_frame
-        widget_frame = CreateFrame("Frame", "sfui_currency_frame", UIParent, "BackdropTemplate")
+        widget_frame = CreateFrame("Frame", "sfui_currency_frame", CharacterFrame, "BackdropTemplate")
         widget_frame:SetSize(c.width, c.height)
         widget_frame:SetPoint("BOTTOMLEFT", CharacterFrame, "BOTTOMLEFT", 0, -110)
         widget_frame:SetFrameStrata("HIGH")
@@ -51,22 +51,15 @@ do
         widget_frame:SetBackdrop({ bgFile = sfui.config.textures.white, tile = true, tileSize = 32 })
         widget_frame:SetBackdropColor(0, 0, 0, 0.5)
 
-        local function update_visibility()
-            if CharacterFrame:IsShown() then
-                sfui.update_currency_display()
-            else
-                widget_frame:Hide()
-            end
-        end
-        hooksecurefunc(CharacterFrame, "Show", update_visibility)
-        hooksecurefunc(CharacterFrame, "Hide", update_visibility)
+        widget_frame:SetScript("OnShow", function()
+            sfui.update_currency_display()
+        end)
 
         sfui.events.RegisterEvent("CURRENCY_DISPLAY_UPDATE", function()
-            if widget_frame then
+            if widget_frame and widget_frame:IsShown() then
                 sfui.update_currency_display()
             end
         end)
-        update_visibility()
     end
 end
 
@@ -124,36 +117,30 @@ do
     end
 
     function sfui.update_item_display()
+        if not widget_frame or not widget_frame:IsShown() then return end
         sfui.common.update_widget_bar(widget_frame, icons, value_labels, SfuiDB.items, get_item_details)
     end
 
     function sfui.create_item_frame()
-        if widget_frame then return end
+        if widget_frame or not CharacterFrame then return end
         local c = sfui.config.item_frame
-        widget_frame = CreateFrame("Frame", "sfui_item_frame", UIParent, "BackdropTemplate")
+        widget_frame = CreateFrame("Frame", "sfui_item_frame", CharacterFrame, "BackdropTemplate")
         widget_frame:SetSize(c.width, c.height)
         widget_frame:SetPoint("TOPLEFT", "sfui_currency_frame", "BOTTOMLEFT", 0, 0)
         widget_frame:SetFrameStrata("HIGH")
-        widget_frame:SetFrameLevel(sfui_currency_frame:GetFrameLevel())
+        widget_frame:SetFrameLevel(CharacterFrame:GetFrameLevel() + 5)
         widget_frame:SetBackdrop({ bgFile = sfui.config.textures.white, tile = true, tileSize = 32 })
         widget_frame:SetBackdropColor(0, 0, 0, 0.5)
 
-        local function update_visibility()
-            if CharacterFrame:IsShown() then
-                sfui.update_item_display()
-            else
-                widget_frame:Hide()
-            end
-        end
-        hooksecurefunc(CharacterFrame, "Show", update_visibility)
-        hooksecurefunc(CharacterFrame, "Hide", update_visibility)
+        widget_frame:SetScript("OnShow", function()
+            sfui.update_item_display()
+        end)
 
         sfui.events.RegisterEvent("BAG_UPDATE", function()
-            if widget_frame then
+            if widget_frame and widget_frame:IsShown() then
                 sfui.update_item_display()
             end
         end)
-        update_visibility()
     end
 
     function sfui.currency_debug_info()
