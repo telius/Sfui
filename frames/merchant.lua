@@ -7,6 +7,12 @@ local common = sfui.common
 sfui = sfui or {}
 sfui.merchant = {}
 
+local GameTooltip = sfui.tooltip or _G.GameTooltip
+local function GameTooltip_Hide()
+    if sfui.tooltip then sfui.tooltip:Hide() end
+    if _G.GameTooltip then _G.GameTooltip:Hide() end
+end
+
 local colors = sfui.config.colors
 
 local cfg = sfui.config.merchant

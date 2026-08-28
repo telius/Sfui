@@ -8,6 +8,7 @@ local GetTime = GetTime
 local InCombatLockdown = InCombatLockdown
 local CreateFrame = CreateFrame
 local UIParent = UIParent
+local GameTooltip = sfui.tooltip or _G.GameTooltip
 local hooksecurefunc = hooksecurefunc
 local C_Timer = C_Timer
 local IsMounted = IsMounted

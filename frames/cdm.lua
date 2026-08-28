@@ -5,7 +5,7 @@ local cfg = sfui.config
 local common = sfui.common
 
 local CreateFrame = CreateFrame
-local GameTooltip = _G.GameTooltip
+local GameTooltip = sfui.tooltip or _G.GameTooltip
 local InCombatLockdown = InCombatLockdown
 local GetCursorPosition = GetCursorPosition
 local GetCursorInfo = GetCursorInfo

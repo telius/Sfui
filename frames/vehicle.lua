@@ -19,6 +19,7 @@ sfui.vehicle = {}
 
 local common = sfui.common
 local g      = sfui.config
+local GameTooltip = sfui.tooltip or _G.GameTooltip
 
 -- Upvalue localization for hot path performance
 local GetActionCooldown     = GetActionCooldown

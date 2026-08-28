@@ -626,11 +626,12 @@ sfui.config = {
         defaultHidden = false,
         -- NOTE: "scenario" is absent — frames/mythic.lua owns dungeon/delve/instance objectives.
         sections = {
-            { id = "important",  label = "important",        color = { 1.00, 0.40, 0.35 } },
-            { id = "campaign",   label = "campaign",         color = { 0.90, 0.75, 0.10 } },
-            { id = "world",      label = "world quests",     color = { 0.20, 0.85, 0.95 } },
-            { id = "activities", label = "activities",       color = { 0.35, 0.90, 0.40 } },
-            { id = "zone",       label = "quests",           color = { 1.00, 1.00, 1.00 } },
+            { id = "important",    label = "important",        color = { 1.00, 0.40, 0.35 } },
+            { id = "campaign",     label = "campaign",         color = { 0.90, 0.75, 0.10 } },
+            { id = "world",        label = "world quests",     color = { 0.20, 0.85, 0.95 } },
+            { id = "activities",   label = "activities",       color = { 0.35, 0.90, 0.40 } },
+            { id = "zone",         label = "quests",           color = { 1.00, 1.00, 1.00 } },
+            { id = "achievements", label = "achievements",     color = { 0.85, 0.65, 0.35 } },
         },
     },
 

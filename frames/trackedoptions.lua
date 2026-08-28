@@ -4,6 +4,7 @@ sfui = sfui or {}
 local cfg = sfui.config
 local common = sfui.common
 sfui.trackedoptions = {}
+local GameTooltip = sfui.tooltip or _G.GameTooltip
 
 local CreateFlatButton = common.create_flat_button
 local g = cfg

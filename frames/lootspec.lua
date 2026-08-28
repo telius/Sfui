@@ -5,7 +5,7 @@ sfui.lootspec                   = {}
 
 local CreateFrame               = CreateFrame
 local UIParent                  = UIParent
-local GameTooltip               = _G.GameTooltip
+local GameTooltip               = sfui.tooltip or _G.GameTooltip
 local GetNumSpecializations     = GetNumSpecializations
 local GetSpecialization         = GetSpecialization
 local GetSpecializationInfo     = GetSpecializationInfo

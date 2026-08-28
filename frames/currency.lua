@@ -1,4 +1,5 @@
 local addonName, addon = ...
+local GameTooltip = sfui.tooltip or _G.GameTooltip
 do
     local widget_frame, icons, value_labels = nil, {}, {}
 

@@ -401,15 +401,16 @@ function WQS:Initialize()
         end)
 
         btn:SetScript("OnEnter", function(s)
-            local tip = sfui.tooltip
-            if tip then
-                tip:SetOwner(s, "ANCHOR_TOP")
-                tip:SetText(tooltipText)
-                tip:Show()
-            end
+            pcall(function()
+                if GameTooltip then
+                    GameTooltip:SetOwner(s, "ANCHOR_TOP")
+                    GameTooltip:SetText(tooltipText)
+                    GameTooltip:Show()
+                end
+            end)
         end)
         btn:SetScript("OnLeave", function()
-            if sfui.tooltip then sfui.tooltip:Hide() end
+            if GameTooltip then GameTooltip:Hide() end
         end)
 
         btn:updateBtnStyle()
@@ -437,16 +438,17 @@ function WQS:Initialize()
         pinBtn:updateBtnStyle()
     end)
     pinBtn:SetScript("OnEnter", function(s)
-        local tip = sfui.tooltip
-        if tip then
-            tip:SetOwner(s, "ANCHOR_TOP")
-            tip:SetText("Toggle Detach/Pin Frame")
-            tip:AddLine("When detached, frame stays visible and can be dragged.", 1, 1, 1, true)
-            tip:Show()
-        end
+        pcall(function()
+            if GameTooltip then
+                GameTooltip:SetOwner(s, "ANCHOR_TOP")
+                GameTooltip:SetText("Toggle Detach/Pin Frame")
+                GameTooltip:AddLine("When detached, frame stays visible and can be dragged.", 1, 1, 1, true)
+                GameTooltip:Show()
+            end
+        end)
     end)
     pinBtn:SetScript("OnLeave", function()
-        if sfui.tooltip then sfui.tooltip:Hide() end
+        if GameTooltip then GameTooltip:Hide() end
     end)
     pinBtn:updateBtnStyle()
     self.PinButton = pinBtn
@@ -640,34 +642,54 @@ function WQS:AttachToMap()
     self:ClearAllPoints()
     self:SetParent(UIParent)
     self:SetFrameStrata("HIGH")
-    -- Position relative to WorldMapFrame without parenting to it
-    self:SetPoint("TOPRIGHT", WorldMapFrame, "BOTTOMRIGHT", 5, -13)
     self:SetSize(620, 200)
+
+    local right, bottom = WorldMapFrame:GetRight(), WorldMapFrame:GetBottom()
+    if right and bottom then
+        self:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", right + 5, bottom - 13)
+    else
+        self:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
+    end
 end
 
-local function _OnMapShowDeferred()
-    if WorldMapFrame and WorldMapFrame:IsShown() and not (SfuiDB and SfuiDB.wqsState and SfuiDB.wqsState.detached) then
-        WQS:Show()
-        WQS:Refresh()
+local _worldMapTicker = nil
+local _worldMapWasShown = false
+
+local function _CheckWorldMapVisibility()
+    if not WorldMapFrame then return end
+    local shown = WorldMapFrame:IsShown() == true
+    if _worldMapWasShown == shown then
+        if shown and not (SfuiDB and SfuiDB.wqsState and SfuiDB.wqsState.detached) then
+            local right, bottom = WorldMapFrame:GetRight(), WorldMapFrame:GetBottom()
+            if right and bottom then
+                WQS:ClearAllPoints()
+                WQS:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", right + 5, bottom - 13)
+            end
+        end
+        return
+    end
+    _worldMapWasShown = shown
+
+    if shown then
+        if not (SfuiDB and SfuiDB.wqsState and SfuiDB.wqsState.detached) then
+            WQS:AttachToMap()
+            WQS:Show()
+            WQS:Refresh()
+        end
+    else
+        if not (SfuiDB and SfuiDB.wqsState and SfuiDB.wqsState.detached) then
+            WQS:Hide()
+        end
     end
 end
 
 function WQS:SetupMapHooks()
-    if not WorldMapFrame or self.mapHooksDone then return end
+    if self.mapHooksDone then return end
     self.mapHooksDone = true
 
-    hooksecurefunc(WorldMapFrame, "Show", function()
-        if not (SfuiDB and SfuiDB.wqsState and SfuiDB.wqsState.detached) then
-            -- Defer to next tick so Blizzard's WorldMapFrame:Show() and MapCanvas pin
-            -- creation (SetPropagateMouseClicks) complete in a 100% untainted context.
-            C_Timer.After(0, _OnMapShowDeferred)
-        end
-    end)
-    hooksecurefunc(WorldMapFrame, "Hide", function()
-        if not (SfuiDB and SfuiDB.wqsState and SfuiDB.wqsState.detached) then
-            self:Hide()
-        end
-    end)
+    if not _worldMapTicker then
+        _worldMapTicker = C_Timer.NewTicker(0.2, _CheckWorldMapVisibility)
+    end
 
 
     -- Map Highlight Frame (Red Ring)
@@ -794,31 +816,52 @@ function WQS:CreateRow()
         row.Highlight:Hide()
 
         local function _ShowWQSTooltip(s)
-            local tip = sfui.tooltip
-            if not tip then return end
-            tip:SetOwner(s, "ANCHOR_RIGHT")
-            local success = false
-            if tip.SetWorldQuestByID then
-                local ok, res = pcall(tip.SetWorldQuestByID, tip, s.questID)
-                if ok and res then success = true end
-            end
-            if not success and tip.SetQuestLogItem then
-                pcall(tip.SetQuestLogItem, tip, "reward", 1, s.questID)
-            end
+            if not s or not s.questID or issecretvalue(s.questID) then return end
+            if InCombatLockdown and InCombatLockdown() then return end
 
-            local numObjs = GetNumQuestLeaderBoards(s.questID)
-            if common.SafeGT(numObjs, 0) then
-                tip:AddLine(" ")
-                for i = 1, numObjs do
-                    local text, _, finished = GetQuestLogLeaderBoard(i, s.questID)
-                    if text then
-                        local r, g, b = 1, 1, 1
-                        if finished then r, g, b = 0.5, 0.5, 0.5 end
-                        tip:AddLine("- " .. text, r, g, b, true)
+            pcall(function()
+                local tip = _G.GameTooltip
+                if not tip then return end
+                tip:SetOwner(s, "ANCHOR_RIGHT")
+                tip:ClearLines()
+
+                local success = false
+                if tip.SetWorldQuestByID then
+                    local ok, res = pcall(tip.SetWorldQuestByID, tip, s.questID)
+                    if ok and res and tip:NumLines() > 0 then success = true end
+                end
+                if not success and tip.SetQuestLogItem then
+                    local ok = pcall(tip.SetQuestLogItem, tip, "reward", 1, s.questID)
+                    if ok and tip:NumLines() > 0 then success = true end
+                end
+                if not success then
+                    local title = s.title or (C_TaskQuest and C_TaskQuest.GetQuestInfoByQuestID and C_TaskQuest.GetQuestInfoByQuestID(s.questID))
+                    if title and not issecretvalue(title) then
+                        tip:SetText(title, 1, 0.82, 0)
+                        if s.zoneName and not issecretvalue(s.zoneName) then
+                            tip:AddLine(s.zoneName, 0.7, 0.7, 0.7)
+                        end
+                        if s.rewardText and s.rewardText ~= "" and not issecretvalue(s.rewardText) then
+                            tip:AddLine(" ")
+                            tip:AddLine("Rewards: " .. s.rewardText, 1, 1, 1)
+                        end
                     end
                 end
-            end
-            tip:Show()
+
+                local numObjs = GetNumQuestLeaderBoards(s.questID)
+                if common.SafeGT(numObjs, 0) then
+                    tip:AddLine(" ")
+                    for i = 1, numObjs do
+                        local text, _, finished = GetQuestLogLeaderBoard(i, s.questID)
+                        if text and not issecretvalue(text) then
+                            local r, g, b = 1, 1, 1
+                            if finished then r, g, b = 0.5, 0.5, 0.5 end
+                            tip:AddLine("- " .. text, r, g, b, true)
+                        end
+                    end
+                end
+                tip:Show()
+            end)
         end
 
         row:SetScript("OnEnter", function(s)
@@ -843,11 +886,11 @@ function WQS:CreateRow()
         end)
         row:SetScript("OnLeave", function(s)
             s.Highlight:Hide()
-            if sfui.tooltip then sfui.tooltip:Hide() end
+            if _G.GameTooltip then _G.GameTooltip:Hide() end
             if sfui.wqs.MapHighlight then sfui.wqs.MapHighlight:Hide() end
         end)
         row:SetScript("OnClick", function(s, button)
-            if InCombat() then return end
+            if InCombatLockdown and InCombatLockdown() then return end
             if IsShiftKeyDown() then
                 if C_QuestLog.GetQuestWatchType(s.questID) == Enum.QuestWatchType.Manual then
                     pcall(C_QuestLog.RemoveWorldQuestWatch, s.questID)
@@ -857,14 +900,19 @@ function WQS:CreateRow()
             else
                 pcall(C_QuestLog.SetSelectedQuest, s.questID)
                 pcall(C_SuperTrack.SetSuperTrackedQuestID, s.questID)
-                if WorldMapFrame and not WorldMapFrame:IsShown() and ShowUIPanel then
-                    pcall(ShowUIPanel, WorldMapFrame)
-                end
-                if WorldMapFrame and WorldMapFrame.SetMapID and s.mapID then
-                    pcall(WorldMapFrame.SetMapID, WorldMapFrame, s.mapID)
-                end
-                if WorldMapFrame and WorldMapFrame.ScrollToQuest then
-                    pcall(WorldMapFrame.ScrollToQuest, WorldMapFrame, s.questID)
+
+                if s.mapID and C_Map and C_Map.OpenWorldMap then
+                    C_Timer.After(0, function()
+                        if not InCombatLockdown or not InCombatLockdown() then
+                            pcall(C_Map.OpenWorldMap, s.mapID)
+                        end
+                    end)
+                elseif WorldMapFrame and not WorldMapFrame:IsShown() and ShowUIPanel then
+                    C_Timer.After(0, function()
+                        if not InCombatLockdown or not InCombatLockdown() then
+                            pcall(ShowUIPanel, WorldMapFrame)
+                        end
+                    end)
                 end
             end
         end)

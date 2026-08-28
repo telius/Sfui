@@ -8,7 +8,7 @@ local container
 local issecretvalue = common.issecretvalue
 local CreateFrame = CreateFrame
 local UIParent = UIParent
-local GameTooltip = _G.GameTooltip
+local GameTooltip = sfui.tooltip or _G.GameTooltip
 local C_Spell = C_Spell
 local InCombatLockdown = InCombatLockdown
 local wipe = table.wipe or wipe

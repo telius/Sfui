@@ -16,12 +16,17 @@ local C_ScenarioInfo                                 = _G.C_ScenarioInfo
 local C_DelvesUI                                     = _G.C_DelvesUI
 local C_UIWidgetManager                              = _G.C_UIWidgetManager
 local C_Spell                                        = _G.C_Spell
+local C_GossipInfo                                   = _G.C_GossipInfo
+local C_Reputation                                   = _G.C_Reputation
+local C_MajorFactions                                = _G.C_MajorFactions
+local BreakUpLargeNumbers                            = _G.BreakUpLargeNumbers or function(n) return tostring(n) end
 local GetWorldElapsedTime                            = _G.GetWorldElapsedTime
-local GameTooltip                                    = _G.GameTooltip
+local GameTooltip                                    = sfui.tooltip or _G.GameTooltip
 local issecretvalue                                  = _G.issecretvalue
-local math_max, math_min, math_floor, math_ceil      = math.max, math.min, math.floor, math.ceil
+local math_max, math_min, math_floor, math_ceil, math_abs = math.max, math.min, math.floor, math.ceil, math.abs
 local string_format                                  = string.format
 local table_insert, table_sort, wipe                 = table.insert, table.sort, wipe
+local date                                           = _G.date
 local pcall, ipairs, pairs, type, tonumber, tostring =
     pcall, ipairs, pairs, type, tonumber, tostring
 
@@ -32,13 +37,14 @@ local TICKER_RATE                                    = 0.5 -- 2 Hz relaxed timer
 
 -- ─── Color Table (used only in BuildHUDFrame — unpack is fine there) ─
 local COLORS                                         = {
-    cyan     = { 0.00, 1.00, 1.00, 1 },
-    white    = { 1.00, 1.00, 1.00, 1 },
-    dim      = { 0.50, 0.50, 0.50, 1 },
-    bg       = { 0.05, 0.05, 0.05, 0.88 },
-    bar_fill = { 0.00, 1.00, 1.00, 0.80 },
-    bar_bg   = { 0.10, 0.10, 0.10, 0.90 },
-    forces   = { 0.40, 0.00, 1.00, 0.85 },
+    cyan      = { 0.00, 1.00, 1.00, 1 },
+    white     = { 1.00, 1.00, 1.00, 1 },
+    dim       = { 0.50, 0.50, 0.50, 1 },
+    bg        = { 0.05, 0.05, 0.05, 0.88 },
+    bar_fill  = { 0.00, 1.00, 1.00, 0.80 },
+    bar_bg    = { 0.10, 0.10, 0.10, 0.90 },
+    forces    = { 0.40, 0.00, 1.00, 0.85 },
+    companion = { 0.90, 0.65, 0.20, 0.85 }, -- Amber/gold for Delve Companion EXP
 }
 
 -- ─── Pre-unpacked Color Scalars ───────────────────────────
@@ -55,8 +61,12 @@ local CLR_OVTM_R, CLR_OVTM_G, CLR_OVTM_B             = 1.00, 0.20, 0.20
 -- ─── Hoisted Constants ────────────────────────────────────
 -- Difficulty abbreviation map — allocated once, reused in InitDungeon.
 local DIFF_ABBR                                      = { Mythic = "M", Heroic = "H", Normal = "N", Timewalking = "TW" }
+local EMPTY_TABLE                                    = {}
 
 -- ─── Helpers ──────────────────────────────────────────────
+local function DeathSortComparator(a, b)
+    return a.count > b.count
+end
 local function FormatTime(secs)
     if not secs or secs < 0 then secs = 0 end
     secs        = math_floor(secs)
@@ -72,8 +82,8 @@ end
 
 local function MakeText(parent, fontObj, r, g2, b, a, justify)
     local fs = parent:CreateFontString(nil, "OVERLAY", fontObj or "GameFontNormal")
-    fs:SetShadowColor(0, 0, 0, 1)
-    fs:SetShadowOffset(1, -1)
+    fs:SetShadowOffset(0, 0)
+    fs:SetShadowColor(0, 0, 0, 0)
     if r then fs:SetTextColor(r, g2, b, a or 1) end
     if justify then fs:SetJustifyH(justify) end
     return fs
@@ -107,6 +117,111 @@ local _ticker         = nil
 local _timerID        = nil
 local _timeLimit      = 0
 local _bossSplits     = {}
+local _forcesSplitTime = nil
+local _currentMapID    = nil
+local _currentLevel    = nil
+local _currentBestRun  = nil
+local _runCompleted    = false
+
+-- ─── Objective Description Cleaning ──────────────────────
+local function CleanObjectiveName(rawName)
+    if not rawName or rawName == "" then return "" end
+    if issecretvalue and issecretvalue(rawName) then return rawName end
+
+    -- Strip trailing " defeated", " slain", " killed", " completed"
+    local cleaned = rawName:gsub("%s+[Dd]efeated%s*$", "")
+    cleaned = cleaned:gsub("%s+[Ss]lain%s*$", "")
+    cleaned = cleaned:gsub("%s+[Kk]illed%s*$", "")
+    cleaned = cleaned:gsub("%s+[Cc]ompleted%s*$", "")
+
+    -- Strip leading "Defeat ", "Slay ", "Kill ", "Complete "
+    cleaned = cleaned:gsub("^[Dd]efeat%s+", "")
+    cleaned = cleaned:gsub("^[Ss]lay%s+", "")
+    cleaned = cleaned:gsub("^[Kk]ill%s+", "")
+    cleaned = cleaned:gsub("^[Cc]omplete%s+", "")
+
+    -- Strip trailing whitespace
+    cleaned = cleaned:gsub("%s+$", "")
+    return (cleaned ~= "" and cleaned) or rawName
+end
+
+-- ─── Personal Best (PB) & Target Time Helpers ────────────
+local function GetCurrentSeasonID()
+    if C_MythicPlus and C_MythicPlus.GetCurrentSeason then
+        local ok, sID = pcall(C_MythicPlus.GetCurrentSeason)
+        if ok and sID and sID > 0 then return sID end
+    end
+    return 1
+end
+
+local function SyncBlizzardRunHistory()
+    if not C_MythicPlus or not C_MythicPlus.GetRunHistory then return end
+    local ok, history = pcall(C_MythicPlus.GetRunHistory, true, true)
+    if not ok or not history or #history == 0 then return end
+
+    local seasonID = GetCurrentSeasonID()
+    SfuiDB = SfuiDB or {}
+    SfuiDB.mythicBestTimes = SfuiDB.mythicBestTimes or {}
+    SfuiDB.mythicBestTimes[seasonID] = SfuiDB.mythicBestTimes[seasonID] or {}
+
+    for _, run in ipairs(history) do
+        local mapID = run.mapChallengeModeID
+        local level = run.level
+        local duration = run.durationSec
+        local completed = run.completed
+        if mapID and level and duration and duration > 0 and completed then
+            local mapData = SfuiDB.mythicBestTimes[seasonID][mapID]
+            if not mapData then
+                mapData = {}
+                SfuiDB.mythicBestTimes[seasonID][mapID] = mapData
+            end
+            local existing = mapData[level]
+            if not existing or (duration < existing.duration) then
+                mapData[level] = {
+                    duration = duration,
+                    level = level,
+                    splits = existing and existing.splits or nil,
+                    forces = existing and existing.forces or nil,
+                }
+            end
+        end
+    end
+end
+
+local function GetBestRun(mapID, currentLevel)
+    if not mapID or mapID <= 0 then return nil end
+    local seasonID = GetCurrentSeasonID()
+    if not SfuiDB or not SfuiDB.mythicBestTimes or not SfuiDB.mythicBestTimes[seasonID] then
+        return nil
+    end
+    local mapData = SfuiDB.mythicBestTimes[seasonID][mapID]
+    if not mapData then return nil end
+
+    -- 1. Exact level match
+    if currentLevel and mapData[currentLevel] and mapData[currentLevel].duration then
+        return mapData[currentLevel]
+    end
+
+    -- 2. Lower key levels (descending from currentLevel - 1 down to 2)
+    if currentLevel and currentLevel > 2 then
+        for lvl = currentLevel - 1, 2, -1 do
+            if mapData[lvl] and mapData[lvl].duration then
+                return mapData[lvl]
+            end
+        end
+    end
+
+    -- 3. Any best run for this map (overall fastest in-time)
+    local best = nil
+    for lvl, data in pairs(mapData) do
+        if type(data) == "table" and data.duration then
+            if not best or data.duration < best.duration then
+                best = data
+            end
+        end
+    end
+    return best
+end
 
 -- Per-run cached values — reset in InitRun/InitDungeon
 local _lastBossCount  = 0  -- for HideExtraBossRows: iterate only to last count
@@ -223,6 +338,29 @@ local function ReleaseDelveSubTables(info)
 end
 
 -- ─── Delve Info Extraction ────────────────────────────────
+local function GetSpellTooltipText(spellID)
+    if not spellID then return "" end
+    if C_TooltipInfo and C_TooltipInfo.GetSpellByID then
+        local ok, data = pcall(C_TooltipInfo.GetSpellByID, spellID)
+        if ok and data and data.lines then
+            local textParts = {}
+            for _, line in ipairs(data.lines) do
+                if line.leftText and line.leftText ~= "" then
+                    table.insert(textParts, line.leftText)
+                end
+            end
+            if #textParts > 0 then
+                return table.concat(textParts, " ")
+            end
+        end
+    end
+    if C_Spell and C_Spell.GetSpellDescription then
+        local ok, desc = pcall(C_Spell.GetSpellDescription, spellID)
+        if ok and desc and desc ~= "" then return desc end
+    end
+    return ""
+end
+
 local function GetDelveInfo()
     local scenName, scenType = nil, nil
     if C_Scenario and C_Scenario.GetInfo then
@@ -255,6 +393,19 @@ local function GetDelveInfo()
     end
     table.insert(staticWidgetSetIDs, 252)
     table.insert(staticWidgetSetIDs, 514)
+    if C_DelvesUI and C_DelvesUI.GetDelveEntranceBackgroundWidgetSetID then
+        local ok, bgSet = pcall(C_DelvesUI.GetDelveEntranceBackgroundWidgetSetID)
+        if ok and bgSet then table.insert(staticWidgetSetIDs, bgSet) end
+    end
+    if _G.ScenarioObjectiveTracker and _G.ScenarioObjectiveTracker.StageBlock and _G.ScenarioObjectiveTracker.StageBlock.widgetSetID then
+        table.insert(staticWidgetSetIDs, _G.ScenarioObjectiveTracker.StageBlock.widgetSetID)
+    end
+    if _G.UIWidgetTopCenterContainerFrame and _G.UIWidgetTopCenterContainerFrame.widgetSetID then
+        table.insert(staticWidgetSetIDs, _G.UIWidgetTopCenterContainerFrame.widgetSetID)
+    end
+    if _G.UIWidgetBelowMinimapContainerFrame and _G.UIWidgetBelowMinimapContainerFrame.widgetSetID then
+        table.insert(staticWidgetSetIDs, _G.UIWidgetBelowMinimapContainerFrame.widgetSetID)
+    end
     if C_UIWidgetManager then
         if C_UIWidgetManager.GetObjectiveTrackerWidgetSetID then
             local ok, id = pcall(C_UIWidgetManager.GetObjectiveTrackerWidgetSetID)
@@ -262,6 +413,10 @@ local function GetDelveInfo()
         end
         if C_UIWidgetManager.GetTopCenterWidgetSetID then
             local ok, id = pcall(C_UIWidgetManager.GetTopCenterWidgetSetID)
+            if ok and id then table.insert(staticWidgetSetIDs, id) end
+        end
+        if C_UIWidgetManager.GetBelowMinimapWidgetSetID then
+            local ok, id = pcall(C_UIWidgetManager.GetBelowMinimapWidgetSetID)
             if ok and id then table.insert(staticWidgetSetIDs, id) end
         end
     end
@@ -335,9 +490,10 @@ local function GetDelveInfo()
                     local spObj = table.remove(spellPool) or {}
                     spObj.spellID = s.spellID
                     spObj.text = s.text or ""
-                    spObj.stack = (s.stackDisplay and s.stackDisplay > 0 and s.stackDisplay) or
-                        (s.text and s.text:match("(%d+)"))
-                    spObj.tooltip = s.tooltip
+                    spObj.stack = (s.stackDisplay and s.stackDisplay > 0 and s.stackDisplay) or nil
+                    spObj.showAsEarned = s.showAsEarned
+                    local tt = (s.tooltip and s.tooltip ~= "") and s.tooltip or GetSpellTooltipText(s.spellID)
+                    spObj.tooltip = tt
                     table.insert(delveInfo.spells, spObj)
                 end
             end
@@ -367,12 +523,205 @@ local function GetDelveInfo()
             for _, sID in ipairs(activeSpells) do
                 local spObj = table.remove(spellPool) or {}
                 spObj.spellID = sID
+                spObj.tooltip = GetSpellTooltipText(sID)
                 table.insert(delveInfo.spells, spObj)
             end
         end
     end
 
     return delveInfo
+end
+
+-- ─── Delve Companion Information ──────────────────────────
+local staticCompanionInfo = {
+    name = "",
+    factionID = 0,
+    level = 0,
+    maxLevel = 0,
+    currentXP = 0,
+    nextLevelXP = 0,
+    isMaxLevel = false,
+    pct = 0,
+    description = nil,
+}
+
+local function GetDelveCompanionInfo()
+    if not (C_DelvesUI or C_GossipInfo or C_MajorFactions or C_Reputation) then return nil end
+
+    local companionID = nil
+    local companionFactionID = nil
+
+    -- 1. Primary: Delves Season Faction -> playerCompanionID -> GetFactionForCompanion
+    if C_DelvesUI and C_DelvesUI.GetDelvesFactionForSeason and C_MajorFactions and C_MajorFactions.GetMajorFactionData then
+        local okS, seasonFactionID = pcall(C_DelvesUI.GetDelvesFactionForSeason)
+        if okS and seasonFactionID and seasonFactionID > 0 then
+            local okD, mData = pcall(C_MajorFactions.GetMajorFactionData, seasonFactionID)
+            if okD and mData and mData.playerCompanionID and mData.playerCompanionID > 0 then
+                companionID = mData.playerCompanionID
+                if C_DelvesUI.GetFactionForCompanion then
+                    local okF, fID = pcall(C_DelvesUI.GetFactionForCompanion, companionID)
+                    if okF and fID and fID > 0 then
+                        companionFactionID = fID
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2. Secondary: Scan MajorFactions with active Journey Tracks
+    if not companionFactionID and C_MajorFactions and C_MajorFactions.GetMajorFactionIDs then
+        local ok, fIDs = pcall(C_MajorFactions.GetMajorFactionIDs)
+        if ok and fIDs then
+            for _, mfID in ipairs(fIDs) do
+                local isJourney = C_MajorFactions.ShouldUseJourneyRewardTrack and C_MajorFactions.ShouldUseJourneyRewardTrack(mfID)
+                if isJourney then
+                    local okD, data = pcall(C_MajorFactions.GetMajorFactionData, mfID)
+                    if okD and data and data.playerCompanionID and data.playerCompanionID > 0 then
+                        companionID = data.playerCompanionID
+                        if C_DelvesUI and C_DelvesUI.GetFactionForCompanion then
+                            local okF, fID = pcall(C_DelvesUI.GetFactionForCompanion, companionID)
+                            if okF and fID and fID > 0 then
+                                companionFactionID = fID
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- 3. Tertiary: C_DelvesUI.GetCompanionInfoForActivePlayer
+    if not companionFactionID and C_DelvesUI and C_DelvesUI.GetCompanionInfoForActivePlayer then
+        local ok, cID = pcall(C_DelvesUI.GetCompanionInfoForActivePlayer)
+        if ok and cID and cID > 0 then
+            companionID = cID
+            if C_DelvesUI.GetFactionForCompanion then
+                local okF, fID = pcall(C_DelvesUI.GetFactionForCompanion, cID)
+                if okF and fID and fID > 0 then companionFactionID = fID end
+            end
+        end
+    end
+
+    -- 4. Quaternary: Call GetFactionForCompanion with nil (engine defaults to active season companion)
+    if not companionFactionID and C_DelvesUI and C_DelvesUI.GetFactionForCompanion then
+        local okF, fID = pcall(C_DelvesUI.GetFactionForCompanion)
+        if okF and fID and fID > 0 then
+            companionFactionID = fID
+        end
+    end
+
+    if not companionFactionID and not companionID then return nil end
+
+    local name, currentLevel, maxLevel, currentXP, nextLevelXP, isMaxLevel, description = "companion", 0, 0, 0, 1, false, nil
+
+    -- Check Friendship Reputation
+    if companionFactionID and C_GossipInfo and C_GossipInfo.GetFriendshipReputation then
+        local repInfo = C_GossipInfo.GetFriendshipReputation(companionFactionID)
+        local rankInfo = C_GossipInfo.GetFriendshipReputationRanks and C_GossipInfo.GetFriendshipReputationRanks(companionFactionID)
+        if repInfo and repInfo.friendshipFactionID and repInfo.friendshipFactionID > 0 then
+            currentLevel = rankInfo and rankInfo.currentLevel or (repInfo.reaction or 0)
+            maxLevel = rankInfo and rankInfo.maxLevel or 0
+            if repInfo.nextThreshold and repInfo.nextThreshold > 0 then
+                currentXP = math_max(0, (repInfo.standing or 0) - (repInfo.reactionThreshold or 0))
+                nextLevelXP = math_max(1, (repInfo.nextThreshold or 0) - (repInfo.reactionThreshold or 0))
+                isMaxLevel = false
+            else
+                isMaxLevel = true
+                currentXP = 1
+                nextLevelXP = 1
+            end
+            local fData = C_Reputation and C_Reputation.GetFactionDataByID and C_Reputation.GetFactionDataByID(companionFactionID)
+            name = fData and fData.name or (rankInfo and rankInfo.name) or repInfo.name or name
+            description = fData and fData.description or nil
+        end
+    end
+
+    -- Check Major Faction / Renown if level is still 0
+    if currentLevel == 0 and companionFactionID and C_MajorFactions and C_MajorFactions.IsMajorFaction and C_MajorFactions.IsMajorFaction(companionFactionID) then
+        local mData = C_MajorFactions.GetMajorFactionData(companionFactionID)
+        if mData then
+            name = mData.name or name
+            currentLevel = mData.renownLevel or 0
+            maxLevel = mData.maxLevel or 0
+            currentXP = mData.renownReputationEarned or 0
+            nextLevelXP = mData.renownLevelThreshold or 2500
+            isMaxLevel = mData.renownLevel >= mData.maxLevel
+        end
+    end
+
+    if currentLevel == 0 and currentXP == 0 and not isMaxLevel then
+        return nil
+    end
+
+    local c = staticCompanionInfo
+    c.name = string.lower(name)
+    c.factionID = companionFactionID or 0
+    c.level = currentLevel
+    c.maxLevel = maxLevel
+    c.currentXP = currentXP
+    c.nextLevelXP = nextLevelXP
+    c.isMaxLevel = isMaxLevel
+    c.pct = isMaxLevel and 100 or math_min(100, math_max(0, (currentXP / nextLevelXP) * 100))
+    c.description = description
+
+    return c
+end
+
+local function GetCriteriaInfoSafe(criteriaIndex, stepID)
+    if stepID and C_ScenarioInfo and C_ScenarioInfo.GetCriteriaInfoByStep then
+        local ok, info = pcall(C_ScenarioInfo.GetCriteriaInfoByStep, stepID, criteriaIndex)
+        if ok and info and type(info) == "table" then
+            info.description = info.description or info.criteriaString or info.string
+            return info
+        end
+    end
+    if C_ScenarioInfo and C_ScenarioInfo.GetCriteriaInfo then
+        local ok, info = pcall(C_ScenarioInfo.GetCriteriaInfo, criteriaIndex)
+        if ok and info and type(info) == "table" then
+            info.description = info.description or info.criteriaString or info.string
+            return info
+        end
+    end
+    if C_Scenario and C_Scenario.GetCriteriaInfo then
+        local ok, desc, cType, comp, quant, totQuant, flags, assetID, quantStr, critID, dur, el, isWeight = pcall(C_Scenario.GetCriteriaInfo, criteriaIndex)
+        if ok and desc and desc ~= "" then
+            return {
+                description = desc,
+                criteriaType = cType,
+                completed = comp,
+                quantity = quant,
+                totalQuantity = totQuant,
+                flags = flags,
+                assetID = assetID,
+                quantityString = quantStr,
+                criteriaID = critID,
+                duration = dur,
+                elapsed = el,
+                isWeightedProgress = isWeight,
+            }
+        end
+    end
+    if stepID and C_Scenario and C_Scenario.GetCriteriaInfoByStep then
+        local ok, desc, cType, comp, quant, totQuant, flags, assetID, quantStr, critID, dur, el, isWeight = pcall(C_Scenario.GetCriteriaInfoByStep, stepID, criteriaIndex)
+        if ok and desc and desc ~= "" then
+            return {
+                description = desc,
+                criteriaType = cType,
+                completed = comp,
+                quantity = quant,
+                totalQuantity = totQuant,
+                flags = flags,
+                assetID = assetID,
+                quantityString = quantStr,
+                criteriaID = critID,
+                duration = dur,
+                elapsed = el,
+                isWeightedProgress = isWeight,
+            }
+        end
+    end
+    return nil
 end
 
 -- ─── Nemesis Info Extraction ──────────────────────────────
@@ -387,26 +736,33 @@ local function GetNemesisInfo(delveInfo)
     nemesis.icon = nil
 
     -- 1. Check Scenario criteria
-    if C_Scenario and C_Scenario.GetStepInfo and C_ScenarioInfo and C_ScenarioInfo.GetCriteriaInfo then
-        local ok, _, _, numCriteria = pcall(C_Scenario.GetStepInfo)
+    if C_Scenario and C_Scenario.GetStepInfo and C_ScenarioInfo then
+        local ok, _, _, numCriteria, _, _, _, _, _, _, stepID = pcall(C_Scenario.GetStepInfo)
+        if (not ok or not numCriteria or numCriteria == 0) and C_ScenarioInfo.GetScenarioStepInfo then
+            local okStep, sInfo = pcall(C_ScenarioInfo.GetScenarioStepInfo)
+            if okStep and sInfo and sInfo.numCriteria and sInfo.numCriteria > 0 then
+                numCriteria = sInfo.numCriteria
+                stepID = stepID or sInfo.stepID
+                ok = true
+            end
+        end
         if ok and numCriteria and numCriteria > 0 then
             for i = 1, numCriteria do
-                local okC, info = pcall(C_ScenarioInfo.GetCriteriaInfo, i)
-                if okC and info and info.description and info.description ~= "" then
+                local info = GetCriteriaInfoSafe(i, stepID)
+                if info and info.description and info.description ~= "" then
                     local descLower = info.description:lower()
                     if descLower:find("nemesis") or descLower:find("zekvir") or descLower:find("influence") or
                         descLower:find("empowered") or descLower:find("underpin") or descLower:find("ky'veza") then
                         nemesis.hasNemesis = true
                         nemesis.tooltip = info.description
+                        local tot = (info.totalQuantity and info.totalQuantity > 0) and info.totalQuantity or 4
+                        nemesis.total = tot
                         if info.completed then
                             nemesis.isDone  = true
-                            nemesis.current = info.totalQuantity or 4
-                            nemesis.total   = info.totalQuantity or 4
+                            nemesis.current = tot
                         else
                             local cur       = info.quantity or 0
-                            local tot       = (info.totalQuantity and info.totalQuantity > 0) and info.totalQuantity or 4
                             nemesis.current = cur
-                            nemesis.total   = tot
                             if cur >= tot and tot > 0 then
                                 nemesis.isDone = true
                             end
@@ -418,10 +774,14 @@ local function GetNemesisInfo(delveInfo)
         end
     end
 
-    -- 2. Check Delve Spells / Affixes
+    -- 2. Check Delve Spells / Affixes (Highest dynamic fidelity)
     if delveInfo and delveInfo.spells then
         for _, s in ipairs(delveInfo.spells) do
             local tt = (s.tooltip or ""):lower()
+            if not tt or tt == "" then
+                tt = (GetSpellTooltipText(s.spellID) or ""):lower()
+            end
+            
             local spellName = ""
             if s.spellID then
                 local n = (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(s.spellID)) or
@@ -439,36 +799,76 @@ local function GetNemesisInfo(delveInfo)
                 end
                 nemesis.tooltip = s.tooltip or nemesis.tooltip
 
-                -- Extract total / remain from tooltip
+                -- Determine total count (default 4)
+                local totMatch = tt:match("(%d+)%s*empowered") or tt:match("(%d+)%s*groups?") or
+                    tt:match("(%d+)%s*packs?") or tt:match("defeat (%d+)")
+                if totMatch then
+                    nemesis.total = tonumber(totMatch)
+                end
+                local tot = nemesis.total or 4
+                nemesis.total = tot
+
+                if s.showAsEarned then
+                    nemesis.isDone = true
+                    nemesis.current = tot
+                end
+
+                -- A. Primary: Tooltip remaining / progress string
                 local cM, tM = tt:match("(%d+)%s*/%s*(%d+)")
                 if cM and tM then
-                    nemesis.current = tonumber(cM)
-                    nemesis.total   = tonumber(tM)
-                else
-                    local totMatch = tt:match("defeat (%d+)") or tt:match("(%d+)%s*empowered") or
-                        tt:match("(%d+)%s*groups?") or tt:match("(%d+)%s*packs?")
-                    if totMatch then
-                        nemesis.total = tonumber(totMatch)
+                    local c = tonumber(cM)
+                    local t = tonumber(tM)
+                    if c and t then
+                        nemesis.current = c
+                        nemesis.total   = t
+                        if c >= t and t > 0 then nemesis.isDone = true end
                     end
+                else
                     local remainMatch = tt:match("(%d+)%s*remain") or tt:match("remain%a*%s*:%s*(%d+)")
                     if remainMatch then
-                        nemesis.current = tonumber(remainMatch)
+                        local rem = tonumber(remainMatch)
+                        if rem and tot then
+                            if rem == 0 then
+                                nemesis.isDone = true
+                                nemesis.current = tot
+                            else
+                                -- E.g. 3 remaining out of 4 -> 1 defeated!
+                                nemesis.current = math_max(0, tot - rem)
+                                if nemesis.current >= tot and tot > 0 then
+                                    nemesis.isDone = true
+                                end
+                            end
+                        end
                     end
                 end
 
-                if not nemesis.current and s.stack and tostring(s.stack) ~= "" and tostring(s.stack) ~= "0" then
-                    local st = tonumber(s.stack)
-                    if st then nemesis.current = st end
-                elseif not nemesis.current and s.text and s.text ~= "" then
-                    local cText, tText = s.text:match("(%d+)%s*/%s*(%d+)")
+                -- B. Secondary: Dynamic live progress from direct spell text / stack count
+                if not nemesis.current then
+                    local cText, tText = (s.text or ""):match("(%d+)%s*/%s*(%d+)")
                     if cText and tText then
-                        nemesis.current = tonumber(cText)
-                        nemesis.total   = tonumber(tText)
-                    elseif tonumber(s.text) then
-                        nemesis.current = tonumber(s.text)
+                        local c = tonumber(cText)
+                        local t = tonumber(tText)
+                        if c and t then
+                            nemesis.current = c
+                            nemesis.total   = t
+                            if c >= t and t > 0 then nemesis.isDone = true end
+                        end
+                    elseif s.text and tonumber(s.text) and tonumber(s.text) > 0 then
+                        local stNum = tonumber(s.text)
+                        nemesis.current = stNum
+                        if stNum >= tot and tot > 0 then
+                            nemesis.isDone = true
+                        end
+                    elseif s.stack and tonumber(s.stack) and tonumber(s.stack) > 0 then
+                        local st = tonumber(s.stack)
+                        nemesis.current = st
+                        if st >= tot and tot > 0 then
+                            nemesis.isDone = true
+                        end
                     end
                 end
 
+                -- Check player aura stack count if still nil
                 if not nemesis.current and s.spellID and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
                     local okA, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, s.spellID)
                     if okA and aura then
@@ -479,12 +879,13 @@ local function GetNemesisInfo(delveInfo)
                         end
                     end
                 end
+                break
             end
         end
     end
 
     -- 3. Check Delve Currencies
-    if delveInfo and delveInfo.currencies then
+    if not nemesis.current and delveInfo and delveInfo.currencies then
         for _, c in ipairs(delveInfo.currencies) do
             local tt = (c.tooltip or ""):lower()
             local lt = (c.leadingText or ""):lower()
@@ -502,40 +903,15 @@ local function GetNemesisInfo(delveInfo)
                 elseif tonumber(valStr) then
                     nemesis.current = tonumber(valStr)
                 end
-
-                if not nemesis.current and c.tooltip then
-                    local cT, tT = c.tooltip:match("(%d+)%s*/%s*(%d+)")
-                    if cT and tT then
-                        nemesis.current = tonumber(cT)
-                        nemesis.total   = tonumber(tT)
-                    end
-                end
+                break
             end
         end
     end
 
     -- 4. Check UI Widgets in active sets
-    if C_UIWidgetManager then
+    if not nemesis.current and C_UIWidgetManager then
         for _, wID in ipairs(staticWidgetIDs) do
-            -- Check StatusBar widgets
-            if C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo then
-                local okVis, vis = pcall(C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo, wID)
-                if okVis and vis and vis.shownState ~= (_G.Enum and _G.Enum.WidgetShownState and _G.Enum.WidgetShownState.Hidden) then
-                    local tt = (vis.tooltip or ""):lower()
-                    local txt = (vis.text or ""):lower()
-                    if tt:find("nemesis") or tt:find("zekvir") or tt:find("influence") or txt:find("nemesis") or txt:find("zekvir") then
-                        nemesis.hasNemesis = true
-                        nemesis.tooltip = vis.tooltip or nemesis.tooltip
-                        if vis.barValue and vis.barMax and vis.barMax > 0 then
-                            nemesis.current = vis.barValue
-                            nemesis.total   = vis.barMax
-                        end
-                        break
-                    end
-                end
-            end
-            -- Check IconAndText / TextWithState widgets
-            if not nemesis.current and C_UIWidgetManager.GetIconAndTextWidgetVisualizationInfo then
+            if C_UIWidgetManager.GetIconAndTextWidgetVisualizationInfo then
                 local okVis, vis = pcall(C_UIWidgetManager.GetIconAndTextWidgetVisualizationInfo, wID)
                 if okVis and vis and vis.shownState ~= (_G.Enum and _G.Enum.WidgetShownState and _G.Enum.WidgetShownState.Hidden) then
                     local tt = (vis.tooltip or ""):lower()
@@ -547,6 +923,8 @@ local function GetNemesisInfo(delveInfo)
                         if cW and tW then
                             nemesis.current = tonumber(cW)
                             nemesis.total   = tonumber(tW)
+                        elseif tonumber(vis.text) then
+                            nemesis.current = tonumber(vis.text)
                         end
                         break
                     end
@@ -564,6 +942,8 @@ local function GetNemesisInfo(delveInfo)
                         if cW and tW then
                             nemesis.current = tonumber(cW)
                             nemesis.total   = tonumber(tW)
+                        elseif tonumber(vis.text) then
+                            nemesis.current = tonumber(vis.text)
                         end
                         break
                     end
@@ -575,15 +955,22 @@ local function GetNemesisInfo(delveInfo)
 
     -- Ensure final format is always accurate
     if nemesis.hasNemesis then
-        local tot       = nemesis.total or 4
-        local cur       = nemesis.current or tot
-        nemesis.current = cur
-        nemesis.total   = tot
-        if nemesis.isDone or (cur == 0 and tot > 0 and (nemesis.tooltip and nemesis.tooltip:lower():find("remain"))) then
-            nemesis.isDone = true
-            nemesis.text = "Done"
+        local tot = nemesis.total or 4
+        local cur = nemesis.current
+
+        if nemesis.isDone or (cur and cur >= tot and tot > 0) then
+            nemesis.isDone  = true
+            nemesis.current = tot
+            nemesis.total   = tot
+            nemesis.text    = "Done"
+        elseif cur and cur >= 0 then
+            nemesis.current = cur
+            nemesis.total   = tot
+            nemesis.text    = string_format("%d/%d", cur, tot)
         else
-            nemesis.text = string_format("%d/%d", cur, tot)
+            nemesis.current = 0
+            nemesis.total   = tot
+            nemesis.text    = string_format("0/%d", tot)
         end
     end
 
@@ -599,7 +986,9 @@ local function BuildHUDFrame()
     MF:SetClampedToScreen(true)
     MF:SetMovable(true)
     MF:EnableMouse(false)
-    MF:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", mcfg.posX or -10, mcfg.posY or -10)
+    local posX = (SfuiDB and (SfuiDB.mythicHudX or SfuiDB.questlogX)) or mcfg.posX or -10
+    local posY = (SfuiDB and (SfuiDB.mythicHudY or SfuiDB.questlogY)) or mcfg.posY or -10
+    MF:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", posX, posY)
 
     MF:SetBackdrop({
         bgFile = "Interface/Buttons/WHITE8X8",
@@ -622,6 +1011,11 @@ local function BuildHUDFrame()
     MF.dungeonText:SetPoint("TOPRIGHT", hdr, "TOPRIGHT", -60, 0)
     MF.dungeonText:SetJustifyH("LEFT")
     MF.dungeonText:SetText("Mythic+")
+
+    MF.pbText = MakeText(hdr, "GameFontNormalSmall", CLR_DIM_R, CLR_DIM_G, CLR_DIM_B, 1, "LEFT")
+    MF.pbText:SetPoint("BOTTOMLEFT", hdr, "BOTTOMLEFT", 0, 0)
+    MF.pbText:SetText("")
+    MF.pbText:Hide()
 
     MF.levelText = MakeText(hdr, "GameFontNormalLarge", 1, 0.82, 0, 1)
     MF.levelText:SetPoint("TOPRIGHT", hdr, "TOPRIGHT", 0, 2)
@@ -751,8 +1145,6 @@ local function BuildHUDFrame()
     MF.deathText:SetJustifyH("RIGHT")
     MF.deathText:SetText("")
 
-    local function deathSortComparator(a, b) return a.count > b.count end
-
     deathFrame:SetScript("OnEnter", function(self)
         local okd, deaths, timeLostSec = pcall(C_ChallengeMode.GetDeathCount)
         if okd and deaths and deaths > 0 then
@@ -780,7 +1172,7 @@ local function BuildHUDFrame()
                         obj.class = _playerClasses[name]
                         table.insert(staticDeathBreakdown, obj)
                     end
-                    table.sort(staticDeathBreakdown, deathSortComparator)
+                    table.sort(staticDeathBreakdown, DeathSortComparator)
                     for _, p in ipairs(staticDeathBreakdown) do
                         local colorCode = "ffffffff"
                         if p.class and _G.RAID_CLASS_COLORS and _G.RAID_CLASS_COLORS[p.class] then
@@ -845,6 +1237,63 @@ local function BuildHUDFrame()
     MF.forcesCountText:SetPoint("RIGHT", forcesOverlay, "RIGHT", -4, 0)
     MF.forcesCountText:SetText("")
 
+    -- Separator 3 (between forces/objectives and companion bar)
+    local sep3 = MakeSep(MF)
+    sep3:SetPoint("TOPLEFT", forcesSection, "BOTTOMLEFT", 0, -4)
+    sep3:SetPoint("TOPRIGHT", forcesSection, "BOTTOMRIGHT", 0, -4)
+    MF.sep3 = sep3
+
+    -- Delve Companion Experience Bar
+    local companionSection = CreateFrame("Frame", nil, MF)
+    companionSection:SetPoint("TOPLEFT", sep3, "BOTTOMLEFT", 0, -4)
+    companionSection:SetPoint("TOPRIGHT", sep3, "BOTTOMRIGHT", 0, -4)
+    companionSection:SetHeight(14)
+    MF.companionSection = companionSection
+
+    MF.companionBar = MakeStatusBar(companionSection, COLORS.companion, COLORS.bar_bg)
+    MF.companionBar:SetAllPoints(companionSection)
+    MF.companionBar:SetMinMaxValues(0, 100)
+    MF.companionBar:SetValue(0)
+
+    local companionOverlay = CreateFrame("Frame", nil, MF.companionBar)
+    companionOverlay:SetAllPoints(MF.companionBar)
+    companionOverlay:SetFrameLevel(MF.companionBar:GetFrameLevel() + 5)
+    companionOverlay:EnableMouse(true)
+    MF.companionOverlay = companionOverlay
+
+    MF.companionLeftText = MakeText(companionOverlay, "GameFontHighlightSmall", 1, 1, 1, 1, "LEFT")
+    MF.companionLeftText:SetPoint("LEFT", companionOverlay, "LEFT", 4, 0)
+    MF.companionLeftText:SetJustifyH("LEFT")
+    MF.companionLeftText:SetText("")
+
+    MF.companionRightText = MakeText(companionOverlay, "GameFontHighlightSmall", 0.95, 0.95, 0.95, 1, "RIGHT")
+    MF.companionRightText:SetPoint("RIGHT", companionOverlay, "RIGHT", -4, 0)
+    MF.companionRightText:SetText("")
+
+    companionOverlay:SetScript("OnEnter", function(self)
+        local info = GetDelveCompanionInfo()
+        if info and GameTooltip then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(info.name or "companion", 1, 0.82, 0)
+            if info.isMaxLevel then
+                GameTooltip:AddLine(string_format("level %d (max level)", info.level), 0.20, 1.00, 0.40)
+            else
+                GameTooltip:AddLine(string_format("level %d", info.level), 1, 1, 1)
+                local curFmt = BreakUpLargeNumbers(info.currentXP)
+                local maxFmt = BreakUpLargeNumbers(info.nextLevelXP)
+                GameTooltip:AddDoubleLine("experience:", string_format("%s / %s (%.1f%%)", curFmt, maxFmt, info.pct), 0.7, 0.7, 0.7, 1, 1, 1)
+            end
+            if info.description and info.description ~= "" then
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine(info.description, 0.6, 0.6, 0.6, true)
+            end
+            GameTooltip:Show()
+        end
+    end)
+    companionOverlay:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+
     -- Drag handle (shown only when unlocked)
     MF.dragBar = CreateFrame("Frame", nil, MF, "BackdropTemplate")
     MF.dragBar:SetPoint("TOPLEFT", MF, "TOPLEFT", 0, 0)
@@ -861,6 +1310,9 @@ local function BuildHUDFrame()
             SfuiDB.mythicHudY   = y
             SfuiDB.questlogX    = x
             SfuiDB.questlogY    = y
+        end
+        if sfui.questlog and sfui.questlog.UpdateAnchor then
+            sfui.questlog.UpdateAnchor()
         end
     end)
     MF.dragBar:Hide()
@@ -889,9 +1341,8 @@ local function GetOrCreateDelveBadge(idx)
     local text = MakeText(frame, "GameFontNormalSmall", 1, 1, 1, 1, "LEFT")
     text:SetPoint("LEFT", icon, "RIGHT", 4, 0)
 
-    local stackText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local stackText = MakeText(frame, "GameFontNormalSmall", 1, 1, 1, 1, "RIGHT")
     stackText:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 2, -1)
-    stackText:SetTextColor(1, 1, 1, 1)
 
     frame:SetScript("OnEnter", function(self)
         if not GameTooltip then return end
@@ -1028,7 +1479,6 @@ local function BuildAffixRow(affixes)
         af.frame.affixName = ok and name or nil
         af.frame.affixDesc = ok and desc or nil
 
-
         xOff = xOff + size + gap
     end
 
@@ -1048,7 +1498,7 @@ local function PlaceChestTicks()
 end
 
 -- ─── Layout ───────────────────────────────────────────────
-local function RelayoutHUD(numBoss, isDelve, delveRowH, hasForces)
+local function RelayoutHUD(numBoss, isDelve, delveRowH, hasForces, hasCompanion)
     local isMythic = (_mode == "mythic")
     local totalBossH = 0
 
@@ -1095,8 +1545,12 @@ local function RelayoutHUD(numBoss, isDelve, delveRowH, hasForces)
         MF.sep2:Show()
         MF.forcesSection:Show()
 
+        MF.sep3:Hide()
+        MF.companionSection:Hide()
+
+        local hdrH = (MF.header and MF.header:GetHeight()) or 24
         local affixH = MF.affixRow:IsShown() and (4 + MF.affixRow:GetHeight()) or 0
-        local totalH = HUD_PAD + 24 + affixH + (6 + 16) + (bossH > 0 and (4 + 1 + 4 + bossH) or 0) + (4 + 1 + 4 + 14) +
+        local totalH = HUD_PAD + hdrH + affixH + (6 + 16) + (bossH > 0 and (4 + 1 + 4 + bossH) or 0) + (4 + 1 + 4 + 14) +
             HUD_PAD
         MF:SetHeight(math_max(60, totalH))
     elseif isDelve then
@@ -1130,11 +1584,28 @@ local function RelayoutHUD(numBoss, isDelve, delveRowH, hasForces)
         MF.sep2:SetShown(hasForces)
         MF.forcesSection:SetShown(hasForces)
 
+        local prevSec = hasForces and MF.forcesSection or (bossH > 0 and MF.bossContainer or topAnchor)
+        if hasCompanion then
+            MF.sep3:ClearAllPoints()
+            MF.sep3:SetPoint("TOPLEFT", prevSec, "BOTTOMLEFT", 0, -4)
+            MF.sep3:SetPoint("TOPRIGHT", prevSec, "BOTTOMRIGHT", 0, -4)
+            MF.sep3:Show()
+
+            MF.companionSection:ClearAllPoints()
+            MF.companionSection:SetPoint("TOPLEFT", MF.sep3, "BOTTOMLEFT", 0, -4)
+            MF.companionSection:SetPoint("TOPRIGHT", MF.sep3, "BOTTOMRIGHT", 0, -4)
+            MF.companionSection:Show()
+        else
+            MF.sep3:Hide()
+            MF.companionSection:Hide()
+        end
+
         local dRowGap = delveRowH > 0 and (4 + delveRowH) or 0
         local sep1H   = bossH > 0 and (4 + 1 + 4) or 0
         local bossGap = bossH > 0 and bossH or 0
         local forcesH = hasForces and (4 + 1 + 4 + 14) or 0
-        local totalH  = HUD_PAD + 24 + dRowGap + sep1H + bossGap + forcesH + HUD_PAD
+        local compH   = hasCompanion and (4 + 1 + 4 + 14) or 0
+        local totalH  = HUD_PAD + 24 + dRowGap + sep1H + bossGap + forcesH + compH + HUD_PAD
         MF:SetHeight(math_max(50, totalH))
     else
         -- Regular Dungeon / Scenario
@@ -1166,6 +1637,9 @@ local function RelayoutHUD(numBoss, isDelve, delveRowH, hasForces)
         MF.sep2:SetShown(hasForces)
         MF.forcesSection:SetShown(hasForces)
 
+        MF.sep3:Hide()
+        MF.companionSection:Hide()
+
         local sep1H   = bossH > 0 and (4 + 1 + 4) or 0
         local bossGap = bossH > 0 and bossH or 0
         local forcesH = hasForces and (4 + 1 + 4 + 14) or 0
@@ -1177,8 +1651,20 @@ end
 -- ─── Core Update: merged boss + forces in one GetStepInfo call ───
 local function UpdateInstanceState()
     if not (C_Scenario and C_ScenarioInfo) then return end
-    local ok, _, _, numCriteria = pcall(C_Scenario.GetStepInfo)
-    if not ok or not numCriteria then return end
+    local ok, stepName, stepDesc, numCriteria, _, _, _, _, _, _, stepID, stepWidgetSetID, _, isWorldEvent = pcall(C_Scenario.GetStepInfo)
+    if (not ok or not numCriteria or numCriteria == 0) and C_ScenarioInfo.GetScenarioStepInfo then
+        local okStep, sInfo = pcall(C_ScenarioInfo.GetScenarioStepInfo)
+        if okStep and sInfo then
+            numCriteria = (sInfo.numCriteria and sInfo.numCriteria > 0) and sInfo.numCriteria or (numCriteria or 0)
+            stepID = stepID or sInfo.stepID
+            stepName = stepName or sInfo.title
+            stepDesc = stepDesc or sInfo.description
+            stepWidgetSetID = stepWidgetSetID or sInfo.stepWidgetSetID
+            if sInfo.isWorldEvent ~= nil then isWorldEvent = sInfo.isWorldEvent end
+            ok = true
+        end
+    end
+    numCriteria = numCriteria or 0
 
     -- Delve state update
     local delveInfo = GetDelveInfo()
@@ -1211,36 +1697,13 @@ local function UpdateInstanceState()
             MF.delveLivesFrame:Hide()
         end
 
-        -- 1b. Nemesis progress pinned next to Lives
-        local nemesis = GetNemesisInfo(delveInfo)
-        local nemesisW = 0
-        if nemesis.hasNemesis then
-            local nText = nemesis.text
-            if nemesis.isDone or nText == "Done" then
-                MF.delveNemesisText:SetText("|cffa335eeNemesis:|r |cff44ff44Done|r")
-            elseif nText and nText ~= "" then
-                MF.delveNemesisText:SetText(string_format("|cffa335eeNemesis: %s|r", nText))
-            else
-                local cur = nemesis.current or (nemesis.total or 4)
-                local tot = nemesis.total or 4
-                MF.delveNemesisText:SetText(string_format("|cffa335eeNemesis: %d/%d|r", cur, tot))
-            end
-            nemesisW = MF.delveNemesisText:GetStringWidth() + 4
-            MF.delveNemesisFrame:SetWidth(nemesisW)
-            MF.delveNemesisFrame:ClearAllPoints()
-            if livesW > 0 then
-                MF.delveNemesisFrame:SetPoint("RIGHT", MF.delveLivesFrame, "LEFT", -8, 0)
-            else
-                MF.delveNemesisFrame:SetPoint("TOPRIGHT", MF.delveRow, "TOPRIGHT", 0, 0)
-            end
-            MF.delveNemesisFrame.tooltip = nemesis.tooltip or
-                "Nemesis Influence: Defeat empowered enemies to draw out the Nemesis."
-            MF.delveNemesisFrame:Show()
-        else
+        -- 1b. Standalone Nemesis text is disabled (progress is displayed directly on the Nemesis affix icon badge)
+        if MF.delveNemesisFrame then
             MF.delveNemesisText:SetText("")
             MF.delveNemesisFrame.tooltip = nil
             MF.delveNemesisFrame:Hide()
         end
+        local nemesis = GetNemesisInfo(delveInfo)
 
         local badgeIdx = 0
 
@@ -1377,7 +1840,7 @@ local function UpdateInstanceState()
         local gap = 6
         local rowH = 18
         local totalW = HUD_W - (HUD_PAD * 2)
-        local rightPinnedW = (livesW > 0 and livesW + 6 or 0) + (nemesisW > 0 and nemesisW + 8 or 0)
+        local rightPinnedW = (livesW > 0 and livesW + 6 or 0)
         local firstRowMaxW = (rightPinnedW > 0) and (totalW - rightPinnedW) or totalW
 
         for i = 1, badgeIdx do
@@ -1394,7 +1857,7 @@ local function UpdateInstanceState()
             xOff = xOff + bW + gap
         end
 
-        delveRowH = (badgeIdx > 0 or livesW > 0 or nemesisW > 0) and (yOff + rowH) or 0
+        delveRowH = (badgeIdx > 0 or livesW > 0) and (yOff + rowH) or 0
         MF.delveRow:SetHeight(delveRowH)
         MF.delveRow:SetShown(delveRowH > 0)
     else
@@ -1405,92 +1868,297 @@ local function UpdateInstanceState()
         MF.delveNemesisFrame:Hide()
         MF.delveRow:Hide()
         MF.delveRow:SetHeight(0)
+
+        -- For non-delve scenarios and world events, update stage progression if multi-stage
+        if _mode == "dungeon" and C_Scenario and C_Scenario.GetInfo then
+            local okScen, sName, curStage, numStages = pcall(C_Scenario.GetInfo)
+            if okScen and sName and sName ~= "" then
+                MF.dungeonText:SetText(sName)
+                if numStages and numStages > 1 and curStage and curStage > 0 then
+                    MF.levelText:SetText(string_format("|cff00ffccStage %d/%d|r", curStage, numStages))
+                end
+            end
+        end
     end
 
-    -- Backward scan: find forces criteria (last isWeightedProgress) — break early.
+    -- Helper to test if a criteria is a progress/percentage bar objective
+    local function IsProgressCriteria(info)
+        if not info then return false end
+        if info.isWeightedProgress then return true end
+        if info.quantityString and info.quantityString:find("%%") then return true end
+        return false
+    end
+
+    -- Find forces / progress bar criteria: prioritize active (uncompleted) progress criteria first.
     local forcesIdx  = nil
     local forcesInfo = nil
-    for i = numCriteria, 1, -1 do
-        local oki, info = pcall(C_ScenarioInfo.GetCriteriaInfo, i)
-        if oki and info and info.isWeightedProgress then
-            forcesIdx  = i
-            forcesInfo = info
-            break
+    if numCriteria and numCriteria > 0 then
+        for i = 1, numCriteria do
+            local info = GetCriteriaInfoSafe(i, stepID)
+            if info and IsProgressCriteria(info) and not info.completed then
+                forcesIdx  = i
+                forcesInfo = info
+                break
+            end
+        end
+        -- Fallback 1: if all progress criteria are completed, pick the last progress criteria (e.g. M+ 100% forces)
+        if not forcesInfo then
+            for i = numCriteria, 1, -1 do
+                local info = GetCriteriaInfoSafe(i, stepID)
+                if info and IsProgressCriteria(info) then
+                    forcesIdx  = i
+                    forcesInfo = info
+                    break
+                end
+            end
+        end
+    end
+    -- Fallback 2: scenario step level weightedProgress (some Delves / World Events attach progress to the step)
+    if not forcesInfo and C_ScenarioInfo and C_ScenarioInfo.GetScenarioStepInfo then
+        local okStep, sInfo = pcall(C_ScenarioInfo.GetScenarioStepInfo)
+        if okStep and sInfo and sInfo.weightedProgress and sInfo.weightedProgress > 0 then
+            forcesInfo = {
+                quantity = sInfo.weightedProgress,
+                totalQuantity = 100,
+                quantityString = string_format("%d%%", sInfo.weightedProgress),
+                completed = false,
+                isWeightedProgress = true,
+            }
         end
     end
 
     -- Forward scan: populate boss rows (skip forces index).
     local isMythic = (_mode == "mythic")
     local bossCount = 0
-    for i = 1, numCriteria do
-        if i ~= forcesIdx then
-            local oki, info = pcall(C_ScenarioInfo.GetCriteriaInfo, i)
-            if oki and info and info.description and info.description ~= "" then
-                bossCount        = bossCount + 1
-                local r          = GetOrCreateBossRow(bossCount)
-                local isComplete = info.completed == true
-                local elapsedAt  = info.elapsed
+    if numCriteria and numCriteria > 0 then
+        for i = 1, numCriteria do
+            if i ~= forcesIdx then
+                local info = GetCriteriaInfoSafe(i, stepID)
+                local rawDesc = info and (info.description or info.criteriaString or info.string)
+                if rawDesc and rawDesc ~= "" then
+                    bossCount        = bossCount + 1
+                    local r          = GetOrCreateBossRow(bossCount)
+                    local isComplete = info.completed == true
+                    local elapsedAt  = info.elapsed
 
-                if isComplete then
-                    r.icon:Hide()
-                    r.check:Show()
-                    r.name:SetTextColor(CLR_GREEN_R, CLR_GREEN_G, CLR_GREEN_B)
-                else
-                    r.check:Hide()
-                    r.icon:Show()
-                    r.name:SetTextColor(CLR_WHITE_R, CLR_WHITE_G, CLR_WHITE_B)
-                end
+                    if isComplete then
+                        r.icon:Hide()
+                        r.check:Show()
+                        r.name:SetTextColor(CLR_GREEN_R, CLR_GREEN_G, CLR_GREEN_B)
+                    else
+                        r.check:Hide()
+                        r.icon:Show()
+                        r.name:SetTextColor(CLR_WHITE_R, CLR_WHITE_G, CLR_WHITE_B)
+                    end
 
-                -- Split timer (M+ only)
-                if isMythic and isComplete then
-                    if not _bossSplits[bossCount] then
-                        local currentRunElapsed = 0
-                        if _timerID then
-                            local okEl, _, el = pcall(GetWorldElapsedTime, _timerID)
-                            if okEl and el and el > 0 then currentRunElapsed = el end
-                        end
-                        if currentRunElapsed == 0 then
-                            for t = 1, 5 do
-                                local okEl, _, el = pcall(GetWorldElapsedTime, t)
-                                if okEl and el and el > 0 then
-                                    currentRunElapsed = el
-                                    break
+                    -- Split timer (M+ only)
+                    local splitStr = ""
+                    local rightOffset = 0
+                    if isMythic then
+                        local pbSplit = (_currentBestRun and _currentBestRun.splits) and _currentBestRun.splits[bossCount] or nil
+                        if isComplete then
+                            if not _bossSplits[bossCount] then
+                                local currentRunElapsed = 0
+                                if _timerID then
+                                    local okEl, _, el = pcall(GetWorldElapsedTime, _timerID)
+                                    if okEl and el and el > 0 then currentRunElapsed = el end
+                                end
+                                if currentRunElapsed == 0 then
+                                    for t = 1, 5 do
+                                        local okEl, _, el = pcall(GetWorldElapsedTime, t)
+                                        if okEl and el and el > 0 then
+                                            currentRunElapsed = el
+                                            break
+                                        end
+                                    end
+                                end
+                                local elapsedSinceKill = elapsedAt or 0
+                                local killTime = math_max(0, currentRunElapsed - elapsedSinceKill)
+                                if killTime > 0 then
+                                    _bossSplits[bossCount] = killTime
                                 end
                             end
+
+                            local actualKillTime = _bossSplits[bossCount]
+                            if actualKillTime and actualKillTime > 0 then
+                                if pbSplit and pbSplit > 0 then
+                                    local delta = actualKillTime - pbSplit
+                                    if delta < 0 then
+                                        splitStr = string_format("[%s] |cff00ff88-%s|r", FormatTime(actualKillTime), FormatTime(math_abs(delta)))
+                                    elseif delta > 0 then
+                                        splitStr = string_format("[%s] |cffff4444+%s|r", FormatTime(actualKillTime), FormatTime(delta))
+                                    else
+                                        splitStr = string_format("[%s] |cffffffaa±0|r", FormatTime(actualKillTime))
+                                    end
+                                    rightOffset = -95
+                                else
+                                    splitStr = string_format("[%s]", FormatTime(actualKillTime))
+                                    rightOffset = -55
+                                end
+                            end
+                        else
+                            -- Boss is alive: show target milestone from PB in dim text
+                            if pbSplit and pbSplit > 0 then
+                                splitStr = string_format("|cff555555[%s]|r", FormatTime(pbSplit))
+                                rightOffset = -55
+                            end
                         end
-                        local elapsedSinceKill = elapsedAt or 0
-                        local killTime = math_max(0, currentRunElapsed - elapsedSinceKill)
-                        if killTime > 0 then
-                            _bossSplits[bossCount] = killTime
+                    end
+
+                    if splitStr ~= "" then
+                        r.split:SetTextColor(CLR_DIM_R, CLR_DIM_G, CLR_DIM_B)
+                        r.split:SetText(splitStr)
+                        r.split:Show()
+                        r.name:ClearAllPoints()
+                        r.name:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 4, 0)
+                        r.name:SetPoint("RIGHT", r.row, "RIGHT", rightOffset, 0)
+                    else
+                        r.split:SetText("")
+                        r.split:Hide()
+                        r.name:ClearAllPoints()
+                        r.name:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 4, 0)
+                        r.name:SetPoint("RIGHT", r.row, "RIGHT", 0, 0)
+                    end
+
+                    local nameStr = CleanObjectiveName(rawDesc)
+                    if not isComplete and info.quantity and info.totalQuantity and info.totalQuantity > 1 then
+                        nameStr = nameStr .. " " .. string_format("|cff777777(%d/%d)|r", info.quantity, info.totalQuantity)
+                    end
+                    r.name:SetText(nameStr)
+
+                    local textH = r.name:GetStringHeight() or 14
+                    local rowH = math_max(16, math_ceil(textH + 2))
+                    r.row:SetHeight(rowH)
+                end
+            end
+        end
+    end
+
+    -- Check Bonus Steps for additional scenario / world event objectives
+    if C_Scenario and C_Scenario.GetBonusSteps then
+        local okB, bonusSteps = pcall(C_Scenario.GetBonusSteps)
+        if okB and bonusSteps and #bonusSteps > 0 then
+            for _, bStepID in ipairs(bonusSteps) do
+                local okBS, _, _, bNum = pcall(C_Scenario.GetStepInfo, bStepID)
+                if okBS and bNum and bNum > 0 then
+                    for bi = 1, bNum do
+                        local bInfo = GetCriteriaInfoSafe(bi, bStepID)
+                        local bDesc = bInfo and (bInfo.description or bInfo.criteriaString or bInfo.string)
+                        if bDesc and bDesc ~= "" and not IsProgressCriteria(bInfo) then
+                            bossCount        = bossCount + 1
+                            local r          = GetOrCreateBossRow(bossCount)
+                            local isComplete = bInfo.completed == true
+                            if isComplete then
+                                r.icon:Hide()
+                                r.check:Show()
+                                r.name:SetTextColor(CLR_GREEN_R, CLR_GREEN_G, CLR_GREEN_B)
+                            else
+                                r.check:Hide()
+                                r.icon:Show()
+                                r.name:SetTextColor(CLR_WHITE_R, CLR_WHITE_G, CLR_WHITE_B)
+                            end
+                            r.split:SetText("")
+                            r.split:Hide()
+                            r.name:ClearAllPoints()
+                            r.name:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 4, 0)
+                            r.name:SetPoint("RIGHT", r.row, "RIGHT", 0, 0)
+
+                            local nameStr = CleanObjectiveName(bDesc)
+                            if not isComplete and bInfo.quantity and bInfo.totalQuantity and bInfo.totalQuantity > 1 then
+                                nameStr = nameStr .. " " .. string_format("|cff777777(%d/%d)|r", bInfo.quantity, bInfo.totalQuantity)
+                            end
+                            r.name:SetText(nameStr)
+                            local textH = r.name:GetStringHeight() or 14
+                            r.row:SetHeight(math_max(16, math_ceil(textH + 2)))
                         end
                     end
                 end
+            end
+        end
+    end
 
-                local splitStr = (isMythic and _bossSplits[bossCount]) and FormatTime(_bossSplits[bossCount]) or ""
-                if splitStr ~= "" then
-                    r.split:SetTextColor(CLR_DIM_R, CLR_DIM_G, CLR_DIM_B)
-                    r.split:SetText(string_format("[%s]", splitStr))
-                    r.split:Show()
-                    r.name:ClearAllPoints()
-                    r.name:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 4, 0)
-                    r.name:SetPoint("RIGHT", r.row, "RIGHT", -55, 0)
-                else
-                    r.split:SetText("")
-                    r.split:Hide()
-                    r.name:ClearAllPoints()
-                    r.name:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 4, 0)
-                    r.name:SetPoint("RIGHT", r.row, "RIGHT", 0, 0)
+    -- Fallback 1: If no criteria rows were found, display the stage description
+    if bossCount == 0 and stepDesc and stepDesc ~= "" and not delveInfo then
+        bossCount = bossCount + 1
+        local r = GetOrCreateBossRow(bossCount)
+        r.check:Hide()
+        r.icon:Show()
+        r.name:SetTextColor(CLR_WHITE_R, CLR_WHITE_G, CLR_WHITE_B)
+        r.split:SetText("")
+        r.split:Hide()
+        r.name:ClearAllPoints()
+        r.name:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 4, 0)
+        r.name:SetPoint("RIGHT", r.row, "RIGHT", 0, 0)
+        r.name:SetText(CleanObjectiveName(stepDesc))
+        local textH = r.name:GetStringHeight() or 14
+        r.row:SetHeight(math_max(16, math_ceil(textH + 2)))
+    end
+
+    -- Fallback 2: World Event / Scenario UI Widgets extraction (TextWithState, StatusBar, IconAndText)
+    if not delveInfo and C_UIWidgetManager then
+        wipe(staticWidgetSetIDs)
+        if stepWidgetSetID and stepWidgetSetID > 0 then
+            table.insert(staticWidgetSetIDs, stepWidgetSetID)
+        end
+        if C_UIWidgetManager.GetTopCenterWidgetSetID then
+            local okId, id = pcall(C_UIWidgetManager.GetTopCenterWidgetSetID)
+            if okId and id and id > 0 then table.insert(staticWidgetSetIDs, id) end
+        end
+        if C_UIWidgetManager.GetBelowMinimapWidgetSetID then
+            local okId, id = pcall(C_UIWidgetManager.GetBelowMinimapWidgetSetID)
+            if okId and id and id > 0 then table.insert(staticWidgetSetIDs, id) end
+        end
+        if C_UIWidgetManager.GetObjectiveTrackerWidgetSetID then
+            local okId, id = pcall(C_UIWidgetManager.GetObjectiveTrackerWidgetSetID)
+            if okId and id and id > 0 then table.insert(staticWidgetSetIDs, id) end
+        end
+        if _G.UIWidgetTopCenterContainerFrame and _G.UIWidgetTopCenterContainerFrame.widgetSetID then
+            table.insert(staticWidgetSetIDs, _G.UIWidgetTopCenterContainerFrame.widgetSetID)
+        end
+        if _G.UIWidgetBelowMinimapContainerFrame and _G.UIWidgetBelowMinimapContainerFrame.widgetSetID then
+            table.insert(staticWidgetSetIDs, _G.UIWidgetBelowMinimapContainerFrame.widgetSetID)
+        end
+
+        for _, setID in ipairs(staticWidgetSetIDs) do
+            local okW, widgets = pcall(C_UIWidgetManager.GetAllWidgetsBySetID, setID)
+            if okW and widgets then
+                for _, w in ipairs(widgets) do
+                    local wID = (type(w) == "table" and w.widgetID) or w
+                    if wID then
+                        -- TextWithState
+                        if C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo then
+                            local okVis, vis = pcall(C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo, wID)
+                            if okVis and vis and vis.shownState ~= 0 and vis.text and vis.text ~= "" and not issecretvalue(vis.text) then
+                                bossCount = bossCount + 1
+                                local r = GetOrCreateBossRow(bossCount)
+                                r.check:Hide()
+                                r.icon:Show()
+                                r.name:SetTextColor(CLR_WHITE_R, CLR_WHITE_G, CLR_WHITE_B)
+                                r.split:SetText("")
+                                r.split:Hide()
+                                r.name:ClearAllPoints()
+                                r.name:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 4, 0)
+                                r.name:SetPoint("RIGHT", r.row, "RIGHT", 0, 0)
+                                r.name:SetText(vis.text)
+                                local textH = r.name:GetStringHeight() or 14
+                                r.row:SetHeight(math_max(16, math_ceil(textH + 2)))
+                            end
+                        end
+                        -- StatusBar
+                        if not forcesInfo and C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo then
+                            local okBar, bar = pcall(C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo, wID)
+                            if okBar and bar and bar.shownState ~= 0 and bar.barValue and not issecretvalue(bar.barValue) then
+                                forcesInfo = {
+                                    quantity = bar.barValue,
+                                    totalQuantity = (bar.barMax and bar.barMax > 0) and bar.barMax or 100,
+                                    quantityString = bar.overrideBarText or string_format("%d%%", bar.barValue),
+                                    completed = false,
+                                    isWeightedProgress = true,
+                                }
+                            end
+                        end
+                    end
                 end
-
-                local nameStr = info.description or ("Objective " .. bossCount)
-                if not isComplete and info.quantity and info.totalQuantity and info.totalQuantity > 1 then
-                    nameStr = nameStr .. " " .. string_format("|cff777777(%d/%d)|r", info.quantity, info.totalQuantity)
-                end
-                r.name:SetText(nameStr)
-
-                local textH = r.name:GetStringHeight() or 14
-                local rowH = math_max(16, math_ceil(textH + 2))
-                r.row:SetHeight(rowH)
             end
         end
     end
@@ -1499,65 +2167,113 @@ local function UpdateInstanceState()
 
     -- Forces bar — info already in hand from the backward scan above.
     if forcesInfo then
-        local rawStr             = forcesInfo.quantityString or ""
-        local current            = forcesInfo.quantity or 0
-        local total              = forcesInfo.totalQuantity or 100
-        local pct                = 0
+        local rawStr = forcesInfo.quantityString or ""
+        local current = forcesInfo.quantity or 0
+        local total = forcesInfo.totalQuantity or 100
+        local pct = 0
 
-        -- Check if quantityString contains fractional count "186/301"
+        -- 1. Check if quantityString is fractional count: e.g. "186/301"
         local curMatch, totMatch = rawStr:match("(%d+)/(%d+)")
         if curMatch and totMatch then
             current = tonumber(curMatch) or current
             total   = tonumber(totMatch) or total
+            if total > 0 then
+                pct = (current / total) * 100
+            end
+        else
+            -- 2. Direct 0-100 percentage integer on criteria.quantity (standard for weighted progress criteria)
+            if forcesInfo.isWeightedProgress then
+                if current <= 100 and current >= 0 then
+                    pct = current
+                elseif total > 0 then
+                    pct = (current / total) * 100
+                end
+            else
+                -- 3. Check if rawStr is formatted as a percentage: e.g. "97%", "97.45%"
+                local pctMatch = rawStr:match("(%d+%.?%d*)%s*%%")
+                if pctMatch then
+                    local pVal = tonumber(pctMatch) or 0
+                    if pVal <= 100 then
+                        pct = pVal
+                    elseif total > 0 then
+                        pct = (pVal / total) * 100
+                    end
+                elseif total > 0 and current > 0 then
+                    pct = (current / total) * 100
+                end
+            end
         end
 
-        local pctMatch = rawStr:match("(%d+%.?%d*)")
-        if total > 0 and current > 0 then
-            pct = (current / total) * 100
-        elseif pctMatch and rawStr:find("%%") then
-            pct = tonumber(pctMatch) or 0
-        elseif pctMatch then
-            pct = tonumber(pctMatch) or 0
-        end
+        pct = math_min(100, math_max(0, pct))
 
-        local isCompleted = forcesInfo.completed or (pct >= 100) or (current >= total and total > 0)
-        MF.forcesBar:SetMinMaxValues(0, math_max(1, total))
-        MF.forcesBar:SetValue(isCompleted and total or (current > 0 and current or pct))
+        local isCompleted = (forcesInfo.completed == true) or (pct >= 100)
+        MF.forcesBar:SetMinMaxValues(0, 100)
+        MF.forcesBar:SetValue(isCompleted and 100 or pct)
 
         if isCompleted then
             MF.forcesBar:SetStatusBarColor(0.20, 1.00, 0.40, 0.90)
 
             local splitStr = ""
             local forcesElapsed = forcesInfo.elapsed
-            if forcesElapsed and forcesElapsed > 0 and _timerID then
-                local okE, _, curRunElapsed = pcall(GetWorldElapsedTime, _timerID)
-                if okE and curRunElapsed and curRunElapsed > forcesElapsed then
-                    splitStr = string_format(" |cff888888[%s]|r", FormatTime(curRunElapsed - forcesElapsed))
+            if isMythic and isCompleted and not _forcesSplitTime then
+                local currentRunElapsed = 0
+                if _timerID then
+                    local okE, _, curRunElapsed = pcall(GetWorldElapsedTime, _timerID)
+                    if okE and curRunElapsed and curRunElapsed > 0 then
+                        currentRunElapsed = curRunElapsed
+                    end
+                end
+                local elapsedSinceForces = forcesElapsed or 0
+                if currentRunElapsed > 0 then
+                    _forcesSplitTime = math_max(0, currentRunElapsed - elapsedSinceForces)
                 end
             end
 
-            MF.forcesText:SetText("100% |cff44ff44(Done)|r" .. splitStr)
-            if total > 100 and current > 0 then
-                MF.forcesCountText:SetText(string_format("%d/%d", current, total))
-            else
-                MF.forcesCountText:SetText("")
+            if isMythic and _forcesSplitTime and _forcesSplitTime > 0 then
+                local pbForces = _currentBestRun and _currentBestRun.forces or nil
+                if pbForces and pbForces > 0 then
+                    local fDelta = _forcesSplitTime - pbForces
+                    if fDelta < 0 then
+                        splitStr = string_format(" [%s] |cff00ff88-%s|r", FormatTime(_forcesSplitTime), FormatTime(math_abs(fDelta)))
+                    elseif fDelta > 0 then
+                        splitStr = string_format(" [%s] |cffff4444+%s|r", FormatTime(_forcesSplitTime), FormatTime(fDelta))
+                    else
+                        splitStr = string_format(" [%s] |cffffffaa±0|r", FormatTime(_forcesSplitTime))
+                    end
+                else
+                    splitStr = string_format(" [%s]", FormatTime(_forcesSplitTime))
+                end
             end
+
+            MF.forcesText:SetText("100% / 100%" .. splitStr)
+            MF.forcesCountText:SetText("")
         else
             MF.forcesBar:SetStatusBarColor(0.40, 0.00, 1.00, 0.85)
-            MF.forcesText:SetText(string_format("%.2f%%", pct))
-            if total > 100 and current > 0 then
-                local needed = math_max(0, total - current)
-                MF.forcesCountText:SetText(string_format("%d/%d (-%d)", current, total, needed))
-            else
-                MF.forcesCountText:SetText("")
-            end
+            MF.forcesText:SetText(string_format("%.2f%% / 100%%", pct))
+            MF.forcesCountText:SetText("")
         end
     else
         MF.forcesText:SetText("—")
         MF.forcesCountText:SetText("")
     end
 
-    RelayoutHUD(bossCount, delveInfo ~= nil, delveRowH, forcesInfo ~= nil)
+    -- Companion Bar update (Delve only)
+    local compInfo = (delveInfo ~= nil) and GetDelveCompanionInfo() or nil
+    if compInfo then
+        MF.companionBar:SetMinMaxValues(0, 100)
+        MF.companionBar:SetValue(compInfo.pct)
+        MF.companionLeftText:SetText(string_format("lvl %d", compInfo.level))
+        if compInfo.isMaxLevel then
+            MF.companionRightText:SetText("|cff44ff44max level|r")
+        else
+            MF.companionRightText:SetText(string_format("%.1f%%", compInfo.pct))
+        end
+    else
+        MF.companionLeftText:SetText("")
+        MF.companionRightText:SetText("")
+    end
+
+    RelayoutHUD(bossCount, delveInfo ~= nil, delveRowH, forcesInfo ~= nil, compInfo ~= nil)
 end
 
 -- ─── Timer Update (10 Hz ticker — optimized) ──────────────
@@ -1739,7 +2455,6 @@ local function InitRun()
         _timeLimit = 0
     end
 
-    local EMPTY_TABLE = {}
     MF.levelText:SetTextColor(1, 0.82, 0, 1)
     if ok2 and level and level > 0 then
         MF.levelText:SetText(string_format("+%d", level))
@@ -1747,6 +2462,27 @@ local function InitRun()
     else
         MF.levelText:SetText("+?")
         BuildAffixRow(EMPTY_TABLE)
+    end
+
+    _forcesSplitTime = nil
+    _runCompleted    = false
+    _currentMapID = (ok1 and mapID and mapID > 0) and mapID or nil
+    _currentLevel = (ok2 and level and level > 0) and level or nil
+    _currentBestRun = GetBestRun(_currentMapID, _currentLevel)
+
+    if _currentBestRun and _currentBestRun.duration and _currentBestRun.duration > 0 then
+        local pbLvl = _currentBestRun.level or _currentLevel
+        if pbLvl and pbLvl > 0 then
+            MF.pbText:SetText(string_format("best: %s (+%d)", FormatTime(_currentBestRun.duration), pbLvl))
+        else
+            MF.pbText:SetText(string_format("best: %s", FormatTime(_currentBestRun.duration)))
+        end
+        MF.pbText:Show()
+        MF.header:SetHeight(28)
+    else
+        MF.pbText:SetText("")
+        MF.pbText:Hide()
+        MF.header:SetHeight(24)
     end
 
     -- Detect active timer ID
@@ -1773,13 +2509,22 @@ end
 local function InitDungeon()
     if not MF then BuildHUDFrame() end
     wipe(_bossSplits)
+    _forcesSplitTime = nil
+    _runCompleted    = false
+    _currentMapID    = nil
+    _currentLevel    = nil
+    _currentBestRun  = nil
+    if MF.pbText then
+        MF.pbText:SetText("")
+        MF.pbText:Hide()
+    end
+    MF.header:SetHeight(24)
     _lastBossCount  = 0
     _lastTimerPhase = -1
     _lastTimerText  = ""
     _lastDeathText  = ""
     _lastDeaths     = -1
     _lastTimeLost   = -1
-
 
     -- Instance info
     local instName, _, _, diffName
@@ -1911,6 +2656,9 @@ function sfui.mythic.ResetPosition()
         MF:ClearAllPoints()
         MF:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", mcfg.posX or -10, mcfg.posY or -10)
     end
+    if sfui.questlog and sfui.questlog.reset_position then
+        sfui.questlog.reset_position()
+    end
 end
 
 local function _OnInitRunDeferred()
@@ -1925,7 +2673,13 @@ local function CheckScenarioState()
     local okM, isActive = pcall(C_ChallengeMode.IsChallengeModeActive)
     if okM and isActive then isMPlus = true end
 
-    if isMPlus then
+    local inInst = false
+    if _G.IsInInstance then
+        local okI, inI = pcall(_G.IsInInstance)
+        if okI and inI then inInst = true end
+    end
+
+    if isMPlus or (_runCompleted and _mode == "mythic" and inInst) then
         if _mode ~= "mythic" then
             _mode = "mythic"
             if C_MythicPlus and C_MythicPlus.RequestMapInfo then
@@ -1938,6 +2692,17 @@ local function CheckScenarioState()
             C_Timer.After(0.4, _OnInitRunDeferred)
         else
             UpdateInstanceState()
+        end
+        return
+    end
+
+    -- If run was completed but player is no longer inside the instance, clean up and hide
+    if _runCompleted and not inInst then
+        _runCompleted = false
+        _mode = nil
+        HideHUD()
+        if sfui.questlog and sfui.questlog.on_mythic_end then
+            sfui.questlog.on_mythic_end()
         end
         return
     end
@@ -1982,6 +2747,10 @@ function sfui.mythic.ShowPreview()
 
     _isPreview = true
 
+    if sfui.questlog and sfui.questlog.on_mythic_start then
+        sfui.questlog.on_mythic_start()
+    end
+
     -- Restore saved position (matches objective tracker position)
     local posX = (SfuiDB and (SfuiDB.mythicHudX or SfuiDB.questlogX)) or mcfg.posX or -10
     local posY = (SfuiDB and (SfuiDB.mythicHudY or SfuiDB.questlogY)) or mcfg.posY or -10
@@ -1991,9 +2760,15 @@ function sfui.mythic.ShowPreview()
     -- Set mode to mythic for preview rendering
     _mode = "mythic"
 
-    MF.dungeonText:SetText("Darkflame Cleft")
+    MF.dungeonText:SetText("Burial Grounds")
     MF.levelText:SetText("+12")
     MF.levelText:SetTextColor(1, 0.82, 0, 1)
+
+    if MF.pbText then
+        MF.pbText:SetText("best: 18:20 (+12)")
+        MF.pbText:Show()
+        MF.header:SetHeight(28)
+    end
 
     BuildAffixRow({ 9, 10, 135 })
 
@@ -2020,10 +2795,10 @@ function sfui.mythic.ShowPreview()
     PlaceChestTicks()
 
     local fakes = {
-        { name = "Corpsefire",  done = true,  split = "[04:12]" },
-        { name = "Bishibosh",   done = true,  split = "[08:55]" },
-        { name = "Coldcrow",    done = false, split = "" },
-        { name = "Blood Raven", done = false, split = "" },
+        { name = "Corpsefire",  done = true,  split = "[04:12] |cff00ff88-0:28|r", offset = -95 },
+        { name = "Bishibosh",   done = true,  split = "[08:55] |cffff4444+0:15|r", offset = -95 },
+        { name = "Coldcrow",    done = false, split = "|cff555555[12:40]|r",       offset = -55 },
+        { name = "Blood Raven", done = false, split = "|cff555555[18:20]|r",       offset = -55 },
     }
     for i, f in ipairs(fakes) do
         local r = GetOrCreateBossRow(i)
@@ -2033,21 +2808,28 @@ function sfui.mythic.ShowPreview()
             r.name:SetTextColor(CLR_GREEN_R, CLR_GREEN_G, CLR_GREEN_B)
             r.split:SetTextColor(CLR_DIM_R, CLR_DIM_G, CLR_DIM_B)
             r.split:SetText(f.split)
+            r.name:ClearAllPoints()
+            r.name:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 4, 0)
+            r.name:SetPoint("RIGHT", r.row, "RIGHT", f.offset, 0)
         else
-            r.check:Hide(); r.icon:Hide()
+            r.check:Hide(); r.icon:Show()
             r.name:SetTextColor(CLR_WHITE_R, CLR_WHITE_G, CLR_WHITE_B)
-            r.split:SetText("")
+            r.split:SetTextColor(CLR_DIM_R, CLR_DIM_G, CLR_DIM_B)
+            r.split:SetText(f.split)
+            r.name:ClearAllPoints()
+            r.name:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 4, 0)
+            r.name:SetPoint("RIGHT", r.row, "RIGHT", f.offset, 0)
         end
         r.name:SetText(f.name)
     end
     HideExtraBossRows(#fakes)
     RelayoutHUD(#fakes)
 
-    MF.forcesBar:SetMinMaxValues(0, 301)
-    MF.forcesBar:SetValue(186)
+    MF.forcesBar:SetMinMaxValues(0, 100)
+    MF.forcesBar:SetValue(61.79)
     MF.forcesBar:SetStatusBarColor(0.40, 0.00, 1.00, 0.85)
-    MF.forcesText:SetText("Forces: 61.79%")
-    MF.forcesCountText:SetText("186/301 (-115)")
+    MF.forcesText:SetText("61.79% / 100%")
+    MF.forcesCountText:SetText("")
 
     local isLocked = not (SfuiDB and SfuiDB.mythicHudUnlocked)
     MF.dragBar:SetShown(not isLocked)
@@ -2059,7 +2841,15 @@ end
 function sfui.mythic.HidePreview()
     _isPreview = false
     _mode = nil
+    if MF and MF.pbText then
+        MF.pbText:SetText("")
+        MF.pbText:Hide()
+        MF.header:SetHeight(24)
+    end
     HideHUD()
+    if sfui.questlog and sfui.questlog.on_mythic_end then
+        sfui.questlog.on_mythic_end()
+    end
     CheckScenarioState()
 end
 
@@ -2084,8 +2874,10 @@ local ev = CreateFrame("Frame")
 ev:SetScript("OnEvent", function(self, event, ...)
     if event == "CHALLENGE_MODE_START" then
         _mode = "mythic"
+        _runCompleted = false
         wipe(_playerDeaths)
         CacheGroupMembers()
+        SyncBlizzardRunHistory()
         if sfui.questlog and sfui.questlog.on_mythic_start then
             sfui.questlog.on_mythic_start()
         end
@@ -2093,31 +2885,16 @@ ev:SetScript("OnEvent", function(self, event, ...)
     elseif event == "CHALLENGE_MODE_COMPLETED" then
         StopTicker()
         if _mode == "mythic" then
-            local okM, mapID = pcall(C_ChallengeMode.GetActiveChallengeMapID)
-            if okM and mapID and mapID > 0 then
-                local _, _, timeLimit = C_ChallengeMode.GetMapUIInfo(mapID)
-                local _, el = GetWorldElapsedTime(_timerID or 1)
-                local onTime = el and timeLimit and (el <= timeLimit)
-                local upgrades = 0
-                if onTime then
-                    if el <= timeLimit * 0.60 then
-                        upgrades = 3
-                    elseif el <= timeLimit * 0.80 then
-                        upgrades = 2
-                    else
-                        upgrades = 1
-                    end
-                end
-                if MF and MF.timerBar then
-                    local r, g2, b = unpack(onTime and COLORS.cyan or { 1, 0.2, 0.2, 1 })
-                    MF.timerBar:SetStatusBarColor(r, g2, b, 0.9)
-                    MF.chestText:SetText(onTime and string_format("+%d In Time", upgrades) or "Depleted")
-                    MF.chestText:SetTextColor(r, g2, b)
-                end
-                _lastTimerPhase = -1 -- invalidate so next UpdateTimer resets color
-            end
+            _runCompleted = true
+            UpdateTimer()
+            UpdateBossSplits(true)
+        end
+        HideHUD()
+        if sfui.questlog and sfui.questlog.on_mythic_end then
+            sfui.questlog.on_mythic_end()
         end
     elseif event == "CHALLENGE_MODE_RESET" then
+        _runCompleted = false
         _mode = nil
         HideHUD()
         if sfui.questlog and sfui.questlog.on_mythic_end then
@@ -2125,8 +2902,13 @@ ev:SetScript("OnEvent", function(self, event, ...)
         end
     elseif event == "SCENARIO_CRITERIA_UPDATE" or event == "SCENARIO_UPDATE" or
         event == "ACTIVE_DELVE_DATA_UPDATE" or event == "UPDATE_UI_WIDGET" or
-        event == "SCENARIO_COMPLETED" then
-        if event == "UPDATE_UI_WIDGET" and _mode == nil then return end
+        event == "SCENARIO_COMPLETED" or event == "SCENARIO_POIS_UPDATED" or
+        event == "SCENARIO_SPELL_UPDATE" then
+        if event == "UPDATE_UI_WIDGET" and _mode == nil then
+            local okScen, inScen = pcall(C_Scenario.IsInScenario)
+            if not (okScen and inScen) then return end
+            CheckScenarioState()
+        end
         RequestStateUpdate(0.4)
     elseif event == "CHALLENGE_MODE_DEATH_COUNT_UPDATED" then
         if _mode == "mythic" then UpdateTimer() end
@@ -2160,10 +2942,13 @@ ev:SetScript("OnEvent", function(self, event, ...)
         end
     elseif event == "PLAYER_ENTERING_WORLD" then
         CacheGroupMembers()
+        SyncBlizzardRunHistory()
         CheckScenarioState()
         RequestStateUpdate(0.6)
     elseif event == "ZONE_CHANGED_NEW_AREA" then
         RequestStateUpdate(0.4)
+    elseif event == "UPDATE_FACTION" then
+        if _mode == "dungeon" then RequestStateUpdate(0.2) end
     elseif event == "WORLD_STATE_TIMER_START" or event == "WORLD_STATE_TIMER_STOP" then
         if _mode == "mythic" then ReinitTimer() end
     end
@@ -2180,8 +2965,11 @@ Reg("GROUP_ROSTER_UPDATE")
 Reg("SCENARIO_UPDATE")
 Reg("SCENARIO_CRITERIA_UPDATE")
 Reg("SCENARIO_COMPLETED")
+Reg("SCENARIO_POIS_UPDATED")
+Reg("SCENARIO_SPELL_UPDATE")
 Reg("ACTIVE_DELVE_DATA_UPDATE")
 Reg("UPDATE_UI_WIDGET")
+Reg("UPDATE_FACTION")
 Reg("PLAYER_ENTERING_WORLD")
 Reg("ZONE_CHANGED_NEW_AREA")
 Reg("WORLD_STATE_TIMER_START")

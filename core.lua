@@ -66,6 +66,46 @@ function sfui.slash_command_handler(msg)
         else
             sfui.common.print("sfui: quest log not available.")
         end
+    elseif msg == "alts" then
+        if sfui.alts and sfui.alts.Toggle then
+            sfui.alts.Toggle()
+        else
+            sfui.common.print("sfui: alts viewer not available.")
+        end
+    elseif msg == "portals" or msg == "portal" then
+        if sfui.portals and sfui.portals.toggle_menu then
+            sfui.portals.toggle_menu()
+        else
+            sfui.common.print("sfui: portals menu not available.")
+        end
+    elseif msg == "gear" then
+        if sfui.gear and sfui.gear.toggle then
+            sfui.gear.toggle()
+        else
+            sfui.common.print("sfui: gear manager not available.")
+        end
+    elseif msg == "highest" then
+        if sfui.highest and sfui.highest.toggle then
+            sfui.highest.toggle()
+        else
+            sfui.common.print("sfui: highest ilvl viewer not available.")
+        end
+    elseif msg == "lootspec" or msg == "spec" then
+        if sfui.lootspec and sfui.lootspec.toggle then
+            sfui.lootspec.toggle()
+        else
+            sfui.common.print("sfui: loot spec manager not available.")
+        end
+    elseif msg == "mythic" or msg == "m+" or msg == "dungeon" or msg == "delve" then
+        if sfui.mythic and sfui.mythic.ShowPreview and sfui.mythic.HidePreview then
+            if sfui.mythic.previewActive then
+                sfui.mythic.HidePreview()
+            else
+                sfui.mythic.ShowPreview()
+            end
+        else
+            sfui.common.print("sfui: mythic/delve tracker not available.")
+        end
     elseif msg:match("^mem") or msg:match("^memory") or msg == "gc" then
         local sub = msg:match("^mem%s*(.*)$") or msg:match("^memory%s*(.*)$") or msg
         if SlashCmdList["SFMEM"] then
@@ -112,6 +152,7 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
             SfuiDB.trackedOptionsWindow = SfuiDB.trackedOptionsWindow or {}
             SfuiDB.currencyCaps = SfuiDB.currencyCaps or {}
             SfuiDB.items = SfuiDB.items or {}
+            SfuiDB.mythicBestTimes = SfuiDB.mythicBestTimes or {}
 
             SfuiDecorDB = SfuiDecorDB or {}
             SfuiDecorDB.items = SfuiDecorDB.items or {}

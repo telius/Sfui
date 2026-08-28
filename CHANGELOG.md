@@ -1,3 +1,18 @@
+## v12.1.0-8 (2026-08-28)
+
+### Features & Updates
+- **World Event & Outdoor Scenario Tracking (`frames/mythic.lua`)**: Fixed missing objectives for World Events (e.g. Community Feast, Siege on Dragonbane Keep, Theater Troupe, Superbloom, Time Rifts, Radiant Echoes) and outdoor scenarios.
+  - Eliminated the `numCriteria == 0` early exit, allowing scenarios using stage descriptions, bonus steps, or UI Widgets to display properly.
+  - Added support for legacy C-side multi-return values from `C_Scenario.GetCriteriaInfo` and `C_Scenario.GetCriteriaInfoByStep`, with normalized criteria description fallbacks (`criteriaString`, `string`).
+  - Added World Event UI Widget extraction (`TextWithState` widgets for objective lines and `StatusBar` widgets for progress bars).
+  - Added automatic scanning for bonus step criteria (`C_Scenario.GetBonusSteps()`) and stage descriptions (`stepDesc`).
+  - Added dynamic multi-stage progression indicator (`Stage X/Y`) in the HUD header.
+  - Registered `SCENARIO_POIS_UPDATED` and `SCENARIO_SPELL_UPDATE`, and added scenario state detection on `UPDATE_UI_WIDGET`.
+- **Portal Directory Update (`portals_db.lua`)**: Reorganized expansion dungeon and raid teleport categories (Kul Tiras, Zandalar, Broken Isles, Draenor, Pandaria, Northrend, Maelstrom, Kalimdor, Eastern Kingdoms) with updated Midnight spell IDs.
+
+### Bug Fixes & Taint Hardening
+- **World Quest Tooltips & Taint Safety (`frames/wqs.lua`, `common.lua`)**: Added combat lockdown fast-exits, secret value validation (`issecretvalue(questID)`), and protective `pcall` wrappers around GameTooltip rendering in `wqs.lua` to prevent tainted arithmetic and comparison exceptions.
+
 ## v12.1.0-7 (2026-08-28)
 
 ### Features & Diagnostics

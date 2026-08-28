@@ -4,7 +4,7 @@ local select, unpack, ipairs, pairs, type, tostring, table, print = _G.select, _
     _G.tostring, _G.table, _G.print
 local CreateFrame = _G.CreateFrame
 local C_Garrison, C_Traits, C_AddOns, C_Covenants = _G.C_Garrison, _G.C_Traits, _G.C_AddOns, _G.C_Covenants
-local GameTooltip = _G.GameTooltip
+local GameTooltip = sfui.tooltip or _G.GameTooltip
 local ShowUIPanel, HideUIPanel = _G.ShowUIPanel, _G.HideUIPanel
 local GenericTraitUI_LoadUI, OrderHall_LoadUI = _G.GenericTraitUI_LoadUI, _G.OrderHall_LoadUI
 

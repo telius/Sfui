@@ -58,7 +58,6 @@ local issecretvalue = _G.issecretvalue or function() return false end
 local QuestMapFrame_OpenToQuestDetails = _G.QuestMapFrame_OpenToQuestDetails
 local ShowUIPanel, WorldMapFrame = _G.ShowUIPanel, _G.WorldMapFrame
 local GetTasksTable = _G.GetTasksTable
-local GetQuestLogSpecialItemInfo = _G.GetQuestLogSpecialItemInfo
 local print = _G.print
 local string_format = string.format  -- localize alias (avoids global table lookup on every call)
 
@@ -72,6 +71,7 @@ local QC_Calling   = QC and QC.Calling
 local QC_Important = QC and QC.Important
 local QC_Legendary = QC and QC.Legendary
 local QC_Recurring = QC and QC.Recurring
+local QC_Meta      = (QC and QC.Meta) or 6
 
 local QR = Enum and Enum.QuestRepeatability
 local QR_Daily  = (QR and QR.Daily) or 1
@@ -94,6 +94,7 @@ local COLOR_COMPLETE    = "|cffff00ff"
 local COMPLETE_SUFFIX   = " |cff44cc44[Complete]|r"
 local COLOR_SUPERTRACK  = "|cffffff00"
 local COLOR_WARBAND     = "|cffa02020"
+local COLOR_META        = "|cff00ffff"
 local COLOR_FAILED      = "|cffff4444"
 local COLOR_DONE_CNT    = "|cff44cc44"
 local COLOR_UNDONE_CNT  = "|cff777777"
@@ -104,11 +105,12 @@ local COLOR_RESET       = "|r"
 local SECTION_DEFS = qcfg.sections or {
     -- NOTE: "scenario" (dungeon/delve/instance objectives) is intentionally absent.
     -- frames/mythic.lua owns that display in both M+ and regular dungeon mode.
-    { id = "important",  label = "important",        color = { 1.00, 0.40, 0.35 } },
-    { id = "campaign",   label = "campaign",         color = { 0.90, 0.75, 0.10 } },
-    { id = "world",      label = "world quests",     color = { 0.20, 0.85, 0.95 } },
-    { id = "activities", label = "activities",       color = { 0.35, 0.90, 0.40 } },
-    { id = "zone",       label = "quests",           color = { 1.00, 1.00, 1.00 } },
+    { id = "important",    label = "important",        color = { 1.00, 0.40, 0.35 } },
+    { id = "campaign",     label = "campaign",         color = { 0.90, 0.75, 0.10 } },
+    { id = "world",        label = "world quests",     color = { 0.20, 0.85, 0.95 } },
+    { id = "activities",   label = "activities",       color = { 0.35, 0.90, 0.40 } },
+    { id = "zone",         label = "quests",           color = { 1.00, 1.00, 1.00 } },
+    { id = "achievements", label = "achievements",     color = { 0.85, 0.65, 0.35 } },
 }
 
 -- Row & Table pools (Zero-Allocation Architecture)
@@ -179,7 +181,7 @@ local _refreshPending = false
 local function _OnRefreshTimer()
     _refreshPending = false
     State:Update()
-    if _G.InCombatLockdown() or State:IsActive() then return end
+    if State:IsActive() then return end
     if QL and QL.IsShown and QL:IsShown() then
         QL:DoRefresh()
     end
@@ -187,7 +189,7 @@ end
 
 function Refresh:Request()
     State:Update()
-    if _G.InCombatLockdown() or State:IsActive() then return end
+    if State:IsActive() then return end
     if _refreshPending then return end
     _refreshPending = true
     C_Timer.After(THROTTLE, _OnRefreshTimer)
@@ -195,65 +197,39 @@ end
 
 
 -- ─── Blizzard Root Tracker Suppression (Taint-Free) ─────────
--- Off-screen positioning + alpha 0 + secure StateDriver completely prevents
--- Blizzard's ObjectiveTracker from flickering during Delves/Scenarios while
--- keeping execution 100% taint-free.
-local _stateDriverRegistered = false
-local _blizzardOriginalPoints = nil
-local _blizzardTrackerSuppressed = false
+local hiddenParent = CreateFrame("Frame")
+hiddenParent:Hide()
 
+local _trackerKilled = false
 local function SuppressBlizzardTracker()
     local root = _G.ObjectiveTrackerFrame
-    if not root then return end
-    if _G.InCombatLockdown and _G.InCombatLockdown() then return end
+    if not root or _trackerKilled then return end
+    if InCombat() then return end
 
-    if not _blizzardOriginalPoints and root.GetPoint then
-        local p, relTo, relP, x, y = root:GetPoint()
-        if p then
-            _blizzardOriginalPoints = { p = p, relTo = relTo, relP = relP, x = x, y = y }
-        end
-    end
-
-    if not _blizzardTrackerSuppressed then
-        if root.ClearAllPoints and root.SetPoint then
-            root:ClearAllPoints()
-            root:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -9999, -9999)
-        end
-        if root.SetAlpha then root:SetAlpha(0) end
-        if root.EnableMouse then root:EnableMouse(false) end
-
-        if _G.RegisterStateDriver and not _stateDriverRegistered then
-            _G.RegisterStateDriver(root, "visibility", "hide")
-            _stateDriverRegistered = true
-        end
-        _blizzardTrackerSuppressed = true
-    end
+    pcall(function()
+        root:UnregisterAllEvents()
+        root:SetParent(hiddenParent)
+        root:Hide()
+        root:SetAlpha(0)
+        root:SetScript("OnShow", function(self) self:Hide() end)
+    end)
+    _trackerKilled = true
 end
 
 local function RestoreBlizzardTracker()
     local root = _G.ObjectiveTrackerFrame
-    if not root then return end
-    if _G.InCombatLockdown and _G.InCombatLockdown() then return end
+    if not root or not _trackerKilled then return end
+    if InCombat() then return end
 
-    _blizzardTrackerSuppressed = false
-
-    if _G.UnregisterStateDriver and _stateDriverRegistered then
-        _G.UnregisterStateDriver(root, "visibility")
-        _stateDriverRegistered = false
-    end
-
-    if root.ClearAllPoints and root.SetPoint then
+    pcall(function()
+        root:SetParent(UIParent)
         root:ClearAllPoints()
-        if _blizzardOriginalPoints and _blizzardOriginalPoints.p then
-            root:SetPoint(_blizzardOriginalPoints.p, _blizzardOriginalPoints.relTo or UIParent, _blizzardOriginalPoints.relP, _blizzardOriginalPoints.x, _blizzardOriginalPoints.y)
-        else
-            root:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -10, -10)
-        end
-    end
-
-    if root.SetAlpha then root:SetAlpha(1) end
-    if root.Show then root:Show() end
-    if root.EnableMouse then root:EnableMouse(true) end
+        root:SetPoint("TOPRIGHT", MinimapCluster or UIParent, "BOTTOMRIGHT", 0, 0)
+        root:SetAlpha(1)
+        root:SetScript("OnShow", nil)
+        root:Show()
+    end)
+    _trackerKilled = false
 end
 
 sfui.SuppressBlizzardTracker = SuppressBlizzardTracker
@@ -330,18 +306,20 @@ end
 -- Static section lists to eliminate table allocation on refresh
 -- NOTE: "scenario" key removed — mythic.lua owns dungeon/delve/scenario display.
 local sectionLists = {
-    world      = {},
-    campaign   = {},
-    important  = {},
-    activities = {},
-    zone       = {},
+    world        = {},
+    campaign     = {},
+    important    = {},
+    activities   = {},
+    zone         = {},
+    achievements = {},
 }
 local renderedSectionQuests = {
-    world      = {},
-    campaign   = {},
-    important  = {},
-    activities = {},
-    zone       = {},
+    world        = {},
+    campaign     = {},
+    important    = {},
+    activities   = {},
+    zone         = {},
+    achievements = {},
 }
 local processedQuests = {}
 
@@ -385,6 +363,119 @@ local function UntrackQuest(questID)
         end
         -- QUEST_WATCH_LIST_CHANGED fires immediately; DoRefresh picks up the change.
         -- No need to call DoRefresh manually.
+    end
+end
+
+local TRACKING_TYPE_ACHIEVEMENT = (Enum and Enum.ContentTrackingType and Enum.ContentTrackingType.Achievement) or 2
+local TRACKING_STOP_TYPE_MANUAL = (Enum and Enum.ContentTrackingStopType and Enum.ContentTrackingStopType.Manual) or 0
+
+local function UntrackAchievement(achievementID)
+    if not achievementID or achievementID <= 0 then return end
+
+    if _G.RemoveTrackedAchievement then
+        pcall(_G.RemoveTrackedAchievement, achievementID)
+    end
+
+    if C_ContentTracking and C_ContentTracking.StopTracking then
+        pcall(C_ContentTracking.StopTracking, TRACKING_TYPE_ACHIEVEMENT, achievementID, TRACKING_STOP_TYPE_MANUAL)
+    end
+end
+
+local function GetAchievementCriteriaList(achievementID)
+    local objectives = nil
+    local numCriteria = 0
+    if GetAchievementNumCriteria then
+        local ok, n = pcall(GetAchievementNumCriteria, achievementID)
+        if ok and type(n) == "number" then numCriteria = n end
+    end
+
+    if numCriteria > 0 and GetAchievementCriteriaInfo then
+        for i = 1, numCriteria do
+            local cOk, cString, cType, completed, qty, reqQty, _, _, _, qtyString = pcall(GetAchievementCriteriaInfo, achievementID, i)
+            if cOk then
+                local finished = (completed == true) or (completed == 1)
+                local txt = cString
+                if not txt or txt == "" then txt = qtyString end
+                if txt and txt ~= "" then
+                    qty = tonumber(qty)
+                    reqQty = tonumber(reqQty)
+                    if qty and reqQty and reqQty > 1 then
+                        txt = txt .. " (" .. tostring(qty) .. "/" .. tostring(reqQty) .. ")"
+                    end
+                    if not objectives then objectives = {} end
+                    objectives[#objectives + 1] = {
+                        text = txt,
+                        finished = finished,
+                    }
+                end
+            end
+        end
+    end
+    return objectives
+end
+
+local function ScanTrackedAchievements(intoList)
+    local idMap = {}
+    local idList = {}
+
+    local function addID(id)
+        if type(id) == "number" and id > 0 and not idMap[id] then
+            idMap[id] = true
+            idList[#idList + 1] = id
+        end
+    end
+
+    if GetTrackedAchievements then
+        local tracked = { GetTrackedAchievements() }
+        for _, id in ipairs(tracked) do
+            addID(id)
+        end
+    end
+
+    if C_ContentTracking and C_ContentTracking.GetTrackedIDs then
+        local ok, ids = pcall(C_ContentTracking.GetTrackedIDs, TRACKING_TYPE_ACHIEVEMENT)
+        if ok and ids and type(ids) == "table" then
+            for _, id in ipairs(ids) do
+                addID(id)
+            end
+        end
+    end
+
+    if #idList == 0 then return end
+
+    for _, achievementID in ipairs(idList) do
+        if type(achievementID) == "number" and achievementID > 0 then
+            local aOk, id, name, points, completed, month, day, year, description, flags, icon = pcall(GetAchievementInfo, achievementID)
+            if aOk and name and name ~= "" then
+                local isComplete = (completed == true) or (completed == 1)
+                local objs = GetAchievementCriteriaList(achievementID)
+                if (not objs or #objs == 0) and description and description ~= "" then
+                    objs = { { text = description, finished = isComplete } }
+                end
+
+                local done, total = 0, (objs and #objs or 0)
+                if objs then
+                    for _, obj in ipairs(objs) do
+                        if obj.finished then done = done + 1 end
+                    end
+                end
+
+                local entry = AcquireTable()
+                entry.achievementID      = achievementID
+                entry.questID            = nil
+                entry.title              = name
+                entry.description        = description
+                entry.points             = points
+                entry.icon               = icon
+                entry.isComplete         = isComplete
+                entry.isAchievement      = true
+                entry.objectives         = objs
+                entry.done               = done
+                entry.total              = total
+                entry.singleCountStr     = (total > 0) and (done .. "/" .. total) or nil
+                intoList[#intoList + 1] = entry
+            end
+        end
     end
 end
 
@@ -440,6 +531,49 @@ local function IsQuestWarbandCompleted(questID)
     return completed
 end
 
+-- Helper: determine if a quest is a Meta quest
+local function IsMetaQuest(questID, defaultInfo)
+    if not questID or questID <= 0 then return false end
+    if defaultInfo and (defaultInfo.isMeta or defaultInfo.questClassification == QC_Meta) then return true end
+
+    if C_QuestLog.IsMetaQuest then
+        local ok, v = pcall(C_QuestLog.IsMetaQuest, questID)
+        if ok and v then return true end
+    end
+
+    if C_QuestInfoSystem and C_QuestInfoSystem.GetQuestClassification then
+        local ok, cls = pcall(C_QuestInfoSystem.GetQuestClassification, questID)
+        if ok and cls and (cls == QC_Meta or (QC and QC.Meta and cls == QC.Meta)) then
+            return true
+        end
+    end
+
+    if C_QuestLog.GetQuestTagInfo then
+        local ok, tag = pcall(C_QuestLog.GetQuestTagInfo, questID)
+        if ok and tag then
+            if type(tag) == "table" then
+                if tag.isMeta or tag.tagName == "Meta" or tag.tagID == (Enum.QuestTag and Enum.QuestTag.Meta) or tag.tagID == 128 then
+                    return true
+                end
+            elseif tag == (Enum.QuestTag and Enum.QuestTag.Meta) or tag == 128 then
+                return true
+            end
+        end
+    end
+
+    if C_QuestLog.GetInfo then
+        local lIndex = C_QuestLog.GetLogIndexForQuestID and C_QuestLog.GetLogIndexForQuestID(questID)
+        if lIndex then
+            local ok, info = pcall(C_QuestLog.GetInfo, lIndex)
+            if ok and info and (info.isMeta or info.questClassification == QC_Meta) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 -- Classify standard quest → section ID (Fast Cached Enums)
 local function ClassifyQuest(info, questID)
     if info.isTask or info.isBounty or IsWorldQuest(questID) then
@@ -466,6 +600,26 @@ local function ClassifyQuest(info, questID)
 end
 
 local function UntrackSectionQuests(sectionID)
+    if sectionID == "achievements" then
+        if _G.RemoveTrackedAchievement and _G.GetTrackedAchievements then
+            local tracked = { _G.GetTrackedAchievements() }
+            for _, id in ipairs(tracked) do
+                if id and type(id) == "number" and id > 0 then
+                    pcall(_G.RemoveTrackedAchievement, id)
+                end
+            end
+        end
+        if C_ContentTracking and C_ContentTracking.GetTrackedIDs and C_ContentTracking.StopTracking then
+            local ok, ids = pcall(C_ContentTracking.GetTrackedIDs, TRACKING_TYPE_ACHIEVEMENT)
+            if ok and ids and type(ids) == "table" then
+                for _, id in ipairs(ids) do
+                    pcall(C_ContentTracking.StopTracking, TRACKING_TYPE_ACHIEVEMENT, id, TRACKING_STOP_TYPE_MANUAL)
+                end
+            end
+        end
+        return
+    end
+
     -- 1. Untrack all currently rendered quests for this section
     local rendered = renderedSectionQuests[sectionID]
     if rendered then
@@ -565,14 +719,19 @@ local function QL_SavePosition()
     SfuiDB.questlogY  = y
     SfuiDB.mythicHudX = x
     SfuiDB.mythicHudY = y
+    if SfuiMythicHUD then
+        SfuiMythicHUD:ClearAllPoints()
+        SfuiMythicHUD:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", x, y)
+    end
 end
 
 -- Restore saved position, or keep default TOPRIGHT anchor.
 local function QL_RestorePosition()
-    if SfuiDB.questlogX and SfuiDB.questlogY then
+    local posX = SfuiDB and (SfuiDB.questlogX or SfuiDB.mythicHudX)
+    local posY = SfuiDB and (SfuiDB.questlogY or SfuiDB.mythicHudY)
+    if posX and posY then
         QL:ClearAllPoints()
-        QL:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT",
-            SfuiDB.questlogX, SfuiDB.questlogY)
+        QL:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", posX, posY)
     end
 end
 QL._RestorePosition = QL_RestorePosition
@@ -736,6 +895,16 @@ local function AcquireRow()
         arrowFS:SetTextColor(0.55, 0.55, 0.55)
         toggleBtn.Arrow = arrowFS
         toggleBtn:SetScript("OnClick", function()
+            local achID = row.achievementID
+            if achID then
+                local state = GetQLState()
+                state.expandedQuests = state.expandedQuests or {}
+                local key = "ach_" .. tostring(achID)
+                state.expandedQuests[key] = not state.expandedQuests[key]
+                Refresh:Request()
+                return
+            end
+
             local qID = row.questID
             if qID then
                 local state = GetQLState()
@@ -760,48 +929,6 @@ local function AcquireRow()
         leftFS:SetWordWrap(false)
         leftFS:Hide()
         row.LeftFS = leftFS
-
-        -- Usable Quest Item Button (outside window on the left of dropdown icon)
-        local itemBtn = CreateFrame("Button", nil, row, "SecureActionButtonTemplate,BackdropTemplate")
-        itemBtn:SetSize(16, 16)
-        itemBtn:SetPoint("RIGHT", row, "LEFT", -6, 0)
-        itemBtn:SetBackdrop({
-            bgFile = "Interface/Buttons/WHITE8X8",
-            edgeFile = "Interface/Buttons/WHITE8X8",
-            edgeSize = 1,
-        })
-        itemBtn:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
-        itemBtn:SetBackdropBorderColor(0.35, 0.35, 0.35, 0.9)
-        itemBtn:RegisterForClicks("AnyUp", "AnyDown")
-        itemBtn:SetAttribute("type", "item")
-
-        local itemTex = itemBtn:CreateTexture(nil, "ARTWORK")
-        itemTex:SetAllPoints()
-        itemTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        itemBtn.Icon = itemTex
-
-        local countFS = itemBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        countFS:SetPoint("BOTTOMRIGHT", itemBtn, "BOTTOMRIGHT", 1, -1)
-        itemBtn.Count = countFS
-
-        itemBtn:SetScript("OnEnter", function(btn)
-            btn:SetBackdropBorderColor(0.6, 0.3, 1.0, 1.0)
-            if btn.questLogIndex then
-                SfuiQuestTooltip:SetOwner(btn, "ANCHOR_LEFT")
-                if SfuiQuestTooltip.SetQuestLogSpecialItem then
-                    SfuiQuestTooltip:SetQuestLogSpecialItem(btn.questLogIndex)
-                elseif btn.itemLink then
-                    SfuiQuestTooltip:SetHyperlink(btn.itemLink)
-                end
-                SfuiQuestTooltip:Show()
-            end
-        end)
-        itemBtn:SetScript("OnLeave", function(btn)
-            btn:SetBackdropBorderColor(0.35, 0.35, 0.35, 0.9)
-            SfuiQuestTooltip:Hide()
-        end)
-        itemBtn:Hide()
-        row.ItemBtn = itemBtn
 
         -- Title
         local fs = row:CreateFontString(nil, "OVERLAY")
@@ -850,6 +977,34 @@ local function AcquireRow()
 
         row:SetScript("OnEnter", function(s)
             s.HLTex:SetColorTexture(1, 1, 1, 0.05)
+            if s.isAchievement and s.achievementID then
+                SfuiQuestTooltip:SetOwner(s, "ANCHOR_LEFT")
+                SfuiQuestTooltip:ClearLines()
+                SfuiQuestTooltip:AddLine(s.questTitle or "Achievement", 0.95, 0.75, 0.3)
+                if s.description and s.description ~= "" then
+                    SfuiQuestTooltip:AddLine(s.description, 0.85, 0.85, 0.85, true)
+                end
+                if s.points and s.points > 0 then
+                    SfuiQuestTooltip:AddLine(tostring(s.points) .. " Achievement Points", 0.3, 0.9, 0.4)
+                end
+                if s.objectives and #s.objectives > 0 then
+                    SfuiQuestTooltip:AddLine(" ")
+                    for _, obj in ipairs(s.objectives) do
+                        if obj.text and obj.text ~= "" then
+                            local r, g, b = 0.75, 0.75, 0.75
+                            if obj.finished then r, g, b = 0.30, 0.80, 0.30 end
+                            SfuiQuestTooltip:AddLine("  - " .. obj.text, r, g, b, true)
+                        end
+                    end
+                end
+                SfuiQuestTooltip:AddLine(" ")
+                SfuiQuestTooltip:AddLine("|cff888888Left-click: Open Achievement Panel|r", 1, 1, 1)
+                SfuiQuestTooltip:AddLine("|cff888888Right-click / Arrow: Collapse/Expand criteria|r", 1, 1, 1)
+                SfuiQuestTooltip:AddLine("|cff888888Shift-click: Untrack Achievement|r", 1, 1, 1)
+                SfuiQuestTooltip:Show()
+                return
+            end
+
             if s.questID then
                 SfuiQuestTooltip:SetOwner(s, "ANCHOR_LEFT")
                 SfuiQuestTooltip:ClearLines()
@@ -907,6 +1062,43 @@ local function AcquireRow()
             SfuiQuestTooltip:Hide()
         end)
         row:SetScript("OnClick", function(s, btn)
+            if s.isAchievement and s.achievementID then
+                local IsShiftKeyDown = _G.IsShiftKeyDown
+                if IsShiftKeyDown and IsShiftKeyDown() then
+                    local ChatEdit_GetActiveWindow = _G.ChatEdit_GetActiveWindow
+                    local ChatEdit_InsertLink = _G.ChatEdit_InsertLink
+                    local activeChat = ChatEdit_GetActiveWindow and ChatEdit_GetActiveWindow()
+                    if activeChat and activeChat:IsShown() and activeChat:HasFocus() then
+                        if _G.GetAchievementLink and ChatEdit_InsertLink then
+                            local link = _G.GetAchievementLink(s.achievementID)
+                            if link and ChatEdit_InsertLink(link) then return end
+                        end
+                    end
+
+                    UntrackAchievement(s.achievementID)
+                    Refresh:Request()
+                    return
+                end
+
+                if btn == "RightButton" then
+                    local state = GetQLState()
+                    state.expandedQuests = state.expandedQuests or {}
+                    local key = "ach_" .. tostring(s.achievementID)
+                    state.expandedQuests[key] = not state.expandedQuests[key]
+                    Refresh:Request()
+                    return
+                end
+
+                if not InCombat() then
+                    if _G.OpenAchievementFrameToAchievement then
+                        pcall(_G.OpenAchievementFrameToAchievement, s.achievementID)
+                    elseif _G.ToggleAchievementFrame then
+                        pcall(_G.ToggleAchievementFrame)
+                    end
+                end
+                return
+            end
+
             if not s.questID then return end
 
             if s.questID == -1 then
@@ -1035,13 +1227,38 @@ local function AcquireRow()
                 pcall(C_SuperTrack.SetSuperTrackedQuestID, s.questID)
             end
 
+            if InCombatLockdown and InCombatLockdown() then return end
+
+            if s.isWorldQuest then
+                if C_TaskQuest and C_TaskQuest.GetQuestZoneID and C_Map and C_Map.OpenWorldMap then
+                    local ok, zoneMapID = pcall(C_TaskQuest.GetQuestZoneID, s.questID)
+                    if ok and zoneMapID and zoneMapID ~= 0 then
+                        C_Timer.After(0, function()
+                            if not InCombatLockdown or not InCombatLockdown() then
+                                pcall(C_Map.OpenWorldMap, zoneMapID)
+                            end
+                        end)
+                        return
+                    end
+                end
+            end
+
             if C_QuestLog.SetSelectedQuest then
                 pcall(C_QuestLog.SetSelectedQuest, s.questID)
             end
+
             if QuestMapFrame_OpenToQuestDetails then
-                pcall(QuestMapFrame_OpenToQuestDetails, s.questID)
+                C_Timer.After(0, function()
+                    if not InCombatLockdown or not InCombatLockdown() then
+                        pcall(QuestMapFrame_OpenToQuestDetails, s.questID)
+                    end
+                end)
             elseif ShowUIPanel and WorldMapFrame then
-                ShowUIPanel(WorldMapFrame)
+                C_Timer.After(0, function()
+                    if not InCombatLockdown or not InCombatLockdown() then
+                        pcall(ShowUIPanel, WorldMapFrame)
+                    end
+                end)
             end
             Refresh:Request()
         end)
@@ -1057,13 +1274,38 @@ local function AcquireObjRow()
     if not obj then
         obj = CreateFrame("Frame", nil, content)
         obj:SetHeight(OBJ_H)
+
+        -- Text objective FontString (top)
         local fs = obj:CreateFontString(nil, "OVERLAY")
         fs:SetFontObject("GameFontHighlightSmall")
-        fs:SetPoint("LEFT",  obj, "LEFT",  2,      0)
-        fs:SetPoint("RIGHT", obj, "RIGHT", -PAD_X, 0)
+        fs:SetPoint("TOPLEFT",  obj, "TOPLEFT",  2,      0)
+        fs:SetPoint("TOPRIGHT", obj, "TOPRIGHT", -PAD_X, 0)
+        fs:SetHeight(OBJ_H)
         fs:SetJustifyH("LEFT")
         fs:SetWordWrap(false)
         obj.FS = fs
+
+        -- Sleek borderless flat progress bar (positioned underneath objective text)
+        local bar = CreateFrame("StatusBar", nil, obj, "BackdropTemplate")
+        bar:SetPoint("TOPLEFT",     fs,  "BOTTOMLEFT",  0, -2)
+        bar:SetPoint("BOTTOMRIGHT", obj, "BOTTOMRIGHT", -PAD_X, 0)
+        bar:SetStatusBarTexture([[Interface\Buttons\WHITE8x8]])
+        bar:SetMinMaxValues(0, 100)
+
+        bar:SetBackdrop({
+            bgFile = [[Interface\Buttons\WHITE8x8]],
+        })
+        bar:SetBackdropColor(0, 0, 0, 0.45)
+
+        local barCenterFS = bar:CreateFontString(nil, "OVERLAY")
+        barCenterFS:SetFontObject("GameFontHighlightSmall")
+        barCenterFS:SetPoint("CENTER", bar, "CENTER", 0, 0)
+        barCenterFS:SetJustifyH("CENTER")
+        barCenterFS:SetWordWrap(false)
+        bar.CenterFS = barCenterFS
+
+        bar:Hide()
+        obj.Bar = bar
     end
     obj:Show()
     table.insert(activeObjs, obj)
@@ -1071,7 +1313,6 @@ local function AcquireObjRow()
 end
 
 local function ClearRows()
-    -- ClearAllPoints removed: rows are always re-anchored in AcquireRow/AcquireObjRow.
     for i = #activeRows, 1, -1 do
         local r = table.remove(activeRows, i)
         r:Hide()
@@ -1093,9 +1334,10 @@ UpdateQuestLogAnchor = function()
 
     local parentTop = (UIParent and UIParent:GetTop()) or 768
     QL:ClearAllPoints()
-    if SfuiDB and SfuiDB.questlogX and SfuiDB.questlogY then
-        QL:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT",
-            SfuiDB.questlogX, SfuiDB.questlogY)
+    local posX = SfuiDB and (SfuiDB.questlogX or SfuiDB.mythicHudX)
+    local posY = SfuiDB and (SfuiDB.questlogY or SfuiDB.mythicHudY)
+    if posX and posY then
+        QL:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", posX, posY)
     else
         QL:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -10, -10)
     end
@@ -1265,24 +1507,6 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
         end
     end
 
-    local hasItem = false
-    local itemLink = nil
-    local itemTex = nil
-    local itemCharges = nil
-    local logIndex = defaultInfo and defaultInfo.questLogIndex
-    if not logIndex and C_QuestLog.GetLogIndexForQuestID then
-        logIndex = C_QuestLog.GetLogIndexForQuestID(questID)
-    end
-    if logIndex and GetQuestLogSpecialItemInfo then
-        local ok, l, tex, charges = pcall(GetQuestLogSpecialItemInfo, logIndex)
-        if ok and (tex or l) then
-            hasItem = true
-            itemLink = l
-            itemTex = tex
-            itemCharges = charges
-        end
-    end
-
     local isAutoComplete = defaultInfo and defaultInfo.isAutoComplete
     if isAutoComplete == nil and C_QuestLog.GetInfo then
         local lIndex = logIndex or (C_QuestLog.GetLogIndexForQuestID and C_QuestLog.GetLogIndexForQuestID(questID))
@@ -1297,6 +1521,7 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
     end
 
     local isWarbandCompleted = IsQuestWarbandCompleted(questID)
+    local isMeta = IsMetaQuest(questID, defaultInfo)
     local canFindGroup = (defaultInfo and defaultInfo.suggestedGroup and defaultInfo.suggestedGroup > 1) or false
 
     local isAutoTurnIn = (isAutoComplete and isComplete)
@@ -1314,6 +1539,7 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
     entry.isAutoComplete     = isAutoComplete
     entry.isAutoTurnIn       = isAutoTurnIn
     entry.isWarbandCompleted = isWarbandCompleted
+    entry.isMeta             = isMeta
     entry.canFindGroup       = canFindGroup
     entry.objectives         = objs
     entry._syntheticObjs     = isSynthetic
@@ -1322,10 +1548,6 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
     entry.singleCountStr     = singleCountStr
     entry.isWorldQuest       = isWorld
     entry.timeLeftText       = timeLeftText
-    entry.hasItem            = hasItem
-    entry.itemLink           = itemLink
-    entry.itemTex            = itemTex
-    entry.itemCharges        = itemCharges
     entry.isScenario         = false
     return entry
 
@@ -1480,6 +1702,11 @@ function QL:DoRefresh()
         end
     end
 
+    -- 7. Tracked achievements scan
+    if sectionLists["achievements"] then
+        ScanTrackedAchievements(sectionLists["achievements"])
+    end
+
     -- Smart Priority Sort within each active section
     for _, def in ipairs(SECTION_DEFS) do
         local list = sectionLists[def.id]
@@ -1501,6 +1728,8 @@ function QL:DoRefresh()
             for _, entry in ipairs(list) do
                 if entry.questID then
                     table.insert(rendered, entry.questID)
+                elseif entry.achievementID then
+                    table.insert(rendered, entry.achievementID)
                 end
             end
 
@@ -1520,10 +1749,16 @@ function QL:DoRefresh()
                     row:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -y)
                     row:SetHeight(QUEST_H)
                     row.questID            = entry.questID
+                    row.achievementID      = entry.achievementID
+                    row.isAchievement      = entry.isAchievement
                     row.questTitle         = entry.title
+                    row.description        = entry.description
+                    row.points             = entry.points
+                    row.objectives         = entry.objectives
                     row.isWorldQuest       = entry.isWorldQuest
                     row.timeLeftText       = entry.timeLeftText
                     row.isWarbandCompleted = entry.isWarbandCompleted
+                    row.isMeta             = entry.isMeta
                     row.isAutoComplete     = entry.isAutoComplete
                     row.isComplete         = entry.isComplete
                     row.canFindGroup       = entry.canFindGroup
@@ -1551,42 +1786,7 @@ function QL:DoRefresh()
                         row.LeftFS:Hide()
                     end
 
-                    if row.ItemBtn then
-                        row.ItemBtn:ClearAllPoints()
-                        row.ItemBtn:SetPoint("RIGHT", row, "LEFT", -6, 0)
-                        row.ItemBtn:Hide()
-                    end
-
-                    if entry.hasItem and entry.questLogIndex and row.ItemBtn and not InCombat() then
-                        local lIndex = entry.questLogIndex
-                        local link = entry.itemLink
-                        local tex = entry.itemTex
-                        local charges = entry.itemCharges
-
-                        if not tex and GetQuestLogSpecialItemInfo then
-                            local ok, l, t, ch = pcall(GetQuestLogSpecialItemInfo, lIndex)
-                            if ok then link, tex, charges = l, t, ch end
-                        end
-
-                        if tex or link then
-                            row.ItemBtn.questLogIndex = lIndex
-                            row.ItemBtn.itemLink = link
-                            row.ItemBtn.Icon:SetTexture(tex or 134400)
-                            row.ItemBtn.Count:SetText((charges and charges > 1) and tostring(charges) or "")
-                            row.ItemBtn:SetAttribute("item", link or ("item:" .. tostring(link)))
-                            row.ItemBtn:Show()
-
-                            if entry.isComplete and row.LeftFS then
-                                row.LeftFS:SetPoint("RIGHT", row.ItemBtn, "LEFT", -4, 0)
-                                if entry.isAutoTurnIn then
-                                    row.LeftFS:SetText("|cffff00ff[Turn In]|r")
-                                else
-                                    row.LeftFS:SetText("|cff44cc44[Complete]|r")
-                                end
-                                row.LeftFS:Show()
-                            end
-                        end
-                    elseif entry.isComplete and row.LeftFS then
+                    if entry.isComplete and row.LeftFS then
                         if entry.isAutoTurnIn then
                             row.LeftFS:SetText("|cffff00ff[Turn In]|r")
                         else
@@ -1595,20 +1795,38 @@ function QL:DoRefresh()
                         row.LeftFS:Show()
                     end
 
-                    local rawTitle = entry.title or "Unknown Quest"
+                    local rawTitle = entry.title or "Unknown"
                     local timeTag = (entry.isWorldQuest and entry.timeLeftText) and (" " .. COLOR_TIME .. "[" .. entry.timeLeftText .. "]" .. COLOR_RESET) or ""
 
                     local titleStr
-                    if entry.isFailed then
+                    if entry.isAchievement then
+                        local achCol = entry.isComplete and "|cff44cc44" or "|cffe0a050"
+                        local baseText = achCol .. strlower(rawTitle) .. COLOR_RESET
+                        if entry.isComplete then
+                            titleStr = baseText .. COMPLETE_SUFFIX
+                        elseif entry.singleCountStr then
+                            local isFin = (entry.done == entry.total)
+                            local col = isFin and COLOR_DONE_CNT or COLOR_UNDONE_CNT
+                            titleStr = baseText .. " " .. col .. "[" .. entry.singleCountStr .. "]" .. COLOR_RESET
+                        elseif entry.total > 0 then
+                            local col = (entry.done == entry.total) and COLOR_DONE_CNT or COLOR_UNDONE_CNT
+                            titleStr = baseText .. " " .. col .. "[" .. entry.done .. "/" .. entry.total .. "]" .. COLOR_RESET
+                        else
+                            titleStr = baseText
+                        end
+                    elseif entry.isFailed then
                         titleStr = COLOR_FAILED .. rawTitle .. COLOR_RESET .. timeTag
                     elseif entry.isComplete and entry.isAutoTurnIn then
                         titleStr = COLOR_COMPLETE .. rawTitle .. " [Turn In]" .. COLOR_RESET .. timeTag
                     elseif entry.isComplete then
-                        titleStr = rawTitle .. timeTag .. COMPLETE_SUFFIX
+                        local compTitle = entry.isMeta and (COLOR_META .. rawTitle .. COLOR_RESET) or rawTitle
+                        titleStr = compTitle .. timeTag .. COMPLETE_SUFFIX
                     else
                         local titleColor
                         if isSuperTracked then
                             titleColor = COLOR_SUPERTRACK
+                        elseif entry.isMeta then
+                            titleColor = COLOR_META
                         elseif entry.isWarbandCompleted then
                             titleColor = COLOR_WARBAND
                         end
@@ -1633,9 +1851,15 @@ function QL:DoRefresh()
                     y = y + QUEST_H
 
                     local hasObjectives = (entry.objectives and #entry.objectives > 0 and not entry.isComplete)
-                    local isQuestExpanded = state.expandedQuests and state.expandedQuests[entry.questID]
-                    if isQuestExpanded == nil and entry.isScenario then
-                        isQuestExpanded = true
+                    local isQuestExpanded
+                    if entry.isAchievement then
+                        local key = "ach_" .. tostring(entry.achievementID)
+                        isQuestExpanded = state.expandedQuests and state.expandedQuests[key]
+                    else
+                        isQuestExpanded = state.expandedQuests and state.expandedQuests[entry.questID]
+                        if isQuestExpanded == nil and entry.isScenario then
+                            isQuestExpanded = true
+                        end
                     end
 
                     if hasObjectives then
@@ -1653,17 +1877,66 @@ function QL:DoRefresh()
                                 orow:ClearAllPoints()
                                 orow:SetPoint("TOPLEFT",  content, "TOPLEFT",  objX, -y)
                                 orow:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0,    -y)
-                                orow:SetHeight(OBJ_H)
-                                local r, g, b = 0.45, 0.45, 0.45
-                                if obj.finished then r, g, b = 0.25, 0.70, 0.25 end
-                                local objStr = "- " .. obj.text
-                                if orow.lastObjStr ~= objStr or orow.lastFinished ~= obj.finished then
-                                    orow.lastObjStr = objStr
-                                    orow.lastFinished = obj.finished
-                                    orow.FS:SetText(objStr)
-                                    orow.FS:SetTextColor(r, g, b)
+
+                                -- Check if this objective qualifies for a statusbar (% objectives only):
+                                local pct = nil
+                                if obj.type == "progressbar" or obj.type == 8 then
+                                    local p = obj.text:match("(%d+)%%")
+                                    if p then
+                                        pct = tonumber(p)
+                                    elseif obj.numRequired and obj.numRequired > 0 and obj.numFulfilled then
+                                        pct = math_min(100, math_max(0, math_floor((obj.numFulfilled / obj.numRequired) * 100)))
+                                    end
+                                else
+                                    local p = obj.text:match("(%d+)%%")
+                                    if p then pct = tonumber(p) end
                                 end
-                                y = y + OBJ_H
+
+                                if pct ~= nil and not obj.finished then
+                                    local BAR_H = 18
+                                    local totalH = OBJ_H + 2 + BAR_H
+                                    orow:SetHeight(totalH)
+
+                                    -- 1. Objective Text on top
+                                    orow.FS:Show()
+                                    local cleanText = obj.text:gsub("%s*%(?%d+%%%)?", ""):gsub("%s*%(?%d+/%d+%)?", "")
+                                    if cleanText == "" then cleanText = rawTitle end
+                                    local objStr = "- " .. cleanText
+                                    if orow.lastObjStr ~= objStr or orow.lastFinished ~= false then
+                                        orow.lastObjStr = objStr
+                                        orow.lastFinished = false
+                                        orow.FS:SetText(objStr)
+                                        orow.FS:SetTextColor(0.85, 0.85, 0.85)
+                                    end
+
+                                    -- 2. Status Bar underneath
+                                    orow.Bar:Show()
+                                    orow.Bar:SetValue(pct)
+
+                                    local r, g, b = def.color[1], def.color[2], def.color[3]
+                                    if entry.isMeta then
+                                        r, g, b = 0.0, 1.0, 1.0
+                                    end
+                                    orow.Bar:SetStatusBarColor(r * 0.75, g * 0.75, b * 0.75, 0.80)
+                                    orow.Bar.CenterFS:SetText(pct .. "%")
+                                    orow.Bar.CenterFS:SetTextColor(1, 1, 1)
+
+                                    y = y + totalH + 2
+                                else
+                                    orow.Bar:Hide()
+                                    orow.FS:Show()
+                                    orow:SetHeight(OBJ_H)
+                                    local r, g, b = 0.45, 0.45, 0.45
+                                    if obj.finished then r, g, b = 0.25, 0.70, 0.25 end
+                                    local objStr = "- " .. obj.text
+                                    if orow.lastObjStr ~= objStr or orow.lastFinished ~= obj.finished then
+                                        orow.lastObjStr = objStr
+                                        orow.lastFinished = obj.finished
+                                        orow.FS:SetText(objStr)
+                                        orow.FS:SetTextColor(r, g, b)
+                                    end
+                                    y = y + OBJ_H
+                                end
                             end
                         end
                     end
@@ -1741,7 +2014,7 @@ end
 -- immediately hides and Blizzard's tracker remains suppressed.
 function sfui.questlog.on_mythic_start()
     State._active = true
-    if QL:IsShown() then QL:Hide() end
+    if not InCombat() and QL:IsShown() then QL:Hide() end
     if sfui.SuppressBlizzardTracker then
         sfui.SuppressBlizzardTracker()
     end
@@ -1757,7 +2030,7 @@ function sfui.questlog.on_mythic_end()
 end
 
 function sfui.questlog.toggle()
-    if not sfui.questlog.is_enabled() then return end
+    if InCombat() or not sfui.questlog.is_enabled() then return end
     State:Update()
     if State:IsActive() then return end
     local state = GetQLState()
@@ -1782,6 +2055,7 @@ function sfui.questlog.set_locked(locked)
 end
 
 function sfui.questlog.reset_position()
+    if InCombat() then return end
     if SfuiDB then
         SfuiDB.questlogX  = nil
         SfuiDB.questlogY  = nil
@@ -1808,6 +2082,7 @@ function sfui.questlog.unhide_all()
 end
 
 function sfui.questlog.initialize()
+    if InCombat() then return end
     if not sfui.questlog.is_enabled() then
         QL:Hide()
         RestoreBlizzardTracker()
@@ -1821,12 +2096,12 @@ function sfui.questlog.initialize()
     end
 
     -- Restore saved drag position (default: TOPRIGHT -10, -10 from UIParent).
-    if SfuiDB.questlogX and SfuiDB.questlogY then
-        QL:ClearAllPoints()
-        QL:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT",
-            SfuiDB.questlogX, SfuiDB.questlogY)
+    local posX = SfuiDB and (SfuiDB.questlogX or SfuiDB.mythicHudX)
+    local posY = SfuiDB and (SfuiDB.questlogY or SfuiDB.mythicHudY)
+    QL:ClearAllPoints()
+    if posX and posY then
+        QL:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", posX, posY)
     else
-        QL:ClearAllPoints()
         QL:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -10, -10)
     end
 
@@ -1850,25 +2125,32 @@ end
 -- ─────────────────────────────────────────────────────────
 CheckVisibilityAndRefresh = function()
     if not sfui.questlog.is_enabled() then
-        if QL:IsShown() then QL:Hide() end
+        if not InCombat() and QL:IsShown() then QL:Hide() end
         return
     end
 
     State:Update()
     if State:IsActive() then
-        if QL:IsShown() then QL:Hide() end
+        if not InCombat() and QL:IsShown() then QL:Hide() end
         return
     end
 
-    SuppressBlizzardTracker()
-    UpdateQuestLogAnchor()
+    if not InCombat() then
+        SuppressBlizzardTracker()
+        UpdateQuestLogAnchor()
+    end
+
     local state = GetQLState()
 
     if not state.hidden then
-        QL:Show()
+        if not InCombat() and not QL:IsShown() then
+            QL:Show()
+        end
         Refresh:Request()
     else
-        QL:Hide()
+        if not InCombat() and QL:IsShown() then
+            QL:Hide()
+        end
     end
 end
 
@@ -1958,7 +2240,9 @@ QL:SetScript("OnEvent", function(_, event, arg1, arg2)
             local state = GetQLState()
             if state.expandedQuests then state.expandedQuests[qID] = nil end
         end
-        UpdateQuestLogAnchor()
+        if not InCombat() then
+            UpdateQuestLogAnchor()
+        end
         Refresh:Request()
 
     elseif event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS" then
@@ -1977,7 +2261,6 @@ QL:SetScript("OnEvent", function(_, event, arg1, arg2)
 
     elseif event == "PLAYER_REGEN_DISABLED" then
         inCombat = true
-        _refreshPending = false  -- cancel any queued refresh
 
     elseif event == "PLAYER_REGEN_ENABLED" then
         inCombat = false
@@ -1989,6 +2272,9 @@ QL:SetScript("OnEvent", function(_, event, arg1, arg2)
         or event == "SCENARIO_SPELL_UPDATE" or event == "SCENARIO_CRITERIA_SHOW_STATE_UPDATE"
         or event == "SCENARIO_COMPLETED" or event == "ACTIVE_DELVE_DATA_UPDATE" then
         CheckVisibilityAndRefresh()
+
+    elseif event == "TRACKED_ACHIEVEMENT_LIST_CHANGED" or event == "TRACKED_ACHIEVEMENT_UPDATE" or event == "ACHIEVEMENT_EARNED" then
+        Refresh:Request()
 
     else
         Refresh:Request()
@@ -2008,6 +2294,9 @@ Reg("QUEST_ACCEPTED")
 Reg("QUEST_TURNED_IN")
 Reg("QUEST_REMOVED")
 Reg("TASK_PROGRESS_UPDATE")
+Reg("TRACKED_ACHIEVEMENT_LIST_CHANGED")
+Reg("TRACKED_ACHIEVEMENT_UPDATE")
+Reg("ACHIEVEMENT_EARNED")
 Reg("SCENARIO_UPDATE")
 Reg("SCENARIO_CRITERIA_UPDATE")
 Reg("SCENARIO_POI_UPDATE")

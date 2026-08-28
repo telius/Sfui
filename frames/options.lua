@@ -13,6 +13,7 @@ local LibStub = LibStub
 local CreateFrame = CreateFrame
 local UIParent = UIParent
 local C_Timer = C_Timer
+local GameTooltip = sfui.tooltip or _G.GameTooltip
 
 local frame
 local function select_tab(selected_tab_button)

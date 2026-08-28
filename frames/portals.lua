@@ -21,7 +21,7 @@ local C_ToyBox          = _G.C_ToyBox
 local GetProfessions    = _G.GetProfessions
 local GetProfessionInfo = _G.GetProfessionInfo
 local PlayerHasToy      = _G.PlayerHasToy
-local GameTooltip       = _G.GameTooltip
+local GameTooltip       = sfui.tooltip or _G.GameTooltip
 local GetTime           = _G.GetTime
 local tinsert           = _G.tinsert
 local select            = _G.select
@@ -76,6 +76,10 @@ actionBtn:Hide()
 -- ========================
 local portalFrame    = nil
 local openLegacyMenu = nil -- track currently-open legacy dropdown menu
+
+local function sort_portals_by_name(a, b)
+    return (a.name or ""):lower() < (b.name or ""):lower()
+end
 
 local function is_engineer()
     local prof1, prof2 = GetProfessions()
@@ -495,6 +499,8 @@ local function make_legacy_dropdown(parent, group, yPos)
     end
     if #opts == 0 then return nil end
 
+    table.sort(opts, sort_portals_by_name)
+
     -- Header
     local header = sfui.common.create_flat_button(parent, group.label, menuWidth, 20)
     header:SetPoint("TOPLEFT", 5, yPos)
@@ -629,6 +635,7 @@ local function build_portals_frame()
             seasonSpellMap[e.spell] = true
         end
     end
+    table.sort(seasonKnown, sort_portals_by_name)
 
     if #seasonKnown > 0 then
         local col, row = 0, 0
@@ -655,6 +662,7 @@ local function build_portals_frame()
             tinsert(midnightKnown, e)
         end
     end
+    table.sort(midnightKnown, sort_portals_by_name)
 
     if #midnightKnown > 0 then
         local col, row = 0, 0
@@ -682,6 +690,7 @@ local function build_portals_frame()
             tinsert(personalKnown, e)
         end
     end
+    table.sort(personalKnown, sort_portals_by_name)
 
     if #personalKnown > 0 then
         for _, e in ipairs(personalKnown) do

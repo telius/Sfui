@@ -26,7 +26,7 @@ local math_floor = math.floor
 local wipe = wipe
 local C_Timer = C_Timer
 local unpack = unpack or table.unpack
-local GameTooltip = _G.GameTooltip
+local GameTooltip = sfui.tooltip or _G.GameTooltip
 
 -- Frame Pooling
 local columnPool = {}
@@ -452,6 +452,7 @@ function sfui.alts.CheckWeeklyResets()
                 if d.vault.raid then wipe(d.vault.raid) end
                 if d.vault.dungeon then wipe(d.vault.dungeon) end
                 if d.vault.world then wipe(d.vault.world) end
+                if d.vault.dungeonRuns then wipe(d.vault.dungeonRuns) end
             end
             if d.m0 then wipe(d.m0) end
             if d.raids then wipe(d.raids) end
@@ -627,6 +628,41 @@ function sfui.alts.PerformSync(isLogout)
                 end
             end
             data.vault[group][activity.index].itemLevel = itemLevel
+        end
+    end
+
+    -- Mythic+ Weekly Dungeon Runs for Great Vault (Top 10 Runs)
+    data.vault.dungeonRuns = data.vault.dungeonRuns or {}
+    wipe(data.vault.dungeonRuns)
+    if C_MythicPlus and C_MythicPlus.GetRunHistory then
+        local weeklyRuns = C_MythicPlus.GetRunHistory(false, true)
+        if weeklyRuns and #weeklyRuns > 0 then
+            local sortedRuns = {}
+            for _, r in ipairs(weeklyRuns) do
+                table.insert(sortedRuns, {
+                    mapID = r.mapChallengeModeID,
+                    level = r.level,
+                    completed = r.completed,
+                    durationSec = r.durationSec or 0,
+                })
+            end
+            table.sort(sortedRuns, function(a, b)
+                if a.level ~= b.level then
+                    return a.level > b.level
+                end
+                return a.durationSec < b.durationSec
+            end)
+
+            for i = 1, math.min(10, #sortedRuns) do
+                local r = sortedRuns[i]
+                local dungeonName = (C_ChallengeMode and C_ChallengeMode.GetMapUIInfo and C_ChallengeMode.GetMapUIInfo(r.mapID)) or ("Map " .. tostring(r.mapID))
+                table.insert(data.vault.dungeonRuns, {
+                    mapID = r.mapID,
+                    level = r.level,
+                    name = dungeonName,
+                    completed = r.completed,
+                })
+            end
         end
     end
 
@@ -2186,6 +2222,65 @@ function sfui.alts.UpdateUI(force)
                             GameTooltip:AddDoubleLine("Slot " .. idx .. ":", statusStr .. extraStr, 1, 1, 1, 1, 1, 1)
                         end
                     end
+
+                    -- Dungeon Great Vault: list the 10 runs that populate the vault with 1, 4, 10 highlighted
+                    if group == "dungeon" then
+                        local runs = alt.data.vault and alt.data.vault.dungeonRuns
+                        if (not runs or #runs == 0) and alt.guid == GetCurrentCharacterGUID() and C_MythicPlus and C_MythicPlus.GetRunHistory then
+                            local weeklyRuns = C_MythicPlus.GetRunHistory(false, true)
+                            if weeklyRuns and #weeklyRuns > 0 then
+                                runs = {}
+                                for _, r in ipairs(weeklyRuns) do
+                                    local dName = (C_ChallengeMode and C_ChallengeMode.GetMapUIInfo and C_ChallengeMode.GetMapUIInfo(r.mapChallengeModeID)) or ("Map " .. tostring(r.mapChallengeModeID))
+                                    table.insert(runs, {
+                                        mapID = r.mapChallengeModeID,
+                                        level = r.level,
+                                        name = dName,
+                                        completed = r.completed,
+                                        durationSec = r.durationSec or 0,
+                                    })
+                                end
+                                table.sort(runs, function(a, b)
+                                    if a.level ~= b.level then return a.level > b.level end
+                                    return (a.durationSec or 0) < (b.durationSec or 0)
+                                end)
+                            end
+                        end
+
+                        if runs and #runs > 0 then
+                            GameTooltip:AddLine(" ")
+                            GameTooltip:AddLine("Weekly Runs (Top 10):", 1, 0.82, 0)
+                            for rIdx = 1, math.min(10, #runs) do
+                                local r = runs[rIdx]
+                                local isMilestone = (rIdx == 1 or rIdx == 4 or rIdx == 10)
+                                local prefix = string.format("%2d. ", rIdx)
+                                local dName = r.name or "Dungeon"
+                                local lvlStr = string.format("+%d", r.level or 0)
+                                if r.completed == false then
+                                    lvlStr = lvlStr .. " |cffff5555(Depleted)|r"
+                                end
+
+                                if isMilestone then
+                                    local slotTag = (rIdx == 1 and "  [Slot 1]") or (rIdx == 4 and "  [Slot 2]") or "  [Slot 3]"
+                                    GameTooltip:AddDoubleLine(
+                                        string.format("|cff00ffff%s%s%s|r", prefix, dName, slotTag),
+                                        string.format("|cff00ffff%s|r", lvlStr),
+                                        0, 1, 1, 0, 1, 1
+                                    )
+                                else
+                                    GameTooltip:AddDoubleLine(
+                                        string.format("|cffbbbbbb%s%s|r", prefix, dName),
+                                        string.format("|cffffffff%s|r", lvlStr),
+                                        0.7, 0.7, 0.7, 1, 1, 1
+                                    )
+                                end
+                            end
+                        else
+                            GameTooltip:AddLine(" ")
+                            GameTooltip:AddLine("No Mythic+ runs recorded this week.", 0.5, 0.5, 0.5)
+                        end
+                    end
+
                     GameTooltip:Show()
                 end)
                 cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2397,6 +2492,7 @@ function sfui.alts.initialize()
                     if d.vault.raid then wipe(d.vault.raid) end
                     if d.vault.dungeon then wipe(d.vault.dungeon) end
                     if d.vault.world then wipe(d.vault.world) end
+                    if d.vault.dungeonRuns then wipe(d.vault.dungeonRuns) end
                 end
                 if d.m0 then wipe(d.m0) end
                 if d.raids then wipe(d.raids) end

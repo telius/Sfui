@@ -1393,16 +1393,18 @@ function sfui.common.create_checkbox(parent, label, dbKeyOrGetter, onClickFunc, 
 
     if tooltip then
         cb:SetScript("OnEnter", function(self)
-            if GameTooltip then
+            local tip = sfui.tooltip or _G.GameTooltip
+            if tip then
                 pcall(function()
-                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                    GameTooltip:SetText(tooltip)
-                    GameTooltip:Show()
+                    tip:SetOwner(self, "ANCHOR_RIGHT")
+                    tip:SetText(tooltip)
+                    tip:Show()
                 end)
             end
         end)
         cb:SetScript("OnLeave", function(self)
-            if GameTooltip then GameTooltip:Hide() end
+            local tip = sfui.tooltip or _G.GameTooltip
+            if tip then tip:Hide() end
         end)
     end
     return cb
@@ -1508,16 +1510,18 @@ function sfui.common.create_slider_input(parent, label, dbKeyOrGetter, minVal, m
 
     if tooltip then
         container:SetScript("OnEnter", function(self)
-            if GameTooltip then
+            local tip = sfui.tooltip or _G.GameTooltip
+            if tip then
                 pcall(function()
-                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                    GameTooltip:SetText(tooltip)
-                    GameTooltip:Show()
+                    tip:SetOwner(self, "ANCHOR_RIGHT")
+                    tip:SetText(tooltip)
+                    tip:Show()
                 end)
             end
         end)
         container:SetScript("OnLeave", function(self)
-            if GameTooltip then GameTooltip:Hide() end
+            local tip = sfui.tooltip or _G.GameTooltip
+            if tip then tip:Hide() end
         end)
     end
 
@@ -1638,16 +1642,18 @@ function sfui.common.create_input_field(parent, label, dbKeyOrGetter, width, onV
 
     if tooltip then
         container:SetScript("OnEnter", function(self)
-            if GameTooltip then
+            local tip = sfui.tooltip or _G.GameTooltip
+            if tip then
                 pcall(function()
-                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                    GameTooltip:SetText(tooltip)
-                    GameTooltip:Show()
+                    tip:SetOwner(self, "ANCHOR_RIGHT")
+                    tip:SetText(tooltip)
+                    tip:Show()
                 end)
             end
         end)
         container:SetScript("OnLeave", function(self)
-            if GameTooltip then GameTooltip:Hide() end
+            local tip = sfui.tooltip or _G.GameTooltip
+            if tip then tip:Hide() end
         end)
     end
 
