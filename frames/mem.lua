@@ -519,23 +519,15 @@ function sfui.mem.create_mem_panel()
     frame:SetScript("OnDragStart", frame.StartMoving)
     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
 
-    -- Flat minimalist backdrop with 1px border
+    -- Flat minimalist backdrop without outer border
     frame:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Buttons\\WHITE8x8",
-        edgeSize = 1,
+        tile = true,
+        tileSize = 32,
     })
     frame:SetBackdropColor(0.04, 0.04, 0.06, 0.94)
-    frame:SetBackdropBorderColor(0.4, 0.0, 1.0, 0.85)
     frame:Hide()
     table_insert(UISpecialFrames, "sfui_mem_frame")
-
-    -- Top Accent Line
-    local topBar = frame:CreateTexture(nil, "ARTWORK")
-    topBar:SetPoint("TOPLEFT", 1, -1)
-    topBar:SetPoint("TOPRIGHT", -1, -1)
-    topBar:SetHeight(2)
-    topBar:SetColorTexture(0.4, 0.0, 1.0, 1)
 
     -- Header Title (Lowercase)
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightMedium")
