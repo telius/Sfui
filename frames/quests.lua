@@ -196,40 +196,59 @@ function Refresh:Request()
 end
 
 
--- ─── Blizzard Root Tracker Suppression (Taint-Free) ─────────
-local hiddenParent = CreateFrame("Frame")
-hiddenParent:Hide()
+-- ─── Blizzard Root Tracker Suppression (Strictly Taint-Free) ─────────
+-- Never reparent, never call UnregisterAllEvents(), never overwrite SetScript("OnShow").
+-- Suppress cleanly via Alpha, EnableMouse, and non-overwriting HookScript.
 
-local _trackerKilled = false
-local function SuppressBlizzardTracker()
+local _trackerHookApplied = false
+
+local function ApplyBlizzardTrackerSuppression()
     local root = _G.ObjectiveTrackerFrame
-    if not root or _trackerKilled then return end
+    if not root then return end
     if InCombat() then return end
 
     pcall(function()
-        root:UnregisterAllEvents()
-        root:SetParent(hiddenParent)
-        root:Hide()
-        root:SetAlpha(0)
-        root:SetScript("OnShow", function(self) self:Hide() end)
+        if root.SetAlpha then root:SetAlpha(0) end
+        if root.EnableMouse then root:EnableMouse(false) end
+        if root.Hide then root:Hide() end
     end)
-    _trackerKilled = true
+end
+
+local function EnsureBlizzardTrackerHook()
+    local root = _G.ObjectiveTrackerFrame
+    if not root or _trackerHookApplied then return end
+    _trackerHookApplied = true
+
+    pcall(function()
+        root:HookScript("OnShow", function(self)
+            if sfui.questlog and sfui.questlog.is_enabled and sfui.questlog.is_enabled() then
+                if self.SetAlpha then self:SetAlpha(0) end
+                if self.EnableMouse then self:EnableMouse(false) end
+                if self.Hide then self:Hide() end
+            end
+        end)
+    end)
+end
+
+local function SuppressBlizzardTracker()
+    local root = _G.ObjectiveTrackerFrame
+    if not root then return end
+    if InCombat() then return end
+
+    EnsureBlizzardTrackerHook()
+    ApplyBlizzardTrackerSuppression()
 end
 
 local function RestoreBlizzardTracker()
     local root = _G.ObjectiveTrackerFrame
-    if not root or not _trackerKilled then return end
+    if not root then return end
     if InCombat() then return end
 
     pcall(function()
-        root:SetParent(UIParent)
-        root:ClearAllPoints()
-        root:SetPoint("TOPRIGHT", MinimapCluster or UIParent, "BOTTOMRIGHT", 0, 0)
-        root:SetAlpha(1)
-        root:SetScript("OnShow", nil)
-        root:Show()
+        if root.SetAlpha then root:SetAlpha(1) end
+        if root.EnableMouse then root:EnableMouse(true) end
+        if root.Show then root:Show() end
     end)
-    _trackerKilled = false
 end
 
 sfui.SuppressBlizzardTracker = SuppressBlizzardTracker

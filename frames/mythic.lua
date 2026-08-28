@@ -397,9 +397,6 @@ local function GetDelveInfo()
         local ok, bgSet = pcall(C_DelvesUI.GetDelveEntranceBackgroundWidgetSetID)
         if ok and bgSet then table.insert(staticWidgetSetIDs, bgSet) end
     end
-    if _G.ScenarioObjectiveTracker and _G.ScenarioObjectiveTracker.StageBlock and _G.ScenarioObjectiveTracker.StageBlock.widgetSetID then
-        table.insert(staticWidgetSetIDs, _G.ScenarioObjectiveTracker.StageBlock.widgetSetID)
-    end
     if _G.UIWidgetTopCenterContainerFrame and _G.UIWidgetTopCenterContainerFrame.widgetSetID then
         table.insert(staticWidgetSetIDs, _G.UIWidgetTopCenterContainerFrame.widgetSetID)
     end
