@@ -27,14 +27,14 @@ A fully integrated, combat-safe vehicle interface driven exclusively by secure s
 A lightweight, taint-free replacement for Blizzard's default Objective Tracker.
 - **Zero-Taint Architecture**: Completely isolated from Blizzard's `UIWidgetManager` and secret layout frames to prevent protected action blocks in Mythic+ and Delves.
 - **World Events & Scenarios**: Full tracking for outdoor scenarios and World Events (Community Feast, Siege on Dragonbane Keep, Theater Troupe, Superbloom, Time Rifts, Radiant Echoes) with dynamic criteria extraction.
-- **World Quest Summary**: Clean popover list (`/sfwqs`) with reward filtering, zone groupings, and pin supertracking.
+- **Integrated Quest Tracking**: Clean objective overview with zone groupings and pin supertracking.
 
 ---
 
 ### Memory Profiler & Pool Inspector
 An interactive Dark Glass diagnostic GUI accessible via `/sfmem`, `/sfui mem`, or the **debug** tab in `/sfui`.
 - **Live Telemetry**: Real-time memory allocation rate meters (`KB/s`), live GC metrics, and 10s/30s benchmark runs.
-- **Module Pool Grid**: Real-time inspection of active frame pools, table pools, and cache sizes across all 19 addon modules.
+- **Module Pool Grid**: Real-time inspection of active frame pools, table pools, and cache sizes across all 18 addon modules.
 
 ---
 

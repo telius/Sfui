@@ -13,7 +13,7 @@
   - Zero-allocation 20Hz ticker with usable/range state caching and Masque button skinning support.
 - **World Event & Outdoor Scenario Tracking (`frames/mythic.lua`)**:
   - Full tracking for World Events (Community Feast, Siege on Dragonbane Keep, Theater Troupe, Superbloom, Time Rifts, Radiant Echoes) and outdoor scenarios via UI Widget extraction (`TextWithState`, `StatusBar`) and criteria scanning.
-- **Taint-Free Tooltip & Map Pin Architecture (`frames/wqs.lua`, `frames/quests.lua`)**:
+- **Taint-Free Tooltip & Map Pin Architecture (`frames/quests.lua`)**:
   - Decoupled tooltips from Blizzard widget container registration, eliminating UIWidgetManager tainted arithmetic exceptions.
 
 ---

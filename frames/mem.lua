@@ -128,20 +128,6 @@ function sfui.mem.GetModuleStats()
     end
     stats["bars"] = barsStats
 
-    -- World Quests Module
-    local wqsStats = {
-        name = "world quests",
-        status = "|cff888888idle|r",
-        line1 = "rows: 0 act / 0 pool",
-        line2 = "reward cache: 0 • table pool: 0",
-    }
-    if sfui.wqs_debug_info then
-        local w = sfui.wqs_debug_info()
-        wqsStats.status = (w.activeFrames or 0) > 0 and "|cff00ff88active|r" or "|cff888888idle|r"
-        wqsStats.line1 = string_format("rows: %d act / %d pool", w.activeFrames or 0, w.framePool or 0)
-        wqsStats.line2 = string_format("reward cache: %d • tables: %d pool", w.rewardCache or 0, w.tablePool or 0)
-    end
-    stats["wqs"] = wqsStats
 
     -- Gear Manager Module
     local gearStats = {
@@ -498,8 +484,8 @@ local activeTab = "modules"
 
 local MODULE_ORDER = {
     "quests", "mythic", "trackedbars", "trackedicons", "bars",
-    "wqs", "gear", "stats", "alts", "merchant",
-    "portals", "castbars", "minimap", "glows", "automation",
+    "gear", "stats", "alts", "merchant", "portals",
+    "castbars", "minimap", "glows", "automation",
     "cursor", "vehicle", "transfer"
 }
 
