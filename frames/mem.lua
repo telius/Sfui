@@ -291,14 +291,14 @@ function sfui.mem.GetModuleStats()
     local vehMod = {
         name = "vehicle action bar",
         status = "|cff888888idle|r",
-        line1 = "frame: ready",
-        line2 = "state driver: combat safe",
+        line1 = "frame: ready • btns: 0",
+        line2 = "health: off • power: off • cast: off",
     }
     if sfui.vehicle_debug_info then
         local v = sfui.vehicle_debug_info()
         vehMod.status = v.frameShown and "|cff00ff88active|r" or "|cff888888idle|r"
-        vehMod.line1 = string_format("frame: %s", v.frameCreated and "ready" or "none")
-        vehMod.line2 = "state driver: combat safe"
+        vehMod.line1 = string_format("frame: %s • btns: %d • unit: %s", v.frameCreated and "ready" or "none", v.visibleButtons or 0, v.currentUnit or "none")
+        vehMod.line2 = string_format("health: %s • power: %s • cast: %s", v.healthShown and "|cff00ff88on|r" or "off", v.powerShown and "|cff00ff88on|r" or "off", v.castShown and "|cff00ff88on|r" or "off")
     end
     stats["vehicle"] = vehMod
 

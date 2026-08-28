@@ -355,6 +355,9 @@ function sfui.create_options_panel()
         if sfui.castbar and sfui.castbar.set_bar_texture then
             sfui.castbar.set_bar_texture(texturePath)
         end
+        if sfui.vehicle and sfui.vehicle.set_bar_texture then
+            sfui.vehicle.set_bar_texture(texturePath)
+        end
 
         UIDropDownMenu_SetSelectedValue(dropdown, textureName)
     end

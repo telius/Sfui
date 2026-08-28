@@ -167,11 +167,24 @@ do
         end
     end
 
+    local function is_in_vehicle()
+        if is_dragonflying() then return false end
+        if UnitInVehicle("player") or UnitHasVehicleUI("player") then return true end
+        if UnitExists("vehicle") then return true end
+        if C_ActionBar then
+            if C_ActionBar.HasVehicleActionBar and C_ActionBar.HasVehicleActionBar() then return true end
+            if C_ActionBar.HasOverrideActionBar and C_ActionBar.HasOverrideActionBar() then return true end
+            if C_ActionBar.HasTempShapeshiftActionBar and C_ActionBar.HasTempShapeshiftActionBar() then return true end
+        end
+        return false
+    end
+
     local function update_bar_visibility()
         local isDragonflying = is_dragonflying()
+        local inVehicle = is_in_vehicle()
         local inCombat = UnitAffectingCombat("player")
         local hasEnemyTarget = UnitCanAttack("player", "target")
-        local showCoreBars = inCombat or hasEnemyTarget
+        local showCoreBars = (not inVehicle) and (inCombat or hasEnemyTarget)
 
         if isDragonflying then
             if vigor_bar and SfuiDB.enableVigorBar then
@@ -188,6 +201,13 @@ do
                     mount_speed_bar.backdrop:Hide()
                 end
             end
+            if bar0 then bar0.backdrop:Hide() end
+            if bar_minus_1 then bar_minus_1.backdrop:Hide() end
+            if bar1 then bar1.backdrop:Hide() end
+            if rune_bar then rune_bar:Hide() end
+        elseif inVehicle then
+            if vigor_bar then vigor_bar.backdrop:Hide() end
+            if mount_speed_bar then mount_speed_bar.backdrop:Hide() end
             if bar0 then bar0.backdrop:Hide() end
             if bar_minus_1 then bar_minus_1.backdrop:Hide() end
             if bar1 then bar1.backdrop:Hide() end
@@ -762,7 +782,7 @@ do
     end
 
     local function on_event(event, unit, ...)
-        if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "UPDATE_SHAPESHIFT_FORM" or event == "PLAYER_CAN_GLIDE_CHANGED" or event == "PLAYER_IS_GLIDING_CHANGED" or event == "PLAYER_MOUNT_DISPLAY_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
+        if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "UPDATE_SHAPESHIFT_FORM" or event == "PLAYER_CAN_GLIDE_CHANGED" or event == "PLAYER_IS_GLIDING_CHANGED" or event == "PLAYER_MOUNT_DISPLAY_CHANGED" or event == "PLAYER_ENTERING_WORLD" or event == "UNIT_ENTERED_VEHICLE" or event == "UNIT_EXITED_VEHICLE" or event == "VEHICLE_UPDATE" or event == "UPDATE_VEHICLE_ACTIONBAR" or event == "UPDATE_OVERRIDE_ACTIONBAR" or event == "UPDATE_POSSESS_BAR" or event == "UPDATE_BONUS_ACTIONBAR" then
             invalidate_dragonflying_cache()
             sfui.bars:on_state_changed()
         elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_TARGET_CHANGED" then
@@ -811,6 +831,13 @@ do
     sfui.events.RegisterEvent("RUNE_POWER_UPDATE", on_event)
     sfui.events.RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED", on_event)
     sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", on_event)
+    sfui.events.RegisterEvent("UNIT_ENTERED_VEHICLE", on_event)
+    sfui.events.RegisterEvent("UNIT_EXITED_VEHICLE", on_event)
+    sfui.events.RegisterEvent("VEHICLE_UPDATE", on_event)
+    sfui.events.RegisterEvent("UPDATE_VEHICLE_ACTIONBAR", on_event)
+    sfui.events.RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR", on_event)
+    sfui.events.RegisterEvent("UPDATE_POSSESS_BAR", on_event)
+    sfui.events.RegisterEvent("UPDATE_BONUS_ACTIONBAR", on_event)
 
     function sfui.bars_debug_info()
         return {

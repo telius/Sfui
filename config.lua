@@ -644,4 +644,12 @@ sfui.config = {
         posX    = -10,      -- default TOPRIGHT x-offset from UIParent (matches quest log tracker)
         posY    = -10,      -- default TOPRIGHT y-offset from UIParent (matches quest log tracker)
     },
+
+    -- ─── Vehicle Bar ──────────────────────────────────────
+    -- Settings for the vehicle/override/possess bar (frames/vehicle.lua).
+    vehicle = {
+        enabled = true,
+        posX    = 0,        -- default horizontal offset (centered at bottom)
+        posY    = 50,       -- default vertical offset (+50px from bottom)
+    },
 }

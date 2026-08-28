@@ -825,27 +825,20 @@ function WQS:CreateRow()
                 tip:SetOwner(s, "ANCHOR_RIGHT")
                 tip:ClearLines()
 
-                local success = false
-                if tip.SetWorldQuestByID then
-                    local ok, res = pcall(tip.SetWorldQuestByID, tip, s.questID)
-                    if ok and res and tip:NumLines() > 0 then success = true end
+                local title = s.title or (C_TaskQuest and C_TaskQuest.GetQuestInfoByQuestID and C_TaskQuest.GetQuestInfoByQuestID(s.questID))
+                if title and not issecretvalue(title) then
+                    tip:SetText(title, 1, 0.82, 0)
+                else
+                    tip:SetText("World Quest", 1, 0.82, 0)
                 end
-                if not success and tip.SetQuestLogItem then
-                    local ok = pcall(tip.SetQuestLogItem, tip, "reward", 1, s.questID)
-                    if ok and tip:NumLines() > 0 then success = true end
+
+                if s.zoneName and not issecretvalue(s.zoneName) then
+                    tip:AddLine(s.zoneName, 0.7, 0.7, 0.7)
                 end
-                if not success then
-                    local title = s.title or (C_TaskQuest and C_TaskQuest.GetQuestInfoByQuestID and C_TaskQuest.GetQuestInfoByQuestID(s.questID))
-                    if title and not issecretvalue(title) then
-                        tip:SetText(title, 1, 0.82, 0)
-                        if s.zoneName and not issecretvalue(s.zoneName) then
-                            tip:AddLine(s.zoneName, 0.7, 0.7, 0.7)
-                        end
-                        if s.rewardText and s.rewardText ~= "" and not issecretvalue(s.rewardText) then
-                            tip:AddLine(" ")
-                            tip:AddLine("Rewards: " .. s.rewardText, 1, 1, 1)
-                        end
-                    end
+
+                if s.rewardText and s.rewardText ~= "" and not issecretvalue(s.rewardText) then
+                    tip:AddLine(" ")
+                    tip:AddLine("Rewards: " .. s.rewardText, 1, 1, 1)
                 end
 
                 local numObjs = GetNumQuestLeaderBoards(s.questID)
@@ -902,17 +895,9 @@ function WQS:CreateRow()
                 pcall(C_SuperTrack.SetSuperTrackedQuestID, s.questID)
 
                 if s.mapID and C_Map and C_Map.OpenWorldMap then
-                    C_Timer.After(0, function()
-                        if not InCombatLockdown or not InCombatLockdown() then
-                            pcall(C_Map.OpenWorldMap, s.mapID)
-                        end
-                    end)
+                    pcall(C_Map.OpenWorldMap, s.mapID)
                 elseif WorldMapFrame and not WorldMapFrame:IsShown() and ShowUIPanel then
-                    C_Timer.After(0, function()
-                        if not InCombatLockdown or not InCombatLockdown() then
-                            pcall(ShowUIPanel, WorldMapFrame)
-                        end
-                    end)
+                    pcall(ShowUIPanel, WorldMapFrame)
                 end
             end
         end)

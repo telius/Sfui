@@ -1,18 +1,19 @@
 local addonName, addon = ...
-sfui.vehicle = {}
+sfui = sfui or {}
+sfui.vehicle = sfui.vehicle or {}
 
 -- ============================================================================
 -- SFUI Vehicle Bar
 --
--- Displays up to 6 action buttons for the current vehicle/override/possess bar,
--- positioned cleanly relative to UIParent using the exact screen coordinates
--- of SfuiIconPanel_1 / player health & power bars.
+-- Displays up to 6 action buttons, health bar, power bar, and cast bar for the
+-- current vehicle/override/possess bar, positioned cleanly relative to UIParent
+-- using the player health & power bar coordinates.
 --
 -- DESIGN PRINCIPLES (combat / M+ safe & zero-allocation):
 --   * Visibility driven ONLY via RegisterStateDriver — no Lua Hide/Show from
 --     event callbacks (prevents ADDON_ACTION_BLOCKED on protected frames).
---   * Zero-allocation 20Hz OnUpdate ticker: uses stored button references
---     (no string concatenations or table instantiations in hot path).
+--   * Zero-allocation 20Hz OnUpdate ticker: uses stored button references,
+--     state transition caches, and dirty checking.
 --   * Secure attributes set out-of-combat / deferred via pendingUpdate.
 --   * No EnableMouse() or Show()/Hide() calls on any Blizzard protected frame.
 -- ============================================================================
@@ -21,15 +22,53 @@ local common = sfui.common
 local g      = sfui.config
 local GameTooltip = sfui.tooltip or _G.GameTooltip
 
--- Upvalue localization for hot path performance
-local GetActionCooldown     = GetActionCooldown
-local GetActionInfo         = GetActionInfo
-local GetBindingKey         = GetBindingKey
-local HasAction             = HasAction
-local IsUsableAction        = C_ActionBar and C_ActionBar.IsUsableAction
-local IsActionInRange       = C_ActionBar and C_ActionBar.IsActionInRange
-local GetActionTexture      = C_ActionBar and C_ActionBar.GetActionTexture
-local issecretvalue         = common.issecretvalue
+-- ─── Upvalue Localization ───────────────────────────────────────────────────
+local CreateFrame         = _G.CreateFrame
+local UIParent            = _G.UIParent
+local InCombatLockdown    = _G.InCombatLockdown
+local RegisterStateDriver = _G.RegisterStateDriver
+local GetTime             = _G.GetTime
+local pcall               = _G.pcall
+local type                = _G.type
+local tostring            = _G.tostring
+local math_min            = _G.math.min
+local math_max            = _G.math.max
+local math_floor          = _G.math.floor
+local string_format       = _G.string.format
+local issecretvalue       = common.issecretvalue
+local PowerBarColor       = _G.PowerBarColor
+
+local UnitHealth          = _G.UnitHealth
+local UnitHealthMax       = _G.UnitHealthMax
+local UnitPower           = _G.UnitPower
+local UnitPowerMax        = _G.UnitPowerMax
+local UnitPowerType       = _G.UnitPowerType
+local UnitCastingInfo     = _G.UnitCastingInfo
+local UnitChannelInfo     = _G.UnitChannelInfo
+local UnitExists          = _G.UnitExists
+local UnitInVehicle       = _G.UnitInVehicle
+local UnitHasVehicleUI    = _G.UnitHasVehicleUI
+local UnitIsUnit          = _G.UnitIsUnit
+
+local GetActionCooldown   = _G.GetActionCooldown
+local GetActionInfo       = _G.GetActionInfo
+local GetBindingKey       = _G.GetBindingKey
+local HasAction           = _G.HasAction
+
+local C_ActionBar         = _G.C_ActionBar
+local IsUsableAction      = C_ActionBar and C_ActionBar.IsUsableAction
+local IsActionInRange     = C_ActionBar and C_ActionBar.IsActionInRange
+local GetActionTexture    = C_ActionBar and C_ActionBar.GetActionTexture
+local HasVehicleActionBar = C_ActionBar and C_ActionBar.HasVehicleActionBar
+local GetVehicleBarIndex  = C_ActionBar and C_ActionBar.GetVehicleBarIndex
+local HasOverrideActionBar = C_ActionBar and C_ActionBar.HasOverrideActionBar
+local GetOverrideBarIndex = C_ActionBar and C_ActionBar.GetOverrideBarIndex
+local HasTempShapeshiftActionBar = C_ActionBar and C_ActionBar.HasTempShapeshiftActionBar
+local GetTempShapeshiftBarIndex = C_ActionBar and C_ActionBar.GetTempShapeshiftBarIndex
+local HasBonusActionBar   = C_ActionBar and C_ActionBar.HasBonusActionBar
+local GetBonusBarIndex    = C_ActionBar and C_ActionBar.GetBonusBarIndex
+
+local C_Spell             = _G.C_Spell
 
 -- Pre-allocated binding string lookup (prevents string allocation per refresh)
 local BINDING_NAMES = {
@@ -42,19 +81,34 @@ local BINDING_NAMES = {
 }
 
 -- ─── Constants ───────────────────────────────────────────────────────────────
-local BTN_SIZE    = 54   -- 1.5× the trackedicons default of 36
+local BTN_SIZE    = 54
 local BTN_GAP     = 4
-local MAX_BUTTONS = 6   -- OverrideActionBar uses SpellButton1..6
+local MAX_BUTTONS = 6
 local TICK_RATE   = 0.05
+local STACK_OFFSET_Y = 69 -- 54 + 4 + 8 + 3 = 69px offset to align health bar at (hx, hy)
 
--- ─── Locals (zero-allocation tick) ───────────────────────────────────────────
+-- ─── Locals (zero-allocation tick & state tracking) ──────────────────────────
 local _start, _duration, _enable
+local _lastHealthCur, _lastHealthMax
+local _lastPowerCur, _lastPowerMax, _lastPowerType
+local _lastVisibleButtons = 0
+local _lastUnit = "none"
+local _btnUsableState = { 0, 0, 0, 0, 0, 0 }
 
--- ─── Secure container ────────────────────────────────────────────────────────
+local _casting = false
+local _channeling = false
+local _castStart = 0
+local _castEnd = 0
+local _castDuration = 0
+
+-- ─── Secure Container ────────────────────────────────────────────────────────
 local frame = CreateFrame("Frame", "SfuiVehicleBar", UIParent, "SecureHandlerStateTemplate")
 frame:SetFrameStrata("MEDIUM")
 frame:SetSize(MAX_BUTTONS * BTN_SIZE + (MAX_BUTTONS - 1) * BTN_GAP, BTN_SIZE)
-frame:SetPoint("BOTTOM", UIParent, "CENTER", 0, -200) -- overwritten by UpdateAnchor
+local _hcfg = sfui.config and sfui.config.healthBar
+local _hx = (_hcfg and _hcfg.pos and _hcfg.pos.x) or 0
+local _hy = (_hcfg and _hcfg.pos and _hcfg.pos.y) or 300
+frame:SetPoint("BOTTOM", UIParent, "BOTTOM", _hx, _hy - STACK_OFFSET_Y)
 sfui.vehicle.frame = frame
 
 -- State driver: same conditions Blizzard uses for OverrideActionBar.
@@ -129,7 +183,7 @@ for i = 1, MAX_BUTTONS do
 
     -- Pre-allocated Masque sub-elements table (zero allocation on refresh)
     btn.masqueSubElements = { Icon = btn.icon, Cooldown = cd }
-    sfui.common.sync_masque(btn, btn.masqueSubElements)
+    common.sync_masque(btn, btn.masqueSubElements)
     if btn._isMasqued and btn.borderBackdrop then btn.borderBackdrop:Hide() end
 
     btn:SetScript("OnEnter", function(self)
@@ -150,52 +204,323 @@ for i = 1, MAX_BUTTONS do
 end
 sfui.vehicle.buttons = buttons
 
--- ─── Anchor ──────────────────────────────────────────────────────────────────
--- Calculates the exact screen position of SfuiIconPanel_1 (or Power/Health bar)
--- and anchors SfuiVehicleBar directly to UIParent. Anchoring directly to UIParent
--- with absolute coordinates prevents any layout dependency or taint issues.
-local function UpdateAnchor()
-    frame:ClearAllPoints()
+-- ─── Vehicle Unit Resolver ───────────────────────────────────────────────────
+local function GetVehicleUnit()
+    if UnitExists("vehicle") then
+        return "vehicle"
+    elseif UnitExists("pet") and (UnitInVehicle("player") or UnitHasVehicleUI("player") or (HasOverrideActionBar and HasOverrideActionBar()) or (HasVehicleActionBar and HasVehicleActionBar())) then
+        return "pet"
+    elseif UnitExists("pet") and not UnitIsUnit("pet", "player") then
+        return "pet"
+    end
+    return "player"
+end
 
-    -- Find reference frame to position beneath
-    local target = nil
-    local centerPanel = _G["SfuiIconPanel_1"]
-    if centerPanel and centerPanel:IsShown() then
-        target = centerPanel
-    else
-        local powerBar = _G["sfui_bar-1_Backdrop"] or _G["sfui_bar_minus_1_Backdrop"]
-        if powerBar and powerBar:IsShown() then
-            target = powerBar
+-- ─── Texture Helper ─────────────────────────────────────────────────────────
+local function GetBarTexture()
+    local textureName = SfuiDB and SfuiDB.barTexture
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    local texturePath
+    if LSM and textureName then
+        texturePath = LSM:Fetch("statusbar", textureName)
+    end
+    if not texturePath or texturePath == "" then
+        texturePath = (sfui.config and sfui.config.barTexture) or "Interface\\Buttons\\WHITE8X8"
+    end
+    return texturePath
+end
+
+-- ─── Vehicle Health Bar ──────────────────────────────────────────────────────
+local healthBackdrop = CreateFrame("Frame", "SfuiVehicleHealthBackdrop", frame, "BackdropTemplate")
+healthBackdrop:SetHeight(16)
+healthBackdrop:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", 0, 15)
+healthBackdrop:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", 0, 15)
+healthBackdrop:SetBackdrop({
+    bgFile = (sfui.config and sfui.config.textures and sfui.config.textures.white) or "Interface\\Buttons\\WHITE8X8",
+    tile = true,
+    tileSize = 32,
+})
+healthBackdrop:Show()
+
+local healthStatusBar = CreateFrame("StatusBar", "SfuiVehicleHealthBar", healthBackdrop)
+healthStatusBar:SetPoint("TOPLEFT", healthBackdrop, "TOPLEFT", 1, -1)
+healthStatusBar:SetPoint("BOTTOMRIGHT", healthBackdrop, "BOTTOMRIGHT", -1, 1)
+healthStatusBar:SetStatusBarTexture(GetBarTexture())
+
+local function UpdateVehicleHealth(force)
+    local unit = GetVehicleUnit()
+    _lastUnit = unit
+    local cur = (UnitExists(unit) and UnitHealth(unit)) or UnitHealth("player") or 100
+    local maxVal = (UnitExists(unit) and UnitHealthMax(unit)) or UnitHealthMax("player") or 100
+
+    if issecretvalue(cur) or issecretvalue(maxVal) or not maxVal or maxVal <= 0 then
+        cur = 100
+        maxVal = 100
+    end
+
+    if not force and cur == _lastHealthCur and maxVal == _lastHealthMax then
+        return
+    end
+    _lastHealthCur = cur
+    _lastHealthMax = maxVal
+
+    healthBackdrop:Show()
+    healthStatusBar:SetMinMaxValues(0, maxVal)
+    healthStatusBar:SetValue(cur)
+
+    local fgColor = SfuiDB and SfuiDB.healthBarColor or (sfui.config and sfui.config.healthBar and sfui.config.healthBar.color) or { 0, 0.8, 0.067, 1 }
+    if SfuiDB and SfuiDB.useSpecColor and common.get_spec_color then
+        fgColor = common.get_spec_color() or fgColor
+    end
+    healthStatusBar:SetStatusBarColor(fgColor[1], fgColor[2], fgColor[3], fgColor[4] or 1)
+
+    local bgColor = SfuiDB and SfuiDB.healthBarBackdropColor or (sfui.config and sfui.config.healthBar and sfui.config.healthBar.backdrop and sfui.config.healthBar.backdrop.color) or { 0, 0, 0, 0.7 }
+    healthBackdrop:SetBackdropColor(bgColor[1], bgColor[2], bgColor[3], bgColor[4] or 0.7)
+end
+
+-- ─── Vehicle Power Bar ───────────────────────────────────────────────────────
+local powerBackdrop = CreateFrame("Frame", "SfuiVehiclePowerBackdrop", frame, "BackdropTemplate")
+powerBackdrop:SetHeight(8)
+powerBackdrop:SetPoint("TOPLEFT", healthBackdrop, "BOTTOMLEFT", 15, -3)
+powerBackdrop:SetPoint("TOPRIGHT", healthBackdrop, "BOTTOMRIGHT", -15, -3)
+powerBackdrop:SetBackdrop({
+    bgFile = (sfui.config and sfui.config.textures and sfui.config.textures.white) or "Interface\\Buttons\\WHITE8X8",
+    tile = true,
+    tileSize = 32,
+})
+powerBackdrop:Hide()
+
+local powerStatusBar = CreateFrame("StatusBar", "SfuiVehiclePowerBar", powerBackdrop)
+powerStatusBar:SetPoint("TOPLEFT", powerBackdrop, "TOPLEFT", 1, -1)
+powerStatusBar:SetPoint("BOTTOMRIGHT", powerBackdrop, "BOTTOMRIGHT", -1, 1)
+powerStatusBar:SetStatusBarTexture(GetBarTexture())
+
+local function UpdateVehiclePower(force)
+    if not frame:IsShown() then return end
+    local unit = GetVehicleUnit()
+    local powerType, powerToken = UnitPowerType(unit)
+    local cur = (UnitExists(unit) and UnitPower(unit, powerType)) or UnitPower("player") or 0
+    local maxVal = (UnitExists(unit) and UnitPowerMax(unit, powerType)) or UnitPowerMax("player") or 0
+
+    if issecretvalue(cur) or issecretvalue(maxVal) or not maxVal or maxVal <= 0 then
+        powerBackdrop:Hide()
+        _lastPowerCur, _lastPowerMax, _lastPowerType = nil, nil, nil
+        return
+    end
+
+    if not force and cur == _lastPowerCur and maxVal == _lastPowerMax and powerType == _lastPowerType then
+        return
+    end
+    _lastPowerCur = cur
+    _lastPowerMax = maxVal
+    _lastPowerType = powerType
+
+    powerBackdrop:Show()
+    powerStatusBar:SetMinMaxValues(0, maxVal)
+    powerStatusBar:SetValue(cur)
+
+    local pColor = nil
+    if powerToken and PowerBarColor and PowerBarColor[powerToken] then
+        pColor = PowerBarColor[powerToken]
+    end
+    if not pColor and common.get_resource_color then
+        pColor = common.get_resource_color(powerType)
+    end
+    if not pColor then
+        pColor = { r = 0, g = 0.5, b = 1 }
+    end
+
+    powerStatusBar:SetStatusBarColor(pColor.r or pColor[1], pColor.g or pColor[2], pColor.b or pColor[3], pColor.a or pColor[4] or 1)
+
+    local bgColor = SfuiDB and SfuiDB.healthBarBackdropColor or (sfui.config and sfui.config.healthBar and sfui.config.healthBar.backdrop and sfui.config.healthBar.backdrop.color) or { 0, 0, 0, 0.7 }
+    powerBackdrop:SetBackdropColor(bgColor[1], bgColor[2], bgColor[3], bgColor[4] or 0.7)
+end
+
+-- ─── Vehicle Cast Bar ────────────────────────────────────────────────────────
+local castBackdrop = CreateFrame("Frame", "SfuiVehicleCastBackdrop", frame, "BackdropTemplate")
+castBackdrop:SetHeight(16)
+castBackdrop:SetPoint("BOTTOMLEFT", healthBackdrop, "TOPLEFT", 0, 4)
+castBackdrop:SetPoint("BOTTOMRIGHT", healthBackdrop, "TOPRIGHT", 0, 4)
+castBackdrop:SetBackdrop({
+    bgFile = (sfui.config and sfui.config.textures and sfui.config.textures.white) or "Interface\\Buttons\\WHITE8X8",
+    tile = true,
+    tileSize = 32,
+})
+castBackdrop:Hide()
+
+local castStatusBar = CreateFrame("StatusBar", "SfuiVehicleCastBar", castBackdrop)
+castStatusBar:SetPoint("TOPLEFT", castBackdrop, "TOPLEFT", 1, -1)
+castStatusBar:SetPoint("BOTTOMRIGHT", castBackdrop, "BOTTOMRIGHT", -1, 1)
+castStatusBar:SetStatusBarTexture(GetBarTexture())
+
+local castIconFrame = CreateFrame("Frame", nil, castBackdrop, "BackdropTemplate")
+castIconFrame:SetSize(16, 16)
+castIconFrame:SetPoint("RIGHT", castBackdrop, "LEFT", -4, 0)
+castIconFrame:SetBackdrop({
+    bgFile = (sfui.config and sfui.config.textures and sfui.config.textures.white) or "Interface\\Buttons\\WHITE8X8",
+    tile = true,
+    tileSize = 32,
+})
+castIconFrame:SetBackdropColor(0, 0, 0, 1)
+
+local castIcon = castIconFrame:CreateTexture(nil, "ARTWORK")
+castIcon:SetPoint("TOPLEFT", 1, -1)
+castIcon:SetPoint("BOTTOMRIGHT", -1, 1)
+castIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+
+local castNameText = castStatusBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+castNameText:SetPoint("LEFT", 4, 0)
+castNameText:SetPoint("RIGHT", castStatusBar, "RIGHT", -40, 0)
+castNameText:SetJustifyH("LEFT")
+
+local castTimerText = castStatusBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+castTimerText:SetPoint("RIGHT", -4, 0)
+castTimerText:SetJustifyH("RIGHT")
+
+local castSpark = castStatusBar:CreateTexture(nil, "OVERLAY")
+castSpark:SetTexture("Interface/CastingBar/UI-CastingBar-Spark")
+castSpark:SetBlendMode("ADD")
+castSpark:SetSize(16, 32)
+castSpark:Hide()
+
+local function StopCastBar()
+    _casting = false
+    _channeling = false
+    castBackdrop:Hide()
+    castSpark:Hide()
+end
+
+local function StartCast(unit)
+    if not frame:IsShown() then return end
+    local vUnit = GetVehicleUnit()
+    if unit and unit ~= vUnit and unit ~= "vehicle" and unit ~= "pet" and unit ~= "player" then
+        return
+    end
+    unit = vUnit
+
+    local name, text, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, spellID = UnitCastingInfo(unit)
+    if name and startTimeMS and endTimeMS then
+        _casting = true
+        _channeling = false
+        _castStart = startTimeMS / 1000
+        _castEnd = endTimeMS / 1000
+        _castDuration = _castEnd - _castStart
+        if _castDuration <= 0 then _castDuration = 0.001 end
+
+        castStatusBar:SetMinMaxValues(0, _castDuration)
+        castStatusBar:SetValue(0)
+        castNameText:SetText(name or "")
+
+        local cbColor = (sfui.config and sfui.config.castBar and sfui.config.castBar.color) or { 1, 1, 1 }
+        castStatusBar:SetStatusBarColor(cbColor[1], cbColor[2], cbColor[3], 1)
+
+        local bgColor = (sfui.config and sfui.config.castBar and sfui.config.castBar.backdrop and sfui.config.castBar.backdrop.color) or { 0, 0, 0, 0.7 }
+        castBackdrop:SetBackdropColor(bgColor[1], bgColor[2], bgColor[3], bgColor[4] or 0.7)
+
+        if texture then
+            castIcon:SetTexture(texture)
+            castIconFrame:Show()
         else
-            local hpBar = _G["sfui_bar0_Backdrop"]
-            if hpBar and hpBar:IsShown() then
-                target = hpBar
+            castIconFrame:Hide()
+        end
+
+        castSpark:Show()
+        castBackdrop:Show()
+        return
+    end
+
+    local cName, cText, cTexture, cStartMS, cEndMS = UnitChannelInfo(unit)
+    if cName and cStartMS and cEndMS then
+        _casting = false
+        _channeling = true
+        _castStart = cStartMS / 1000
+        _castEnd = cEndMS / 1000
+        _castDuration = _castEnd - _castStart
+        if _castDuration <= 0 then _castDuration = 0.001 end
+
+        castStatusBar:SetMinMaxValues(0, _castDuration)
+        castStatusBar:SetValue(_castDuration)
+        castNameText:SetText(cName or "")
+
+        local chColor = (sfui.config and sfui.config.castBar and sfui.config.castBar.channelColor) or { 0, 1, 0 }
+        castStatusBar:SetStatusBarColor(chColor[1], chColor[2], chColor[3], 1)
+
+        local bgColor = (sfui.config and sfui.config.castBar and sfui.config.castBar.backdrop and sfui.config.castBar.backdrop.color) or { 0, 0, 0, 0.7 }
+        castBackdrop:SetBackdropColor(bgColor[1], bgColor[2], bgColor[3], bgColor[4] or 0.7)
+
+        if cTexture then
+            castIcon:SetTexture(cTexture)
+            castIconFrame:Show()
+        else
+            castIconFrame:Hide()
+        end
+
+        castSpark:Show()
+        castBackdrop:Show()
+        return
+    end
+
+    StopCastBar()
+end
+
+local function UpdateCastProgress()
+    if not (_casting or _channeling) then return end
+    local now = GetTime()
+    if _casting then
+        if now >= _castEnd then
+            StopCastBar()
+        else
+            local elapsed = now - _castStart
+            castStatusBar:SetValue(elapsed)
+            local remaining = math_max(0, _castEnd - now)
+            castTimerText:SetText(string_format("%.1f", remaining))
+            if _castDuration > 0 then
+                local w = castStatusBar:GetWidth()
+                local prog = math_min(1, math_max(0, elapsed / _castDuration))
+                castSpark:ClearAllPoints()
+                castSpark:SetPoint("CENTER", castStatusBar, "LEFT", w * prog, 0)
+            end
+        end
+    elseif _channeling then
+        if now >= _castEnd then
+            StopCastBar()
+        else
+            local remaining = math_max(0, _castEnd - now)
+            castStatusBar:SetValue(remaining)
+            castTimerText:SetText(string_format("%.1f", remaining))
+            if _castDuration > 0 then
+                local w = castStatusBar:GetWidth()
+                local prog = math_min(1, math_max(0, remaining / _castDuration))
+                castSpark:ClearAllPoints()
+                castSpark:SetPoint("CENTER", castStatusBar, "LEFT", w * prog, 0)
             end
         end
     end
+end
 
-    if target then
-        local cx, _ = target:GetCenter()
-        local b     = target:GetBottom()
-        if cx and b then
-            local scale = (target:GetEffectiveScale() or 1) / (UIParent:GetEffectiveScale() or 1)
-            cx = cx * scale
-            b  = b  * scale
-            frame:SetPoint("TOP", UIParent, "BOTTOMLEFT", cx, b - 4)
-            return
-        end
-    end
+function sfui.vehicle.set_bar_texture(texturePath)
+    if healthStatusBar then healthStatusBar:SetStatusBarTexture(texturePath) end
+    if powerStatusBar then powerStatusBar:SetStatusBarTexture(texturePath) end
+    if castStatusBar then castStatusBar:SetStatusBarTexture(texturePath) end
+end
 
-    -- Fallback: center of screen above bottom action bars
-    frame:SetPoint("BOTTOM", UIParent, "CENTER", 0, -180)
+-- ─── Anchor ──────────────────────────────────────────────────────────────────
+-- The entire stack is positioned matching the player health bar position (hx, hy).
+-- The health bar sits at (hx, hy), the power bar directly underneath, and the buttons 69px underneath.
+local function UpdateAnchor()
+    frame:ClearAllPoints()
+    local hcfg = (g and g.healthBar) or (sfui.config and sfui.config.healthBar)
+    local hx = (SfuiDB and SfuiDB.healthBarX) or (hcfg and hcfg.pos and hcfg.pos.x) or 0
+    local hy = (SfuiDB and SfuiDB.healthBarY) or (hcfg and hcfg.pos and hcfg.pos.y) or 300
+    frame:SetPoint("BOTTOM", UIParent, "BOTTOM", hx, hy - STACK_OFFSET_Y)
 end
 
 -- ─── Bar-page resolver ───────────────────────────────────────────────────────
-local function GetVehicleBarIndex()
-    if C_ActionBar.HasVehicleActionBar()        then return C_ActionBar.GetVehicleBarIndex()          end
-    if C_ActionBar.HasOverrideActionBar()       then return C_ActionBar.GetOverrideBarIndex()          end
-    if C_ActionBar.HasTempShapeshiftActionBar() then return C_ActionBar.GetTempShapeshiftBarIndex()    end
-    if C_ActionBar.HasBonusActionBar()          then return C_ActionBar.GetBonusBarIndex()             end
+local function GetResolvedVehicleBarIndex()
+    if HasVehicleActionBar and HasVehicleActionBar()        then return GetVehicleBarIndex()          end
+    if HasOverrideActionBar and HasOverrideActionBar()       then return GetOverrideBarIndex()         end
+    if HasTempShapeshiftActionBar and HasTempShapeshiftActionBar() then return GetTempShapeshiftBarIndex()   end
+    if HasBonusActionBar and HasBonusActionBar()          then return GetBonusBarIndex()            end
     return nil
 end
 
@@ -209,9 +534,13 @@ local function UpdateBar()
     end
     pendingUpdate = false
 
-    local barIndex = GetVehicleBarIndex()
+    local barIndex = GetResolvedVehicleBarIndex()
     if not barIndex or barIndex == 0 then
         for i = 1, MAX_BUTTONS do buttons[i]:SetAlpha(0) end
+        healthBackdrop:Hide()
+        powerBackdrop:Hide()
+        StopCastBar()
+        _lastVisibleButtons = 0
         return
     end
 
@@ -238,14 +567,19 @@ local function UpdateBar()
         btn.kb:SetText(key or "")
 
         -- Masque re-sync
-        sfui.common.sync_masque(btn, btn.masqueSubElements)
+        common.sync_masque(btn, btn.masqueSubElements)
         if btn._isMasqued and btn.borderBackdrop then btn.borderBackdrop:Hide() end
     end
 
+    _lastVisibleButtons = lastVisible
     -- Resize frame to fit only visible buttons
-    local w = math.max(1, lastVisible * BTN_SIZE + math.max(0, lastVisible - 1) * BTN_GAP)
+    local w = math_max(1, lastVisible * BTN_SIZE + math_max(0, lastVisible - 1) * BTN_GAP)
     frame:SetSize(w, BTN_SIZE)
     UpdateAnchor()
+
+    UpdateVehicleHealth(true)
+    UpdateVehiclePower(true)
+    StartCast(GetVehicleUnit())
 end
 sfui.vehicle.UpdateBar = UpdateBar
 
@@ -291,7 +625,7 @@ local function UpdateCooldowns()
     end
 end
 
--- ─── UpdateUsable — icon tinting for usability / range ───────────────────────
+-- ─── UpdateUsable — icon tinting for usability / range with state caching ───
 local function UpdateUsable()
     if not frame:IsShown() then return end
     for i = 1, MAX_BUTTONS do
@@ -301,38 +635,54 @@ local function UpdateUsable()
             if actionID then
                 local usable, noMana = IsUsableAction and IsUsableAction(actionID)
                 local inRange = IsActionInRange and IsActionInRange(actionID)
+                local state = 1
                 if issecretvalue(usable) then
-                    btn.icon:SetVertexColor(1, 1, 1)
+                    state = 1
                 elseif not usable then
-                    if noMana then
-                        btn.icon:SetVertexColor(0.4, 0.4, 1.0) -- out of resource
-                    else
-                        btn.icon:SetVertexColor(0.4, 0.4, 0.4) -- unusable
-                    end
+                    state = noMana and 2 or 3
                 elseif inRange == false then
-                    btn.icon:SetVertexColor(0.8, 0.2, 0.2)     -- out of range
+                    state = 4
                 else
-                    btn.icon:SetVertexColor(1, 1, 1)
+                    state = 1
+                end
+
+                if _btnUsableState[i] ~= state then
+                    _btnUsableState[i] = state
+                    if state == 1 then
+                        btn.icon:SetVertexColor(1, 1, 1)
+                    elseif state == 2 then
+                        btn.icon:SetVertexColor(0.4, 0.4, 1.0)
+                    elseif state == 3 then
+                        btn.icon:SetVertexColor(0.4, 0.4, 0.4)
+                    elseif state == 4 then
+                        btn.icon:SetVertexColor(0.8, 0.2, 0.2)
+                    end
                 end
             end
         end
     end
 end
 
--- ─── OnUpdate ticker (non-secure) ────────────────────────────────────────────
+-- ─── OnUpdate Ticker (non-secure) ────────────────────────────────────────────
 local ticker = 0
 frame:SetScript("OnUpdate", function(_, elapsed)
+    UpdateCastProgress()
     ticker = ticker + elapsed
     if ticker >= TICK_RATE then
         ticker = 0
         UpdateCooldowns()
         UpdateUsable()
+        UpdateVehicleHealth()
+        UpdateVehiclePower()
     end
 end)
 
--- ─── OnShow — refresh everything when state driver shows us ──────────────────
+-- ─── OnShow / OnHide ─────────────────────────────────────────────────────────
 frame:SetScript("OnShow", function()
     UpdateBar()
+end)
+frame:SetScript("OnHide", function()
+    StopCastBar()
 end)
 
 -- ─── Events ──────────────────────────────────────────────────────────────────
@@ -347,10 +697,45 @@ frame:RegisterEvent("UPDATE_POSSESS_BAR")
 frame:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
 frame:RegisterEvent("ACTIONBAR_UPDATE_STATE")
 frame:RegisterEvent("UPDATE_BINDINGS")
+frame:RegisterEvent("UNIT_HEALTH")
+frame:RegisterEvent("UNIT_MAXHEALTH")
+frame:RegisterEvent("UNIT_POWER_UPDATE")
+frame:RegisterEvent("UNIT_MAXPOWER")
+frame:RegisterEvent("UNIT_DISPLAYPOWER")
+frame:RegisterEvent("UNIT_SPELLCAST_START")
+frame:RegisterEvent("UNIT_SPELLCAST_STOP")
+frame:RegisterEvent("UNIT_SPELLCAST_FAILED")
+frame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
+frame:RegisterEvent("UNIT_SPELLCAST_DELAYED")
+frame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_START")
+frame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_UPDATE")
+frame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_STOP")
+frame:RegisterEvent("UNIT_SPELLCAST_EMPOWER_START")
+frame:RegisterEvent("UNIT_SPELLCAST_EMPOWER_UPDATE")
+frame:RegisterEvent("UNIT_SPELLCAST_EMPOWER_STOP")
 
-frame:SetScript("OnEvent", function(self, event)
+frame:SetScript("OnEvent", function(self, event, arg1)
     if event == "PLAYER_REGEN_ENABLED" then
         if pendingUpdate then UpdateBar() end
+    elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
+        local vUnit = GetVehicleUnit()
+        if arg1 == vUnit or arg1 == "vehicle" or arg1 == "pet" or arg1 == "player" then
+            UpdateVehicleHealth()
+        end
+    elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" or event == "UNIT_DISPLAYPOWER" then
+        local vUnit = GetVehicleUnit()
+        if arg1 == vUnit or arg1 == "vehicle" or arg1 == "pet" or arg1 == "player" then
+            UpdateVehiclePower()
+        end
+    elseif event:find("^UNIT_SPELLCAST_") then
+        local vUnit = GetVehicleUnit()
+        if arg1 == vUnit or arg1 == "vehicle" or arg1 == "pet" or arg1 == "player" then
+            if event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_CHANNEL_STOP" or event == "UNIT_SPELLCAST_EMPOWER_STOP" then
+                StopCastBar()
+            else
+                StartCast(arg1)
+            end
+        end
     else
         UpdateBar()
     end
@@ -360,5 +745,10 @@ function sfui.vehicle_debug_info()
     return {
         frameCreated = frame ~= nil,
         frameShown = frame and frame:IsShown() or false,
+        healthShown = healthBackdrop and healthBackdrop:IsShown() or false,
+        powerShown = powerBackdrop and powerBackdrop:IsShown() or false,
+        castShown = castBackdrop and castBackdrop:IsShown() or false,
+        visibleButtons = _lastVisibleButtons or 0,
+        currentUnit = _lastUnit or "none",
     }
 end

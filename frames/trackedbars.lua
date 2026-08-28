@@ -508,7 +508,7 @@ local function UpdateLayout()
             isBar1 = true
         end
 
-        if anchor then
+        if anchor and anchor:IsShown() then
             for _, bar in ipairs(attachedBars) do
                 bar:SetParent(UIParent)
                 bar:ClearAllPoints()
@@ -531,6 +531,10 @@ local function UpdateLayout()
                 if bar.iconFrame.borderBackdrop then bar.iconFrame.borderBackdrop:Hide() end
 
                 anchor = bar
+            end
+        else
+            for _, bar in ipairs(attachedBars) do
+                bar:Hide()
             end
         end
     end

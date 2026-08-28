@@ -1265,19 +1265,12 @@ local function AcquireRow()
             if C_QuestLog.SetSelectedQuest then
                 pcall(C_QuestLog.SetSelectedQuest, s.questID)
             end
+            if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then
+                pcall(C_SuperTrack.SetSuperTrackedQuestID, s.questID)
+            end
 
-            if QuestMapFrame_OpenToQuestDetails then
-                C_Timer.After(0, function()
-                    if not InCombatLockdown or not InCombatLockdown() then
-                        pcall(QuestMapFrame_OpenToQuestDetails, s.questID)
-                    end
-                end)
-            elseif ShowUIPanel and WorldMapFrame then
-                C_Timer.After(0, function()
-                    if not InCombatLockdown or not InCombatLockdown() then
-                        pcall(ShowUIPanel, WorldMapFrame)
-                    end
-                end)
+            if ShowUIPanel and WorldMapFrame and not WorldMapFrame:IsShown() then
+                pcall(ShowUIPanel, WorldMapFrame)
             end
             Refresh:Request()
         end)
