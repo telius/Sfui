@@ -176,7 +176,7 @@ local function SyncBlizzardRunHistory()
                 SfuiDB.mythicBestTimes[seasonID][mapID] = mapData
             end
             local existing = mapData[level]
-            if not existing or (duration < existing.duration) then
+            if not existing or not existing.duration or (duration < existing.duration) then
                 mapData[level] = {
                     duration = duration,
                     level = level,
@@ -204,8 +204,10 @@ local function SaveCompletedRunRecord()
         savedSplits[k] = v
     end
 
+    local curDur = existing.duration or (_totalTime and _totalTime > 0 and _totalTime) or nil
+
     mapData[_currentLevel] = {
-        duration = existing.duration,
+        duration = curDur,
         level = _currentLevel,
         splits = savedSplits,
         forces = _forcesSplitTime or existing.forces,

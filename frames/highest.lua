@@ -89,6 +89,53 @@ local ARMOR_SLOTS = {
     [10] = true, -- Hands
 }
 
+local RAZORICE_SPELL_ID = 53343
+local cachedRazoriceName = nil
+local function HasRazoriceEnchant(itemData)
+    if not itemData or not itemData.link then return false end
+    local link = itemData.link
+
+    -- 1. Direct enchantID check (3370 = Rune of Razorice, 6241 = scaling rank)
+    local enchantID = tonumber(link:match("item:%d+:(%d+):"))
+    if enchantID == 3370 or enchantID == 6241 or enchantID == 3368 then
+        return true
+    end
+
+    if not cachedRazoriceName then
+        local spellName = (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(RAZORICE_SPELL_ID))
+            or (_G.GetSpellInfo and _G.GetSpellInfo(RAZORICE_SPELL_ID))
+            or "Razorice"
+        if spellName and spellName ~= "" then
+            cachedRazoriceName = spellName:lower()
+        end
+    end
+
+    -- 2. Tooltip scan for Runeforged enchant text
+    if C_TooltipInfo then
+        local data
+        if itemData.bag and itemData.slot then
+            data = C_TooltipInfo.GetBagItem(itemData.bag, itemData.slot)
+        elseif itemData.equippedSlot then
+            data = C_TooltipInfo.GetInventoryItem("player", itemData.equippedSlot)
+        else
+            data = C_TooltipInfo.GetHyperlink(link)
+        end
+        if data and data.lines then
+            for _, line in ipairs(data.lines) do
+                local txt = line.leftText
+                if txt and type(txt) == "string" and txt ~= "" then
+                    local lowerTxt = txt:lower()
+                    if (cachedRazoriceName and lowerTxt:find(cachedRazoriceName, 1, true)) or lowerTxt:find("razorice", 1, true) then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+
+    return false
+end
+
 sfui.highest.rules = {
     -- Death Knight
     [250] = { armor = 4, stat = 1, weaps = { ["2H"] = true } },
@@ -97,7 +144,7 @@ sfui.highest.rules = {
     -- Demon Hunter
     [577] = { armor = 2, stat = 2, weaps = { ["1H_Dual"] = true } },
     [581] = { armor = 2, stat = 2, weaps = { ["1H_Dual"] = true } },
-    [1480] = { armor = 2, stat = 2, weaps = { ["1H_Dual"] = true } },
+    [1480] = { armor = 2, stat = 4, weaps = { ["1H_Dual"] = true } },
     -- Druid
     [102] = { armor = 2, stat = 4, weaps = { ["2H"] = true, ["1H_Off"] = true } },
     [103] = { armor = 2, stat = 2, weaps = { ["2H"] = true, ["1H_Off"] = true } },
@@ -533,6 +580,7 @@ function sfui.highest.GetBestItems(isPvP)
         itemData.statVal        = statVal
         itemData.is2H           = ((itemEquipLoc == "INVTYPE_2HWEAPON" and not rule.weaps["2H_Dual"]) or itemEquipLoc == "INVTYPE_RANGED" or itemEquipLoc == "INVTYPE_RANGEDRIGHT")
         itemData.isEquipped     = isEquipped
+        itemData.equippedSlot   = isEquipped and slotOverride or nil
         itemData.physId         = isEquipped and (-slotOverride) or evaluateIndex
         itemData.itemEquipLoc   = itemEquipLoc
         itemData.bag            = bag
@@ -886,8 +934,50 @@ function sfui.highest.GetBestItems(isPvP)
                 finalPick[17] = { isUnequip = true, isEquipped = false }
             end
         else
-            if best1H then finalPick[16] = best1H end
-            if bestOH then finalPick[17] = bestOH end
+            if best1H and bestOH then
+                local canOHGoMainHand = (bestOH.itemEquipLoc == "INVTYPE_WEAPON" or bestOH.itemEquipLoc == "INVTYPE_WEAPONMAINHAND" or (bestOH.itemEquipLoc == "INVTYPE_2HWEAPON" and rule.weaps["2H_Dual"]))
+                local can1HGoOffHand = (best1H.itemEquipLoc == "INVTYPE_WEAPON" or best1H.itemEquipLoc == "INVTYPE_WEAPONOFFHAND" or (best1H.itemEquipLoc == "INVTYPE_2HWEAPON" and rule.weaps["2H_Dual"]))
+
+                if canOHGoMainHand and can1HGoOffHand then
+                    -- Dual Wielding two weapons
+                    if specID == 251 then
+                        -- Frost DK: Always put Rune of Razorice in Main Hand
+                        local w1Razor = HasRazoriceEnchant(best1H)
+                        local w2Razor = HasRazoriceEnchant(bestOH)
+                        if w2Razor and not w1Razor then
+                            finalPick[16] = bestOH
+                            finalPick[17] = best1H
+                        elseif w1Razor and not w2Razor then
+                            finalPick[16] = best1H
+                            finalPick[17] = bestOH
+                        else
+                            -- Both or neither have Razorice: put highest ilvl weapon in Main Hand
+                            if bestOH.ilvl > best1H.ilvl then
+                                finalPick[16] = bestOH
+                                finalPick[17] = best1H
+                            else
+                                finalPick[16] = best1H
+                                finalPick[17] = bestOH
+                            end
+                        end
+                    else
+                        -- General Dual Wield: Always put highest ilvl weapon in Main Hand
+                        if bestOH.ilvl > best1H.ilvl then
+                            finalPick[16] = bestOH
+                            finalPick[17] = best1H
+                        else
+                            finalPick[16] = best1H
+                            finalPick[17] = bestOH
+                        end
+                    end
+                else
+                    finalPick[16] = best1H
+                    finalPick[17] = bestOH
+                end
+            else
+                if best1H then finalPick[16] = best1H end
+                if bestOH then finalPick[17] = bestOH end
+            end
         end
     elseif finalPick[16] and not finalPick[17] then
         -- Main hand is locked; resolve offhand if mainhand is not 2H
@@ -983,13 +1073,14 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
 
     local equipQueue = {}
     for slotID, item in pairs(best) do
-        if not item.isEquipped then
+        local isAlreadyEquippedHere = (item.isEquipped and item.equippedSlot == slotID)
+        if not isAlreadyEquippedHere then
             local oldLink = _G.GetInventoryItemLink("player", slotID)
             local oldIlvl = oldLink and (GetDetailedItemLevelInfo(oldLink) or select(4, _G.GetItemInfo(oldLink))) or 0
             local oldScore = 0
             if sfui.highest.pooledBest and sfui.highest.pooledBest[slotID] then
                 for _, itm in ipairs(sfui.highest.pooledBest[slotID]) do
-                    if itm.isEquipped then
+                    if itm.isEquipped and itm.equippedSlot == slotID then
                         oldScore = itm.score or 0
                         break
                     end

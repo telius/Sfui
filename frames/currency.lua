@@ -2,7 +2,39 @@ local addonName, addon = ...
 sfui = sfui or {}
 
 local CharacterFrame = _G.CharacterFrame
-local PaperDollFrame = _G.PaperDollFrame or _G.CharacterFrame
+local GameTooltip = sfui.tooltip or _G.GameTooltip
+
+local function UpdateCurrencyAnchors()
+    local cFrame = _G.sfui_currency_frame
+    local iFrame = _G.sfui_item_frame
+    if not CharacterFrame then return end
+
+    local isChonky = C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("ChonkyCharacterSheet")
+    local anchorParent = isChonky and (_G.CharacterFrameBgbg or _G.CharacterFrameBg or CharacterFrame) or CharacterFrame
+    local offsetY = isChonky and -54 or -110
+
+    if cFrame then
+        cFrame:ClearAllPoints()
+        cFrame:SetPoint("TOPLEFT", anchorParent, "BOTTOMLEFT", 0, offsetY)
+    end
+
+    if iFrame then
+        iFrame:ClearAllPoints()
+        if cFrame and cFrame:IsShown() then
+            iFrame:SetPoint("TOPLEFT", cFrame, "BOTTOMLEFT", 0, -2)
+        else
+            iFrame:SetPoint("TOPLEFT", anchorParent, "BOTTOMLEFT", 0, offsetY)
+        end
+    end
+end
+
+if CharacterFrame and CharacterFrame.HookScript then
+    CharacterFrame:HookScript("OnShow", function()
+        UpdateCurrencyAnchors()
+        if sfui.update_currency_display then sfui.update_currency_display() end
+        if sfui.update_item_display then sfui.update_item_display() end
+    end)
+end
 
 do
     local widget_frame, icons, value_labels = nil, {}, {}
@@ -28,7 +60,8 @@ do
     end
 
     function sfui.update_currency_display()
-        if not widget_frame or not widget_frame:IsShown() then return end
+        if not widget_frame then return end
+        UpdateCurrencyAnchors()
         local source_data = {}
         local i = 1
         while true do
@@ -38,6 +71,7 @@ do
             i = i + 1
         end
         sfui.common.update_widget_bar(widget_frame, icons, value_labels, source_data, get_currency_details)
+        UpdateCurrencyAnchors()
     end
 
     function sfui.create_currency_frame()
@@ -45,18 +79,20 @@ do
         local c = sfui.config.currency_frame
         widget_frame = CreateFrame("Frame", "sfui_currency_frame", CharacterFrame, "BackdropTemplate")
         widget_frame:SetSize(c.width, c.height)
-        widget_frame:SetPoint("BOTTOMLEFT", CharacterFrame, "BOTTOMLEFT", 0, -110)
         widget_frame:SetFrameStrata("HIGH")
         widget_frame:SetFrameLevel(CharacterFrame:GetFrameLevel() + 5)
         widget_frame:SetBackdrop({ bgFile = sfui.config.textures.white, tile = true, tileSize = 32 })
         widget_frame:SetBackdropColor(0, 0, 0, 0.5)
 
+        UpdateCurrencyAnchors()
+
         widget_frame:SetScript("OnShow", function()
+            UpdateCurrencyAnchors()
             sfui.update_currency_display()
         end)
 
         sfui.events.RegisterEvent("CURRENCY_DISPLAY_UPDATE", function()
-            if widget_frame and widget_frame:IsShown() then
+            if widget_frame and (CharacterFrame:IsShown() or widget_frame:IsShown()) then
                 sfui.update_currency_display()
             end
         end)
@@ -117,8 +153,10 @@ do
     end
 
     function sfui.update_item_display()
-        if not widget_frame or not widget_frame:IsShown() then return end
+        if not widget_frame then return end
+        UpdateCurrencyAnchors()
         sfui.common.update_widget_bar(widget_frame, icons, value_labels, SfuiDB.items, get_item_details)
+        UpdateCurrencyAnchors()
     end
 
     function sfui.create_item_frame()
@@ -126,18 +164,20 @@ do
         local c = sfui.config.item_frame
         widget_frame = CreateFrame("Frame", "sfui_item_frame", CharacterFrame, "BackdropTemplate")
         widget_frame:SetSize(c.width, c.height)
-        widget_frame:SetPoint("TOPLEFT", "sfui_currency_frame", "BOTTOMLEFT", 0, 0)
         widget_frame:SetFrameStrata("HIGH")
         widget_frame:SetFrameLevel(CharacterFrame:GetFrameLevel() + 5)
         widget_frame:SetBackdrop({ bgFile = sfui.config.textures.white, tile = true, tileSize = 32 })
         widget_frame:SetBackdropColor(0, 0, 0, 0.5)
 
+        UpdateCurrencyAnchors()
+
         widget_frame:SetScript("OnShow", function()
+            UpdateCurrencyAnchors()
             sfui.update_item_display()
         end)
 
         sfui.events.RegisterEvent("BAG_UPDATE", function()
-            if widget_frame and widget_frame:IsShown() then
+            if widget_frame and (CharacterFrame:IsShown() or widget_frame:IsShown()) then
                 sfui.update_item_display()
             end
         end)
