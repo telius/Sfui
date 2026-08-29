@@ -4,6 +4,17 @@
 
 ---
 
+## v12.1.0-10 (2026-08-29)
+
+### Fixes & Improvements
+- **Scenario & World Event Weighted Progress (`frames/quests.lua`, `frames/mythic.lua`)**:
+  - Prioritized weighted progress detection over raw count comparisons, ensuring percentage-based scenario criteria (e.g. "Cull the Brood") render as full progress bars instead of raw count fractions (`68/1000`).
+  - Added robust scaling support for Blizzard's `1000`-point criteria weighting in both Quest Log and Mythic/Dungeon forces trackers.
+- **Delve Nemesis Counter Display (`frames/mythic.lua`)**:
+  - Changed Nemesis counter completion display to consistently show numeric ratio `4/4` instead of `"Done"`.
+
+---
+
 ## v12.1.0-9 (2026-08-29)
 
 ### Features & Major Improvements

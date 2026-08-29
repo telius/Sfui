@@ -1809,22 +1809,43 @@ local function ScanWorldEventScenario(list)
                     end
                 end
 
-                if info.quantity and info.totalQuantity and info.totalQuantity > 1 then
+                local isWeighted = info.isWeightedProgress
+                    or (info.criteriaType == 8)
+                    or (weightedProgress == true)
+                    or (info.totalQuantity == 100)
+                    or (info.totalQuantity == 1000)
+                    or (info.quantityString and not issecretvalue(info.quantityString) and info.quantityString:find("%%"))
+
+                if isWeighted then
+                    local cur = info.quantity or 0
+                    local req = info.totalQuantity or 100
+                    local pct = 0
+                    if req == 1000 then
+                        if cur <= 100 then
+                            pct = cur
+                        else
+                            pct = math_min(100, math_max(0, math_floor((cur / 1000) * 100)))
+                        end
+                    elseif req == 100 then
+                        pct = math_min(100, math_max(0, cur))
+                    elseif req > 0 then
+                        pct = math_min(100, math_max(0, math_floor((cur / req) * 100)))
+                    else
+                        pct = math_min(100, math_max(0, cur))
+                    end
+
+                    local baseText = desc
+                    sObj.text = timeTag and (baseText .. " " .. timeTag) or baseText
+                    sObj.barText = string_format("%d%%", pct)
+                    sObj.type = "progressbar"
+                    sObj.numFulfilled = pct
+                    sObj.numRequired = 100
+                    sObj.finished = (pct >= 100 or isComp)
+                elseif info.quantity and info.totalQuantity and info.totalQuantity > 1 then
                     local baseText = string_format("%s (%d/%d)", desc, info.quantity, info.totalQuantity)
                     sObj.text = timeTag and (baseText .. " " .. timeTag) or baseText
                     sObj.numFulfilled = info.quantity
                     sObj.numRequired = info.totalQuantity
-                elseif info.isWeightedProgress or (info.criteriaType == 8) then
-                    local cur = info.quantity or 0
-                    local req = (info.totalQuantity and info.totalQuantity > 0) and info.totalQuantity or 100
-                    local pct = math_min(100, math_max(0, math_floor((cur / req) * 100)))
-                    local baseText = string_format("%s (%d%%)", desc, pct)
-                    sObj.text = timeTag and (baseText .. " " .. timeTag) or baseText
-                    sObj.barText = (req > 0 and cur > 0) and string_format("%d/%d (%d%%)", cur, req, pct) or (pct .. "%")
-                    sObj.type = "progressbar"
-                    sObj.numFulfilled = pct
-                    sObj.numRequired = 100
-                    sObj.finished = (pct >= 100)
                 else
                     sObj.text = timeTag and (desc .. " " .. timeTag) or desc
                 end
@@ -2257,20 +2278,40 @@ local function ScanWorldEventScenario(list)
                                 if isComp then done = done + 1 end
                                 total = total + 1
 
-                                if cInfo.quantity and cInfo.totalQuantity and cInfo.totalQuantity > 1 then
-                                    bObj.text = string_format("%s (%d/%d)", cDesc, cInfo.quantity, cInfo.totalQuantity)
-                                    bObj.numFulfilled = cInfo.quantity
-                                    bObj.numRequired = cInfo.totalQuantity
-                                elseif cInfo.isWeightedProgress or (cInfo.criteriaType == 8) then
+                                local isWeighted = cInfo.isWeightedProgress
+                                    or (cInfo.criteriaType == 8)
+                                    or (cInfo.totalQuantity == 100)
+                                    or (cInfo.totalQuantity == 1000)
+                                    or (cInfo.quantityString and not issecretvalue(cInfo.quantityString) and cInfo.quantityString:find("%%"))
+
+                                if isWeighted then
                                     local cur = cInfo.quantity or 0
-                                    local req = (cInfo.totalQuantity and cInfo.totalQuantity > 0) and cInfo.totalQuantity or 100
-                                    local pct = math_min(100, math_max(0, math_floor((cur / req) * 100)))
-                                    bObj.text = string_format("%s (%d%%)", cDesc, pct)
-                                    bObj.barText = (req > 0 and cur > 0) and string_format("%d/%d (%d%%)", cur, req, pct) or (pct .. "%")
+                                    local req = cInfo.totalQuantity or 100
+                                    local pct = 0
+                                    if req == 1000 then
+                                        if cur <= 100 then
+                                            pct = cur
+                                        else
+                                            pct = math_min(100, math_max(0, math_floor((cur / 1000) * 100)))
+                                        end
+                                    elseif req == 100 then
+                                        pct = math_min(100, math_max(0, cur))
+                                    elseif req > 0 then
+                                        pct = math_min(100, math_max(0, math_floor((cur / req) * 100)))
+                                    else
+                                        pct = math_min(100, math_max(0, cur))
+                                    end
+
+                                    bObj.text = cDesc
+                                    bObj.barText = string_format("%d%%", pct)
                                     bObj.type = "progressbar"
                                     bObj.numFulfilled = pct
                                     bObj.numRequired = 100
-                                    bObj.finished = (pct >= 100)
+                                    bObj.finished = (pct >= 100 or isComp)
+                                elseif cInfo.quantity and cInfo.totalQuantity and cInfo.totalQuantity > 1 then
+                                    bObj.text = string_format("%s (%d/%d)", cDesc, cInfo.quantity, cInfo.totalQuantity)
+                                    bObj.numFulfilled = cInfo.quantity
+                                    bObj.numRequired = cInfo.totalQuantity
                                 else
                                     bObj.text = cDesc
                                 end
@@ -2288,6 +2329,14 @@ local function ScanWorldEventScenario(list)
         local sObj = AcquireTable()
         sObj.text = stageDescription
         sObj.finished = false
+        if weightedProgress then
+            local pct = math_min(100, math_max(0, select(10, C_Sc.GetStepInfo()) or 0))
+            sObj.type = "progressbar"
+            sObj.barText = string_format("%d%%", pct)
+            sObj.numFulfilled = pct
+            sObj.numRequired = 100
+            sObj.finished = (pct >= 100)
+        end
         table.insert(objs, sObj)
         total = 1
     end

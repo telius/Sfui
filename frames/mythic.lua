@@ -1000,7 +1000,7 @@ local function GetNemesisInfo(delveInfo)
             nemesis.isDone  = true
             nemesis.current = tot
             nemesis.total   = tot
-            nemesis.text    = "Done"
+            nemesis.text    = string_format("%d/%d", tot, tot)
         elseif cur and cur >= 0 then
             nemesis.current = cur
             nemesis.total   = tot
@@ -1947,7 +1947,9 @@ local function UpdateInstanceState()
     local function IsProgressCriteria(info)
         if not info then return false end
         if info.isWeightedProgress then return true end
-        if info.quantityString and info.quantityString:find("%%") then return true end
+        if info.criteriaType == 8 then return true end
+        if info.totalQuantity == 100 or info.totalQuantity == 1000 then return true end
+        if info.quantityString and not issecretvalue(info.quantityString) and info.quantityString:find("%%") then return true end
         return false
     end
 
@@ -2084,7 +2086,13 @@ local function UpdateInstanceState()
 
                     local nameStr = CleanObjectiveName(rawDesc)
                     if not isComplete and info.quantity and info.totalQuantity and info.totalQuantity > 1 then
-                        nameStr = nameStr .. " " .. string_format("|cff777777(%d/%d)|r", info.quantity, info.totalQuantity)
+                        local isWeighted = IsProgressCriteria(info)
+                        if isWeighted then
+                            local pct = (info.totalQuantity == 1000 and info.quantity <= 100) and info.quantity or math_min(100, math_max(0, math_floor((info.quantity / info.totalQuantity) * 100)))
+                            nameStr = nameStr .. " " .. string_format("|cff777777(%d%%)|r", pct)
+                        else
+                            nameStr = nameStr .. " " .. string_format("|cff777777(%d/%d)|r", info.quantity, info.totalQuantity)
+                        end
                     end
                     r.name:SetText(nameStr)
 
@@ -2127,7 +2135,13 @@ local function UpdateInstanceState()
 
                             local nameStr = CleanObjectiveName(bDesc)
                             if not isComplete and bInfo.quantity and bInfo.totalQuantity and bInfo.totalQuantity > 1 then
-                                nameStr = nameStr .. " " .. string_format("|cff777777(%d/%d)|r", bInfo.quantity, bInfo.totalQuantity)
+                                local isWeighted = IsProgressCriteria(bInfo)
+                                if isWeighted then
+                                    local pct = (bInfo.totalQuantity == 1000 and bInfo.quantity <= 100) and bInfo.quantity or math_min(100, math_max(0, math_floor((bInfo.quantity / bInfo.totalQuantity) * 100)))
+                                    nameStr = nameStr .. " " .. string_format("|cff777777(%d%%)|r", pct)
+                                else
+                                    nameStr = nameStr .. " " .. string_format("|cff777777(%d/%d)|r", bInfo.quantity, bInfo.totalQuantity)
+                                end
                             end
                             r.name:SetText(nameStr)
                             local textH = r.name:GetStringHeight() or 14
@@ -2230,11 +2244,19 @@ local function UpdateInstanceState()
             end
         else
             -- 2. Direct 0-100 percentage integer on criteria.quantity (standard for weighted progress criteria)
-            if forcesInfo.isWeightedProgress then
-                if current <= 100 and current >= 0 then
+            if forcesInfo.isWeightedProgress or forcesInfo.criteriaType == 8 or total == 100 or total == 1000 then
+                if total == 1000 then
+                    if current <= 100 and current >= 0 then
+                        pct = current
+                    else
+                        pct = (current / 1000) * 100
+                    end
+                elseif total == 100 then
                     pct = current
                 elseif total > 0 then
                     pct = (current / total) * 100
+                else
+                    pct = current
                 end
             else
                 -- 3. Check if rawStr is formatted as a percentage: e.g. "97%", "97.45%"
