@@ -48,6 +48,27 @@ local STAT_MAP = {
     [4] = "ITEM_MOD_INTELLECT_SHORT",
 }
 
+local SLOT_NAMES = {
+    [1]  = "Head",
+    [2]  = "Neck",
+    [3]  = "Shoulders",
+    [4]  = "Shirt",
+    [5]  = "Chest",
+    [6]  = "Waist",
+    [7]  = "Legs",
+    [8]  = "Feet",
+    [9]  = "Wrists",
+    [10] = "Hands",
+    [11] = "Ring 1",
+    [12] = "Ring 2",
+    [13] = "Trinket 1",
+    [14] = "Trinket 2",
+    [15] = "Back",
+    [16] = "Main Hand",
+    [17] = "Off Hand",
+    [19] = "Tabard",
+}
+
 local TANK_SPECS = {
     [250] = true, -- Blood DK
     [581] = true, -- Vengeance DH
@@ -942,14 +963,19 @@ function sfui.highest.GetBestItems(isPvP)
     return finalPick
 end
 
+local isEquippingInProgress = false
+local pendingEquipRequest   = nil
+
 function sfui.highest.EquipHighestILvl(isPvP, silent)
     if _G.InCombatLockdown and _G.InCombatLockdown() then
         if not silent then sfprint("Cannot equip gear while in combat.") end
         return
     end
 
-    if not silent then
-        sfprint(string.format("Scanning bags for best %s gear...", isPvP and "PvP" or "PvE"))
+    -- Mutex lock: if an equip sequence is already actively swapping items, queue a follow-up request instead of spawning parallel loops
+    if isEquippingInProgress then
+        pendingEquipRequest = { isPvP = isPvP, silent = silent }
+        return
     end
 
     local best = sfui.highest.GetBestItems(isPvP)
@@ -958,7 +984,24 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
     local equipQueue = {}
     for slotID, item in pairs(best) do
         if not item.isEquipped then
-            table.insert(equipQueue, { slotID = slotID, item = item })
+            local oldLink = _G.GetInventoryItemLink("player", slotID)
+            local oldIlvl = oldLink and (GetDetailedItemLevelInfo(oldLink) or select(4, _G.GetItemInfo(oldLink))) or 0
+            local oldScore = 0
+            if sfui.highest.pooledBest and sfui.highest.pooledBest[slotID] then
+                for _, itm in ipairs(sfui.highest.pooledBest[slotID]) do
+                    if itm.isEquipped then
+                        oldScore = itm.score or 0
+                        break
+                    end
+                end
+            end
+            table.insert(equipQueue, {
+                slotID   = slotID,
+                item     = item,
+                oldLink  = oldLink,
+                oldIlvl  = oldIlvl,
+                oldScore = oldScore,
+            })
         end
     end
 
@@ -966,23 +1009,46 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
     table.sort(equipQueue, function(a, b) return a.slotID < b.slotID end)
 
     local totalToEquip = #equipQueue
+    if totalToEquip == 0 then
+        if not silent then sfprint("Already wearing your best gear.") end
+        return
+    end
+
+    isEquippingInProgress = true
+
+    local function onEquipFinished()
+        isEquippingInProgress = false
+        if pendingEquipRequest then
+            local req = pendingEquipRequest
+            pendingEquipRequest = nil
+            sfui.highest.EquipHighestILvl(req.isPvP, req.silent)
+        end
+    end
 
     -- Equip sequentially with lock detection to avoid dropped items or cursor collisions.
     local function equipNext(index, retryCount)
         if index > #equipQueue then
             if totalToEquip > 0 then
                 if not silent then sfprint("Equipped " .. totalToEquip .. " upgrade(s)!") end
-            else
-                if not silent then sfprint("Already wearing your best gear.") end
             end
+            onEquipFinished()
             return
         end
 
         local entry = equipQueue[index]
         local slotID, item = entry.slotID, entry.item
+        local oldLink = entry.oldLink
+        local oldIlvl = entry.oldIlvl or 0
+        local newLink = item.link
+        local newIlvl = item.effectiveIlvl or item.ilvl or (newLink and (GetDetailedItemLevelInfo(newLink) or select(4, _G.GetItemInfo(newLink)))) or 0
+        local slotName = SLOT_NAMES[slotID] or ("Slot " .. tostring(slotID))
         retryCount = retryCount or 0
 
         if item.isUnequip then
+            if retryCount == 0 then
+                sfprint(string.format("-> %s (%d) to Empty (2H Weapon)",
+                    oldLink or "Item", oldIlvl))
+            end
             if _G.ClearCursor then _G.ClearCursor() end
             if _G.PickupInventoryItem then _G.PickupInventoryItem(slotID) end
             _G.C_Timer.After(0.08, function()
@@ -990,6 +1056,37 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
                 _G.C_Timer.After(0.05, function() equipNext(index + 1) end)
             end)
             return
+        end
+
+        -- Print swap details on first attempt of each queued upgrade
+        if retryCount == 0 then
+            local reason = ""
+            if oldLink and oldLink ~= "" then
+                local diff = newIlvl - oldIlvl
+                if diff > 0 then
+                    reason = string.format("+%d ilvl", diff)
+                elseif diff < 0 then
+                    if item.isTier then
+                        reason = string.format("%d ilvl, Tier Set", diff)
+                    elseif item.score and entry.oldScore and item.score > entry.oldScore then
+                        reason = string.format("%d ilvl, Better Stats", diff)
+                    else
+                        reason = string.format("%d ilvl, Stat Weights", diff)
+                    end
+                else
+                    if item.score and entry.oldScore and item.score > entry.oldScore then
+                        reason = "Better Secondary Stats"
+                    else
+                        reason = "Optimized Stats"
+                    end
+                end
+                sfprint(string.format("-> %s (%d) to %s (%d) (%s)",
+                    oldLink, oldIlvl, newLink, newIlvl, reason))
+            else
+                reason = string.format("+%d ilvl", newIlvl)
+                sfprint(string.format("-> Empty to %s (%d) (%s)",
+                    newLink, newIlvl, reason))
+            end
         end
 
         if item.bag and item.slot then
@@ -1029,9 +1126,5 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
         _G.C_Timer.After(0.08, function() equipNext(index + 1) end)
     end
 
-    if totalToEquip > 0 then
-        equipNext(1)
-    else
-        if not silent then sfprint("Already wearing your highest gear.") end
-    end
+    equipNext(1)
 end

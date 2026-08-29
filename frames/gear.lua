@@ -693,6 +693,12 @@ local function doSpecSwap()
     end
 end
 
+local specChangePending = false
+local function _OnSpecChangeTimer()
+    specChangePending = false
+    doSpecSwap()
+end
+
 local function handle_spec_change(event, unit)
     if (event == "PLAYER_SPECIALIZATION_CHANGED" or event == "UNIT_SPELLCAST_SUCCEEDED") and unit and unit ~= "player" then return end
     
@@ -704,15 +710,15 @@ local function handle_spec_change(event, unit)
     -- Force clear manual edit pause
     manualEditUntil = 0
 
-    -- Execute immediately and schedule staggered sync ticks
-    doSpecSwap()
-    C_Timer.After(0.15, doSpecSwap)
-    C_Timer.After(0.40, doSpecSwap)
-
     if SfuiGearManagerFrame and SfuiGearManagerFrame.SelectSpecTab then
         local specIdx = GetSpecialization()
         local specId = specIdx and GetSpecializationInfo(specIdx)
         if specId then SfuiGearManagerFrame:SelectSpecTab(specId) end
+    end
+
+    if not specChangePending then
+        specChangePending = true
+        C_Timer.After(0.15, _OnSpecChangeTimer)
     end
 end
 sfui.events.RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", handle_spec_change)

@@ -1424,26 +1424,60 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
     end
 
     local isSynthetic = false
+    local qProgressBarPct = nil
+    if C_TaskQuest and C_TaskQuest.GetQuestProgressBarInfo then
+        local ok, val = pcall(C_TaskQuest.GetQuestProgressBarInfo, questID)
+        if ok and val and val > 0 then qProgressBarPct = val end
+    end
+    if not qProgressBarPct and _G.GetQuestProgressBarInfo then
+        local ok, val = pcall(_G.GetQuestProgressBarInfo, questID)
+        if ok and val and val > 0 then qProgressBarPct = val end
+    end
+
     if not objs or #objs == 0 then
-        if C_TaskQuest and C_TaskQuest.GetQuestProgressBarInfo then
-            local ok, pct = pcall(C_TaskQuest.GetQuestProgressBarInfo, questID)
-            if ok and pct and pct > 0 then
-                local sObj = AcquireTable()
-                sObj.text = string_format("%d%%", pct)
-                sObj.finished = (pct >= 100)
-                sObj.numFulfilled = pct
-                sObj.numRequired = 100
-                local sList = AcquireTable()
-                table.insert(sList, sObj)
-                objs = sList
-                isSynthetic = true
+        if qProgressBarPct and qProgressBarPct > 0 then
+            local sObj = AcquireTable()
+            sObj.text = tostring(qProgressBarPct) .. "%"
+            sObj.barText = tostring(qProgressBarPct) .. "%"
+            sObj.finished = (qProgressBarPct >= 100)
+            sObj.numFulfilled = qProgressBarPct
+            sObj.numRequired = 100
+            sObj.type = "progressbar"
+            local sList = AcquireTable()
+            table.insert(sList, sObj)
+            objs = sList
+            isSynthetic = true
+        end
+    elseif objs then
+        for _, obj in ipairs(objs) do
+            local hasPctText = obj.text and not issecretvalue(obj.text) and obj.text:find("%%")
+            local isBarType = (obj.type == "progressbar" or obj.type == 8 or qProgressBarPct ~= nil or hasPctText or (obj.numRequired and not issecretvalue(obj.numRequired) and obj.numRequired == 100))
+
+            if isBarType then
+                obj.type = "progressbar"
+                if not obj.numFulfilled or obj.numFulfilled == 0 then
+                    if qProgressBarPct then
+                        obj.numFulfilled = qProgressBarPct
+                    elseif hasPctText then
+                        local p = obj.text:match("(%d+)%%")
+                        if p then obj.numFulfilled = tonumber(p) end
+                    end
+                end
+                if not obj.numRequired or obj.numRequired <= 1 then
+                    obj.numRequired = 100
+                end
+                if not obj.barText or obj.barText == "" then
+                    if obj.numFulfilled and not issecretvalue(obj.numFulfilled) then
+                        obj.barText = tostring(obj.numFulfilled) .. "%"
+                    end
+                end
             end
         end
     end
 
     local done, total = 0, 0
     local singleCountStr = nil
-    local progressHash = (isComplete and 1 or 0) * 10000000
+    local progressHash = (isComplete and "1" or "0")
 
     if objs and #objs == 1 then
         local obj = objs[1]
@@ -1452,11 +1486,13 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
 
         local cur = obj.numFulfilled or 0
         local req = obj.numRequired or 0
-        progressHash = progressHash + (cur * 1000) + req + (obj.finished and 1 or 0)
+        local curStr = issecretvalue(cur) and "S" or tostring(cur)
+        local reqStr = issecretvalue(req) and "S" or tostring(req)
+        progressHash = progressHash .. "_" .. curStr .. "/" .. reqStr .. (obj.finished and "D" or "U")
 
-        if req > 1 then
+        if not issecretvalue(cur) and not issecretvalue(req) and req > 1 then
             singleCountStr = tostring(cur) .. "/" .. tostring(req)
-        elseif obj.text and obj.text ~= "" then
+        elseif obj.text and obj.text ~= "" and not issecretvalue(obj.text) then
             local pCur, pReq = obj.text:match("(%d+)/(%d+)")
             if pCur and pReq and tonumber(pReq) and tonumber(pReq) > 1 then
                 singleCountStr = pCur .. "/" .. pReq
@@ -1473,7 +1509,9 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
             if obj.finished then done = done + 1 end
             local cur = obj.numFulfilled or 0
             local req = obj.numRequired or 0
-            progressHash = progressHash + (idx * 10000) + (cur * 100) + req + (obj.finished and 1 or 0)
+            local curStr = issecretvalue(cur) and "S" or tostring(cur)
+            local reqStr = issecretvalue(req) and "S" or tostring(req)
+            progressHash = progressHash .. "_" .. tostring(idx) .. ":" .. curStr .. "/" .. reqStr .. (obj.finished and "D" or "U")
         end
     end
 
@@ -1641,16 +1679,10 @@ local function AddWorldQuest(qID, isExplicitlyWatched)
 end
 
 local function GetScenarioCriteriaSafe(criteriaIndex, stepID)
-    if stepID and C_ScenarioInfo and C_ScenarioInfo.GetCriteriaInfoByStep then
-        local ok, info = pcall(C_ScenarioInfo.GetCriteriaInfoByStep, stepID, criteriaIndex)
-        if ok and info and type(info) == "table" then
-            info.description = info.description or info.criteriaString or info.string
-            return info
-        end
-    end
+    -- 1. Query active scenario step criteria first (always current for active stage)
     if C_ScenarioInfo and C_ScenarioInfo.GetCriteriaInfo then
         local ok, info = pcall(C_ScenarioInfo.GetCriteriaInfo, criteriaIndex)
-        if ok and info and type(info) == "table" then
+        if ok and info and type(info) == "table" and (info.description or info.criteriaString or info.string) then
             info.description = info.description or info.criteriaString or info.string
             return info
         end
@@ -1672,6 +1704,15 @@ local function GetScenarioCriteriaSafe(criteriaIndex, stepID)
                 elapsed = el,
                 isWeightedProgress = isWeight,
             }
+        end
+    end
+
+    -- 2. Fallback to step-specific criteria if stepID / stepIndex provided (used for bonus steps)
+    if stepID and C_ScenarioInfo and C_ScenarioInfo.GetCriteriaInfoByStep then
+        local ok, info = pcall(C_ScenarioInfo.GetCriteriaInfoByStep, stepID, criteriaIndex)
+        if ok and info and type(info) == "table" and (info.description or info.criteriaString or info.string) then
+            info.description = info.description or info.criteriaString or info.string
+            return info
         end
     end
     if stepID and C_Scenario and C_Scenario.GetCriteriaInfoByStep then
@@ -1733,10 +1774,12 @@ local function CollectWidgetsFromSet(setID)
 end
 
 local function CollectWidgetsFromContainer(container)
-    if not container or not container.widgetFrames then return end
-    for _, wFrame in pairs(container.widgetFrames) do
-        local wID = wFrame.widgetID or (wFrame.GetWidgetID and wFrame:GetWidgetID())
-        if wID then AddWidgetIDToScan(wID) end
+    if not container then return end
+    if container.widgetFrames then
+        for _, wFrame in pairs(container.widgetFrames) do
+            local wID = wFrame.widgetID or (wFrame.GetWidgetID and wFrame:GetWidgetID()) or (wFrame.widgetInfo and wFrame.widgetInfo.widgetID)
+            if wID then AddWidgetIDToScan(wID) end
+        end
     end
 end
 
@@ -1765,13 +1808,27 @@ local function ScanWorldEventScenario(list)
     if scenarioType == 8 or scenarioType == 1 or scenarioType == 2 or scenarioType == 5 then return end
     if flags and bit and bit.band and bit.band(flags, 0x01) ~= 0 and inInst then return end
 
-    local stageName, stageDescription, numCriteria, _, _, _, _, _, _, weightedProgress, _, widgetSetID = C_Sc.GetStepInfo()
-
-    if (not widgetSetID or widgetSetID == 0) and C_ScenarioInfo and C_ScenarioInfo.GetScenarioStepInfo then
+    local stepInfo = nil
+    if C_ScenarioInfo and C_ScenarioInfo.GetScenarioStepInfo then
         local ok, sInfo = pcall(C_ScenarioInfo.GetScenarioStepInfo)
-        if ok and sInfo and sInfo.widgetSetID and sInfo.widgetSetID > 0 then
-            widgetSetID = sInfo.widgetSetID
+        if ok and sInfo and type(sInfo) == "table" then
+            stepInfo = sInfo
         end
+    end
+
+    local stageName = (stepInfo and (stepInfo.name or stepInfo.title or stepInfo.stageName))
+    local stageDescription = (stepInfo and stepInfo.description)
+    local numCriteria = (stepInfo and stepInfo.numCriteria)
+    local weightedProgress = (stepInfo and stepInfo.weightedProgress)
+    local widgetSetID = (stepInfo and stepInfo.widgetSetID)
+
+    if not stepInfo and C_Sc.GetStepInfo then
+        local sName, sDesc, nCrit, _, _, _, _, _, _, wProg, _, wSetID = C_Sc.GetStepInfo()
+        stageName = stageName or sName
+        stageDescription = stageDescription or sDesc
+        numCriteria = numCriteria or nCrit
+        if weightedProgress == nil then weightedProgress = wProg end
+        widgetSetID = widgetSetID or wSetID
     end
 
     local title
@@ -1788,7 +1845,7 @@ local function ScanWorldEventScenario(list)
     -- 1. Criteria scan
     if numCriteria and numCriteria > 0 then
         for i = 1, numCriteria do
-            local info = GetScenarioCriteriaSafe(i, currentStage)
+            local info = GetScenarioCriteriaSafe(i, stepInfo and stepInfo.stepID)
             local desc = info and (info.description or info.criteriaString or info.string)
             if desc and desc ~= "" and not issecretvalue(desc) then
                 local sObj = AcquireTable()
@@ -1809,45 +1866,74 @@ local function ScanWorldEventScenario(list)
                     end
                 end
 
+                -- Fallback quantity extraction if Blizzard didn't populate raw numeric fields
+                if (not info.quantity or info.quantity == 0) and info.quantityString and not issecretvalue(info.quantityString) then
+                    local q, t = info.quantityString:match("(%d+)%s*/%s*(%d+)")
+                    if q and t then
+                        info.quantity = tonumber(q)
+                        info.totalQuantity = tonumber(t)
+                    else
+                        local p = info.quantityString:match("(%d+)%%")
+                        if p then
+                            info.quantity = tonumber(p)
+                            info.totalQuantity = 100
+                            info.isWeightedProgress = true
+                        end
+                    end
+                end
+                if (not info.quantity or info.quantity == 0) and desc and not issecretvalue(desc) then
+                    local q, t = desc:match("%((%d+)%s*/%s*(%d+)%)")
+                    if q and t then
+                        info.quantity = tonumber(q)
+                        info.totalQuantity = tonumber(t)
+                    else
+                        local p = desc:match("%((%d+)%%%)")
+                        if p then
+                            info.quantity = tonumber(p)
+                            info.totalQuantity = 100
+                            info.isWeightedProgress = true
+                        end
+                    end
+                end
+
                 local isWeighted = info.isWeightedProgress
+                    or info.weightedProgress
                     or (info.criteriaType == 8)
                     or (weightedProgress == true)
                     or (info.totalQuantity == 100)
                     or (info.totalQuantity == 1000)
                     or (info.quantityString and not issecretvalue(info.quantityString) and info.quantityString:find("%%"))
+                    or (desc and not issecretvalue(desc) and desc:find("%%"))
 
                 if isWeighted then
-                    local cur = info.quantity or 0
-                    local req = info.totalQuantity or 100
-                    local pct = 0
-                    if req == 1000 then
-                        if cur <= 100 then
-                            pct = cur
-                        else
-                            pct = math_min(100, math_max(0, math_floor((cur / 1000) * 100)))
-                        end
-                    elseif req == 100 then
-                        pct = math_min(100, math_max(0, cur))
-                    elseif req > 0 then
-                        pct = math_min(100, math_max(0, math_floor((cur / req) * 100)))
-                    else
-                        pct = math_min(100, math_max(0, cur))
+                    local cleanDesc = desc
+                    if not issecretvalue(desc) then
+                        cleanDesc = desc:gsub("%s*%(?%d+%%%)?", ""):gsub("%s*%(?%d+/%d+%)?", ""):gsub("%s*:%s*$", "")
                     end
-
-                    local baseText = desc
-                    sObj.text = timeTag and (baseText .. " " .. timeTag) or baseText
-                    sObj.barText = string_format("%d%%", pct)
+                    sObj.text = timeTag and (cleanDesc .. " " .. timeTag) or cleanDesc
                     sObj.type = "progressbar"
-                    sObj.numFulfilled = pct
+                    sObj.numFulfilled = info.quantity or 0
                     sObj.numRequired = 100
-                    sObj.finished = (pct >= 100 or isComp)
-                elseif info.quantity and info.totalQuantity and info.totalQuantity > 1 then
-                    local baseText = string_format("%s (%d/%d)", desc, info.quantity, info.totalQuantity)
+                    sObj.barText = (info.quantityString and not issecretvalue(info.quantityString) and info.quantityString)
+                                or (not issecretvalue(info.quantity) and (tostring(info.quantity) .. "%"))
+                                or nil
+                    sObj.finished = isComp
+                elseif info.quantity and info.totalQuantity and not issecretvalue(info.totalQuantity) and info.totalQuantity > 1 then
+                    local cleanDesc = desc
+                    if not issecretvalue(desc) then
+                        cleanDesc = desc:gsub("%s*%(?%d+/%d+%)?", ""):gsub("%s*:%s*$", "")
+                    end
+                    local baseText = cleanDesc
+                    if not issecretvalue(info.quantity) then
+                        baseText = string_format("%s (%s/%s)", cleanDesc, tostring(info.quantity), tostring(info.totalQuantity))
+                    end
                     sObj.text = timeTag and (baseText .. " " .. timeTag) or baseText
                     sObj.numFulfilled = info.quantity
                     sObj.numRequired = info.totalQuantity
+                    sObj.finished = isComp
                 else
                     sObj.text = timeTag and (desc .. " " .. timeTag) or desc
+                    sObj.finished = isComp
                 end
                 table.insert(objs, sObj)
             end
@@ -2285,35 +2371,34 @@ local function ScanWorldEventScenario(list)
                                     or (cInfo.quantityString and not issecretvalue(cInfo.quantityString) and cInfo.quantityString:find("%%"))
 
                                 if isWeighted then
-                                    local cur = cInfo.quantity or 0
-                                    local req = cInfo.totalQuantity or 100
-                                    local pct = 0
-                                    if req == 1000 then
-                                        if cur <= 100 then
-                                            pct = cur
-                                        else
-                                            pct = math_min(100, math_max(0, math_floor((cur / 1000) * 100)))
-                                        end
-                                    elseif req == 100 then
-                                        pct = math_min(100, math_max(0, cur))
-                                    elseif req > 0 then
-                                        pct = math_min(100, math_max(0, math_floor((cur / req) * 100)))
-                                    else
-                                        pct = math_min(100, math_max(0, cur))
+                                    local cleanDesc = cDesc
+                                    if not issecretvalue(cDesc) then
+                                        cleanDesc = cDesc:gsub("%s*%(?%d+%%%)?", ""):gsub("%s*%(?%d+/%d+%)?", ""):gsub("%s*:%s*$", "")
                                     end
-
-                                    bObj.text = cDesc
-                                    bObj.barText = string_format("%d%%", pct)
+                                    bObj.text = cleanDesc
                                     bObj.type = "progressbar"
-                                    bObj.numFulfilled = pct
-                                    bObj.numRequired = 100
-                                    bObj.finished = (pct >= 100 or isComp)
-                                elseif cInfo.quantity and cInfo.totalQuantity and cInfo.totalQuantity > 1 then
-                                    bObj.text = string_format("%s (%d/%d)", cDesc, cInfo.quantity, cInfo.totalQuantity)
+                                    bObj.numFulfilled = cInfo.quantity or 0
+                                    bObj.numRequired = cInfo.totalQuantity or 100
+                                    bObj.barText = (cInfo.quantityString and not issecretvalue(cInfo.quantityString) and cInfo.quantityString)
+                                                or (not issecretvalue(cInfo.quantity) and (tostring(cInfo.quantity) .. "%"))
+                                                or nil
+                                    bObj.finished = isComp
+                                elseif cInfo.quantity and cInfo.totalQuantity and not issecretvalue(cInfo.totalQuantity) and cInfo.totalQuantity > 1 then
+                                    local cleanDesc = cDesc
+                                    if not issecretvalue(cDesc) then
+                                        cleanDesc = cDesc:gsub("%s*%(?%d+/%d+%)?", ""):gsub("%s*:%s*$", "")
+                                    end
+                                    local baseText = cleanDesc
+                                    if not issecretvalue(cInfo.quantity) then
+                                        baseText = string_format("%s (%s/%s)", cleanDesc, tostring(cInfo.quantity), tostring(cInfo.totalQuantity))
+                                    end
+                                    bObj.text = baseText
                                     bObj.numFulfilled = cInfo.quantity
                                     bObj.numRequired = cInfo.totalQuantity
+                                    bObj.finished = isComp
                                 else
                                     bObj.text = cDesc
+                                    bObj.finished = isComp
                                 end
                                 table.insert(objs, bObj)
                             end
@@ -2330,12 +2415,10 @@ local function ScanWorldEventScenario(list)
         sObj.text = stageDescription
         sObj.finished = false
         if weightedProgress then
-            local pct = math_min(100, math_max(0, select(10, C_Sc.GetStepInfo()) or 0))
             sObj.type = "progressbar"
-            sObj.barText = string_format("%d%%", pct)
-            sObj.numFulfilled = pct
+            sObj.numFulfilled = 0
             sObj.numRequired = 100
-            sObj.finished = (pct >= 100)
+            sObj.barText = ""
         end
         table.insert(objs, sObj)
         total = 1
@@ -2642,28 +2725,26 @@ function QL:DoRefresh()
                                 orow:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0,    -y)
 
                                 -- Check if this objective qualifies for a statusbar (% objectives only):
-                                local pct = nil
-                                if obj.type == "progressbar" or obj.type == 8 then
-                                    local p = obj.text:match("(%d+)%%")
-                                    if p then
-                                        pct = tonumber(p)
-                                    elseif obj.numRequired and obj.numRequired > 0 and obj.numFulfilled then
-                                        pct = math_min(100, math_max(0, math_floor((obj.numFulfilled / obj.numRequired) * 100)))
-                                    end
-                                else
-                                    local p = obj.text:match("(%d+)%%")
-                                    if p then pct = tonumber(p) end
+                                local isBar = (obj.type == "progressbar" or obj.type == 8)
+                                if not isBar and obj.text and not issecretvalue(obj.text) and obj.text:find("%%") then
+                                    isBar = true
+                                end
+                                if not isBar and obj.numRequired and not issecretvalue(obj.numRequired) and obj.numRequired == 100 then
+                                    isBar = true
                                 end
 
-                                if pct ~= nil and not obj.finished then
+                                if isBar and not obj.finished then
                                     local BAR_H = 18
                                     local totalH = OBJ_H + 2 + BAR_H
                                     orow:SetHeight(totalH)
 
                                     -- 1. Objective Text on top
                                     orow.FS:Show()
-                                    local cleanText = obj.text:gsub("%s*%(?%d+%%%)?", ""):gsub("%s*%(?%d+/%d+%)?", ""):gsub("%s*:%s*$", ""):gsub("^%s*-%s*", "")
-                                    if cleanText == "" then cleanText = rawTitle end
+                                    local cleanText = obj.text
+                                    if cleanText and not issecretvalue(cleanText) then
+                                        cleanText = cleanText:gsub("%s*%(?%d+%%%)?", ""):gsub("%s*%(?%d+/%d+%)?", ""):gsub("%s*:%s*$", ""):gsub("^%s*-%s*", "")
+                                    end
+                                    if not cleanText or cleanText == "" then cleanText = rawTitle end
                                     local objStr = "- " .. cleanText
                                     if orow.lastObjStr ~= objStr or orow.lastFinished ~= false then
                                         orow.lastObjStr = objStr
@@ -2672,16 +2753,34 @@ function QL:DoRefresh()
                                         orow.FS:SetTextColor(0.85, 0.85, 0.85)
                                     end
 
-                                    -- 2. Status Bar underneath
+                                    -- 2. Status Bar underneath (zero Lua arithmetic)
                                     orow.Bar:Show()
-                                    orow.Bar:SetValue(pct)
+                                    local maxVal = 100
+                                    if obj.type ~= "progressbar" and obj.numRequired and not issecretvalue(obj.numRequired) and obj.numRequired > 1 then
+                                        maxVal = obj.numRequired
+                                    end
+                                    orow.Bar:SetMinMaxValues(0, maxVal)
+                                    orow.Bar:SetValue(obj.numFulfilled or 0)
 
                                     local r, g, b = def.color[1], def.color[2], def.color[3]
                                     if entry.isMeta then
                                         r, g, b = 0.0, 1.0, 1.0
                                     end
                                     orow.Bar:SetStatusBarColor(r * 0.75, g * 0.75, b * 0.75, 0.80)
-                                    orow.Bar.CenterFS:SetText(obj.barText or (pct .. "%"))
+
+                                    local barTxt = obj.barText
+                                    if not barTxt or barTxt == "" then
+                                        if obj.numFulfilled and not issecretvalue(obj.numFulfilled) then
+                                            if obj.numRequired and not issecretvalue(obj.numRequired) and obj.numRequired == 100 then
+                                                barTxt = tostring(obj.numFulfilled) .. "%"
+                                            elseif obj.numRequired and not issecretvalue(obj.numRequired) and obj.numRequired > 1 then
+                                                barTxt = tostring(obj.numFulfilled) .. "/" .. tostring(obj.numRequired)
+                                            else
+                                                barTxt = tostring(obj.numFulfilled) .. "%"
+                                            end
+                                        end
+                                    end
+                                    orow.Bar.CenterFS:SetText(barTxt or "")
                                     orow.Bar.CenterFS:SetTextColor(1, 1, 1)
 
                                     y = y + totalH + 2
@@ -2691,7 +2790,7 @@ function QL:DoRefresh()
                                     orow:SetHeight(OBJ_H)
                                     local r, g, b = 0.45, 0.45, 0.45
                                     if obj.finished then r, g, b = 0.25, 0.70, 0.25 end
-                                    local objStr = "- " .. obj.text
+                                    local objStr = "- " .. (obj.text or "")
                                     if orow.lastObjStr ~= objStr or orow.lastFinished ~= obj.finished then
                                         orow.lastObjStr = objStr
                                         orow.lastFinished = obj.finished
@@ -3031,7 +3130,11 @@ QL:SetScript("OnEvent", function(_, event, arg1, arg2)
 
     elseif event == "SCENARIO_UPDATE" or event == "SCENARIO_CRITERIA_UPDATE" or event == "SCENARIO_POI_UPDATE"
         or event == "SCENARIO_SPELL_UPDATE" or event == "SCENARIO_CRITERIA_SHOW_STATE_UPDATE"
-        or event == "SCENARIO_COMPLETED" or event == "ACTIVE_DELVE_DATA_UPDATE" then
+        or event == "SCENARIO_COMPLETED" or event == "ACTIVE_DELVE_DATA_UPDATE"
+        or event == "CRITERIA_UPDATE" or event == "CRITERIA_COMPLETE"
+        or event == "QUEST_CRITERIA_UPDATE" or event == "QUEST_POI_UPDATE"
+        or event == "SCENARIO_CRITERIA_PROGRESS_UPDATE" or event == "SCENARIO_STAGE_UPDATE"
+        or event == "UPDATE_UI_WIDGET" or event == "UPDATE_ALL_UI_WIDGETS" then
         CheckVisibilityAndRefresh()
 
     elseif event == "TRACKED_ACHIEVEMENT_LIST_CHANGED" or event == "TRACKED_ACHIEVEMENT_UPDATE" or event == "ACHIEVEMENT_EARNED" then
@@ -3064,7 +3167,13 @@ Reg("SCENARIO_POI_UPDATE")
 Reg("SCENARIO_POIS_UPDATED")
 Reg("SCENARIO_SPELL_UPDATE")
 Reg("SCENARIO_CRITERIA_SHOW_STATE_UPDATE")
+Reg("SCENARIO_CRITERIA_PROGRESS_UPDATE")
+Reg("SCENARIO_STAGE_UPDATE")
 Reg("SCENARIO_COMPLETED")
+Reg("CRITERIA_UPDATE")
+Reg("CRITERIA_COMPLETE")
+Reg("QUEST_CRITERIA_UPDATE")
+Reg("QUEST_POI_UPDATE")
 Reg("UPDATE_UI_WIDGET")
 Reg("UPDATE_ALL_UI_WIDGETS")
 Reg("ACTIVE_DELVE_DATA_UPDATE")
