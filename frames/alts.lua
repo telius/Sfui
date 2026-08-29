@@ -169,7 +169,7 @@ local CURRENCIES = {
     },
     { id = 274476, label = "Spark",     icon = 0, isItem = true }, -- Spark of Tides
     { id = 3465,   label = "Catalyst",  icon = 0 },                -- Venomblight Manaflux
-    { id = 3110,   label = "Corrosive Coin", icon = 136016 },      -- Corrosive Coin
+    { id = 3448,   label = "Corrosive Coin", icon = 0, fallbackIDs = { 3110 } }, -- Corrosive Coin
     {
         isGroup = true,
         label = "Keys",

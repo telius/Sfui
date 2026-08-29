@@ -188,6 +188,30 @@ local function SyncBlizzardRunHistory()
     end
 end
 
+local function SaveCompletedRunRecord()
+    if not _currentMapID or not _currentLevel then return end
+    local seasonID = GetCurrentSeasonID()
+    SfuiDB = SfuiDB or {}
+    SfuiDB.mythicBestTimes = SfuiDB.mythicBestTimes or {}
+    SfuiDB.mythicBestTimes[seasonID] = SfuiDB.mythicBestTimes[seasonID] or {}
+    SfuiDB.mythicBestTimes[seasonID][_currentMapID] = SfuiDB.mythicBestTimes[seasonID][_currentMapID] or {}
+
+    local mapData = SfuiDB.mythicBestTimes[seasonID][_currentMapID]
+    local existing = mapData[_currentLevel] or {}
+
+    local savedSplits = {}
+    for k, v in pairs(_bossSplits) do
+        savedSplits[k] = v
+    end
+
+    mapData[_currentLevel] = {
+        duration = existing.duration,
+        level = _currentLevel,
+        splits = savedSplits,
+        forces = _forcesSplitTime or existing.forces,
+    }
+end
+
 local function GetBestRun(mapID, currentLevel)
     if not mapID or mapID <= 0 then return nil end
     local seasonID = GetCurrentSeasonID()
@@ -318,6 +342,7 @@ local currencyPool         = {}
 local spellPool            = {}
 local staticDeathBreakdown = {}
 local deathBreakdownPool   = {}
+local staticForcesInfo     = {}
 local MAX_DELVE_POOL_SIZE  = 30
 
 local function ReleaseDelveSubTables(info)
@@ -1910,17 +1935,17 @@ local function UpdateInstanceState()
             end
         end
     end
-    -- Fallback 2: scenario step level weightedProgress (some Delves / World Events attach progress to the step)
+    -- Fallback 2: scenario step level weightedProgress (some Delves / instanced scenarios attach progress to the step)
     if not forcesInfo and C_ScenarioInfo and C_ScenarioInfo.GetScenarioStepInfo then
         local okStep, sInfo = pcall(C_ScenarioInfo.GetScenarioStepInfo)
         if okStep and sInfo and sInfo.weightedProgress and sInfo.weightedProgress > 0 then
-            forcesInfo = {
-                quantity = sInfo.weightedProgress,
-                totalQuantity = 100,
-                quantityString = string_format("%d%%", sInfo.weightedProgress),
-                completed = false,
-                isWeightedProgress = true,
-            }
+            wipe(staticForcesInfo)
+            staticForcesInfo.quantity = sInfo.weightedProgress
+            staticForcesInfo.totalQuantity = 100
+            staticForcesInfo.quantityString = string_format("%d%%", sInfo.weightedProgress)
+            staticForcesInfo.completed = false
+            staticForcesInfo.isWeightedProgress = true
+            forcesInfo = staticForcesInfo
         end
     end
 
@@ -2091,29 +2116,15 @@ local function UpdateInstanceState()
         r.row:SetHeight(math_max(16, math_ceil(textH + 2)))
     end
 
-    -- Fallback 2: World Event / Scenario UI Widgets extraction (TextWithState, StatusBar, IconAndText)
+    -- Fallback 2: Instanced Scenario UI Widgets extraction (TextWithState, StatusBar)
     if not delveInfo and C_UIWidgetManager then
         wipe(staticWidgetSetIDs)
         if stepWidgetSetID and stepWidgetSetID > 0 then
             table.insert(staticWidgetSetIDs, stepWidgetSetID)
         end
-        if C_UIWidgetManager.GetTopCenterWidgetSetID then
-            local okId, id = pcall(C_UIWidgetManager.GetTopCenterWidgetSetID)
-            if okId and id and id > 0 then table.insert(staticWidgetSetIDs, id) end
-        end
-        if C_UIWidgetManager.GetBelowMinimapWidgetSetID then
-            local okId, id = pcall(C_UIWidgetManager.GetBelowMinimapWidgetSetID)
-            if okId and id and id > 0 then table.insert(staticWidgetSetIDs, id) end
-        end
         if C_UIWidgetManager.GetObjectiveTrackerWidgetSetID then
             local okId, id = pcall(C_UIWidgetManager.GetObjectiveTrackerWidgetSetID)
             if okId and id and id > 0 then table.insert(staticWidgetSetIDs, id) end
-        end
-        if _G.UIWidgetTopCenterContainerFrame and _G.UIWidgetTopCenterContainerFrame.widgetSetID then
-            table.insert(staticWidgetSetIDs, _G.UIWidgetTopCenterContainerFrame.widgetSetID)
-        end
-        if _G.UIWidgetBelowMinimapContainerFrame and _G.UIWidgetBelowMinimapContainerFrame.widgetSetID then
-            table.insert(staticWidgetSetIDs, _G.UIWidgetBelowMinimapContainerFrame.widgetSetID)
         end
 
         for _, setID in ipairs(staticWidgetSetIDs) do
@@ -2145,13 +2156,13 @@ local function UpdateInstanceState()
                         if not forcesInfo and C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo then
                             local okBar, bar = pcall(C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo, wID)
                             if okBar and bar and bar.shownState ~= 0 and bar.barValue and not issecretvalue(bar.barValue) then
-                                forcesInfo = {
-                                    quantity = bar.barValue,
-                                    totalQuantity = (bar.barMax and bar.barMax > 0) and bar.barMax or 100,
-                                    quantityString = bar.overrideBarText or string_format("%d%%", bar.barValue),
-                                    completed = false,
-                                    isWeightedProgress = true,
-                                }
+                                wipe(staticForcesInfo)
+                                staticForcesInfo.quantity = bar.barValue
+                                staticForcesInfo.totalQuantity = (bar.barMax and bar.barMax > 0) and bar.barMax or 100
+                                staticForcesInfo.quantityString = bar.overrideBarText or string_format("%d%%", bar.barValue)
+                                staticForcesInfo.completed = false
+                                staticForcesInfo.isWeightedProgress = true
+                                forcesInfo = staticForcesInfo
                             end
                         end
                     end
@@ -2886,11 +2897,9 @@ ev:SetScript("OnEvent", function(self, event, ...)
         if _mode == "mythic" then
             _runCompleted = true
             UpdateTimer()
-            UpdateBossSplits(true)
-        end
-        HideHUD()
-        if sfui.questlog and sfui.questlog.on_mythic_end then
-            sfui.questlog.on_mythic_end()
+            UpdateInstanceState()
+            SaveCompletedRunRecord()
+            SyncBlizzardRunHistory()
         end
     elseif event == "CHALLENGE_MODE_RESET" then
         _runCompleted = false
@@ -2903,9 +2912,9 @@ ev:SetScript("OnEvent", function(self, event, ...)
         event == "ACTIVE_DELVE_DATA_UPDATE" or event == "UPDATE_UI_WIDGET" or
         event == "SCENARIO_COMPLETED" or event == "SCENARIO_POIS_UPDATED" or
         event == "SCENARIO_SPELL_UPDATE" then
-        if event == "UPDATE_UI_WIDGET" and _mode == nil then
-            local okScen, inScen = pcall(C_Scenario.IsInScenario)
-            if not (okScen and inScen) then return end
+        if _mode == nil then
+            local okInst, inInst = pcall(_G.IsInInstance)
+            if not (okInst and inInst) then return end
             CheckScenarioState()
         end
         RequestStateUpdate(0.4)

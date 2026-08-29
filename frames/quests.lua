@@ -277,7 +277,7 @@ local function UpdateMapCache()
     end
 end
 
-local MAX_TABLE_POOL = 100
+local MAX_TABLE_POOL = 250
 local tablePool = {}
 local function AcquireTable()
     local t = table.remove(tablePool) or {}
@@ -393,8 +393,10 @@ local function UntrackAchievement(achievementID)
     end
 end
 
+local staticAchMap = {}
+local staticAchList = {}
+
 local function GetAchievementCriteriaList(achievementID)
-    local objectives = nil
     local numCriteria = 0
     if GetAchievementNumCriteria then
         local ok, n = pcall(GetAchievementNumCriteria, achievementID)
@@ -402,6 +404,7 @@ local function GetAchievementCriteriaList(achievementID)
     end
 
     if numCriteria > 0 and GetAchievementCriteriaInfo then
+        local objectives = nil
         for i = 1, numCriteria do
             local cOk, cString, cType, completed, qty, reqQty, _, _, _, qtyString = pcall(GetAchievementCriteriaInfo, achievementID, i)
             if cOk then
@@ -414,33 +417,35 @@ local function GetAchievementCriteriaList(achievementID)
                     if qty and reqQty and reqQty > 1 then
                         txt = txt .. " (" .. tostring(qty) .. "/" .. tostring(reqQty) .. ")"
                     end
-                    if not objectives then objectives = {} end
-                    objectives[#objectives + 1] = {
-                        text = txt,
-                        finished = finished,
-                    }
+                    if not objectives then objectives = AcquireTable() end
+                    local sObj = AcquireTable()
+                    sObj.text = txt
+                    sObj.finished = finished
+                    objectives[#objectives + 1] = sObj
                 end
             end
         end
+        return objectives
     end
-    return objectives
+    return nil
 end
 
 local function ScanTrackedAchievements(intoList)
-    local idMap = {}
-    local idList = {}
+    wipe(staticAchMap)
+    wipe(staticAchList)
 
     local function addID(id)
-        if type(id) == "number" and id > 0 and not idMap[id] then
-            idMap[id] = true
-            idList[#idList + 1] = id
+        if type(id) == "number" and id > 0 and not staticAchMap[id] then
+            staticAchMap[id] = true
+            staticAchList[#staticAchList + 1] = id
         end
     end
 
     if GetTrackedAchievements then
-        local tracked = { GetTrackedAchievements() }
-        for _, id in ipairs(tracked) do
-            addID(id)
+        local nTracked = select("#", GetTrackedAchievements())
+        for i = 1, nTracked do
+            local id = select(i, GetTrackedAchievements())
+            if id then addID(id) end
         end
     end
 
@@ -453,16 +458,20 @@ local function ScanTrackedAchievements(intoList)
         end
     end
 
-    if #idList == 0 then return end
+    if #staticAchList == 0 then return end
 
-    for _, achievementID in ipairs(idList) do
+    for _, achievementID in ipairs(staticAchList) do
         if type(achievementID) == "number" and achievementID > 0 then
             local aOk, id, name, points, completed, month, day, year, description, flags, icon = pcall(GetAchievementInfo, achievementID)
             if aOk and name and name ~= "" then
                 local isComplete = (completed == true) or (completed == 1)
                 local objs = GetAchievementCriteriaList(achievementID)
                 if (not objs or #objs == 0) and description and description ~= "" then
-                    objs = { { text = description, finished = isComplete } }
+                    if not objs then objs = AcquireTable() end
+                    local sObj = AcquireTable()
+                    sObj.text = description
+                    sObj.finished = isComplete
+                    objs[#objs + 1] = sObj
                 end
 
                 local done, total = 0, (objs and #objs or 0)
@@ -482,6 +491,7 @@ local function ScanTrackedAchievements(intoList)
                 entry.isComplete         = isComplete
                 entry.isAchievement      = true
                 entry.objectives         = objs
+                entry._syntheticObjs     = (objs ~= nil)
                 entry.done               = done
                 entry.total              = total
                 entry.singleCountStr     = (total > 0) and (done .. "/" .. total) or nil

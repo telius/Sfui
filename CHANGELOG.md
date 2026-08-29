@@ -4,6 +4,23 @@
 
 ---
 
+## v12.1.0-8-1 (2026-08-29)
+
+### Fixes & Improvements
+- **CDM & Cooldown Viewer Management (`frames/cdm.lua`)**:
+  - Fixed right-click icon removal in left-side CDM panels by properly resolving `cdID` identifiers and restoring click registration on recycled button pool instances.
+  - Added right-click removal tooltips and improved spec-specific panel management.
+- **Mythic+ & Delve Split Timer Stability (`frames/mythic.lua`)**:
+  - Resolved `CHALLENGE_MODE_COMPLETED` nil call exception by properly invoking `UpdateInstanceState()`, `SaveCompletedRunRecord()`, and `SyncBlizzardRunHistory()`.
+  - Maintained completed key HUD visibility inside instances after timer finish.
+  - Zeroed out garbage churn on fallback scenario forces and gated outdoor widget events.
+- **Alt Progression Currency Sync (`frames/alts.lua`)**:
+  - Updated Corrosive Coin to official currency ID `3448` with backward-compatible fallback ID `3110` and dynamic icon loading.
+- **Tracked Icons Out-of-Combat Optimization (`frames/trackedicons.lua`)**:
+  - Added out-of-combat event throttling for power/aura updates and cached spell ID/texture lookups to prevent idle allocation spikes.
+
+---
+
 ## v12.1.0-8 (2026-08-28)
 
 ### Major Features & Architecture

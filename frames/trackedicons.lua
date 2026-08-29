@@ -526,18 +526,24 @@ local function UpdateIconState(icon, panelConfig)
     if not icon.id or not icon.entry then return false end
     local entrySettings = icon.entry.settings or _emptyTable
 
-    -- 1. Determine the Correct Spell/Item ID and Texture
-    local iconTexture, activeID, resolvedType, linkedSpellIDs = sfui.trackedicons.GetIconTexture(icon.id, icon.type, icon.entry)
+    local activeID = icon._lastActiveID or icon.id
+    local resolvedType = icon._resolvedType or icon.type
+    local linkedSpellIDs = icon._linkedSpellIDs
 
-    -- 2. FORCE TEXTURE REFRESH (Fixes "Reload Required" for reordering)
-    if icon.texture and iconTexture then
-        if icon._currentTexture ~= iconTexture then
+    -- If not resolved yet (e.g. fresh icon), resolve once
+    if not icon._lastActiveID then
+        local iconTexture, aID, rType, lIDs = sfui.trackedicons.GetIconTexture(icon.id, icon.type, icon.entry)
+        activeID = aID or icon.id
+        resolvedType = rType or icon.type
+        linkedSpellIDs = lIDs
+        icon._lastActiveID = activeID
+        icon._resolvedType = resolvedType
+        icon._linkedSpellIDs = linkedSpellIDs
+        if icon.texture and iconTexture and icon._currentTexture ~= iconTexture then
             icon.texture:SetTexture(iconTexture)
             icon._currentTexture = iconTexture
         end
     end
-    icon._lastActiveID = activeID
-    icon._resolvedType = resolvedType
 
     -- 3. Update Cooldown & Logic
     local count, isReady, isUsable, notEnoughPower, isOnCooldown = UpdateIconCooldown(icon, activeID, resolvedType)
@@ -569,14 +575,6 @@ local function UpdateIconState(icon, panelConfig)
         end
 
         -- Update Count Text.
-        -- For spell/cooldown/buff entries: GetSpellDisplayCount already covers soul
-        -- fragments, charges, and resource pool counts (returned in `count` as a
-        -- potentially-secret string — handled by UpdateCountText/SafeSetText).
-        --
-        -- Additionally, for entries that are aura/buff type, overlay applications
-        -- (stack count) if > 1. applications is a plain NeverSecret integer from
-        -- C_UnitAuras.GetPlayerAuraBySpellID — safe to compare directly.
-        -- This mirrors Blizzard's CooldownViewer RefreshApplications (CooldownViewer.lua:1258).
         local displayCount = count
         local isAuraType = (icon.type == "buff" or icon.type == "debuff" or (icon.entry and (icon.entry.type == "buff" or icon.entry.type == "debuff")))
         if (isAuraType or linkedSpellIDs) and icon.type ~= "item" and activeID and activeID ~= 0 and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
@@ -611,11 +609,6 @@ local function UpdateIconState(icon, panelConfig)
         -- 5. Update Visuals
         UpdateIconVisuals(icon, entrySettings, panelConfig, isUsable, isOnCooldown, notEnoughPower)
 
-        -- 5b. Update Border Style (Force re-apply in case Masque overrode anchors)
-        sfui.trackedicons.ApplyIconBorderStyle(icon, panelConfig)
-
-
-
         -- 6. Update Glows
         UpdateIconGlow(icon, entrySettings, panelConfig, isReady)
     else
@@ -625,7 +618,6 @@ local function UpdateIconState(icon, panelConfig)
             StopGlow(icon)
         end
     end
-
 
     return isVisible
 end
@@ -1092,6 +1084,18 @@ function sfui.trackedicons.UpdatePanelLayout(panelFrame, panelConfig)
                     icon.entry = { id = id, type = "spell" }
                 end
 
+                local iconTexture, activeID, resolvedType, linkedSpellIDs = sfui.trackedicons.GetIconTexture(id, icon.type, icon.entry)
+                icon._lastActiveID = activeID or id
+                icon._resolvedType = resolvedType or icon.type
+                icon._linkedSpellIDs = linkedSpellIDs
+                if icon.texture and iconTexture then
+                    if icon._currentTexture ~= iconTexture then
+                        icon.texture:SetTexture(iconTexture)
+                        icon._currentTexture = iconTexture
+                    end
+                end
+                sfui.trackedicons.ApplyIconBorderStyle(icon, panelConfig)
+
                 -- Sync Masque state
                 SyncIconMasque(icon)
 
@@ -1527,18 +1531,23 @@ function sfui.trackedicons.initialize()
     sfui.events.RegisterEvent("SPELLS_CHANGED", function() MarkDirty(true) end)
 
     -- Soul fragments, charges, resource-gated display counts.
-    -- SPELL_UPDATE_CHARGES fires when any spell's GetSpellDisplayCount value changes
-    -- (this is the same event Blizzard's ActionButton uses for UpdateCount).
     sfui.events.RegisterEvent("SPELL_UPDATE_CHARGES", function()
         _needsStateUpdate = true
     end)
 
-    -- UNIT_POWER_UPDATE covers soul fragments (Fury power type for VDH) and other
-    -- resource pools that gate GetSpellDisplayCount values.
-    -- Filter to 'player' only: args are (event, unit, powerType).
+    -- UNIT_POWER_UPDATE covers resource pools (throttled out of combat to avoid mana/energy tick churn)
+    local _lastOOCPowerTime = 0
     sfui.events.RegisterEvent("UNIT_POWER_UPDATE", function(event, unit)
         if unit == "player" then
-            _needsStateUpdate = true
+            if InCombatLockdown() then
+                _needsStateUpdate = true
+            else
+                local now = GetTime()
+                if (now - _lastOOCPowerTime) >= 1.0 then
+                    _lastOOCPowerTime = now
+                    _needsStateUpdate = true
+                end
+            end
         end
     end)
 
@@ -1557,10 +1566,19 @@ function sfui.trackedicons.initialize()
         _needsStateUpdate = true
     end)
 
-    -- 11.0+ C_UnitAuras Event Migration (Secret-safe in 12.0+)
+    -- 11.0+ C_UnitAuras Event Migration (throttled out of combat to prevent background tick churn)
+    local _lastOOCAuraTime = 0
     sfui.events.RegisterEvent("UNIT_AURA", function(event, unit, updateInfo)
         if unit == "player" then
-            _needsStateUpdate = true
+            if InCombatLockdown() then
+                _needsStateUpdate = true
+            else
+                local now = GetTime()
+                if (now - _lastOOCAuraTime) >= 1.0 then
+                    _lastOOCAuraTime = now
+                    _needsStateUpdate = true
+                end
+            end
         end
     end)
 

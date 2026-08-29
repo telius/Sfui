@@ -93,8 +93,10 @@ local function OnZoneIconDragStart(self)
     end
 end
 
-local function OnZoneIconClick(self)
-    local cdID = self.cdID
+local function OnZoneIconClick(self, button)
+    local cdID = self.cdID or self.cooldownID or self.id or (self.entry and (self.entry.cooldownID or self.entry.id))
+    if not cdID then return end
+
     if self.isRightSidePool then
         local entries = self.entries
         local dataProvider = CooldownViewerSettings and CooldownViewerSettings.GetDataProvider and
@@ -126,36 +128,38 @@ local function OnZoneIconClick(self)
         if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
         if RefreshZones then RefreshZones() end
     else
-        -- Left-side zone click
-        local isTrackedBars = self.isTrackedBars
-        local entries = self.entries
-        if isTrackedBars then
-            local tBars = common.get_tracked_bars()
-            tBars[cdID] = nil
-            if not next(tBars) then
-                local specID = common.get_current_spec_id() or 0
-                SfuiDB.trackedBarsBySpec[specID] = {}
-            end
-            if sfui.trackedbars and sfui.trackedbars.UpdateVisibility then sfui.trackedbars.UpdateVisibility() end
-            if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
-        else
-            if entries then
-                for i, val in ipairs(entries) do
-                    local entryId = (type(val) == "table" and val.id) or val
-                    local targetId = (type(cdID) == "table" and cdID.id) or cdID
-                    if entryId == targetId then
-                        table.remove(entries, i)
-                        break
+        -- Left-side zone click: remove on right click or when clicked
+        if button == "RightButton" or not button then
+            local isTrackedBars = self.isTrackedBars
+            local entries = self.entries
+            if isTrackedBars then
+                local tBars = common.get_tracked_bars()
+                tBars[cdID] = nil
+                if not next(tBars) then
+                    local specID = common.get_current_spec_id() or 0
+                    SfuiDB.trackedBarsBySpec[specID] = {}
+                end
+                if sfui.trackedbars and sfui.trackedbars.UpdateVisibility then sfui.trackedbars.UpdateVisibility() end
+                if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
+            else
+                if entries then
+                    local targetId = (type(cdID) == "table" and (cdID.cooldownID or cdID.id)) or cdID
+                    for i, val in ipairs(entries) do
+                        local entryId = (type(val) == "table" and (val.cooldownID or val.id)) or val
+                        if entryId == targetId then
+                            table.remove(entries, i)
+                            break
+                        end
                     end
                 end
+                -- Update Panels
+                if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
             end
-            -- Update Panels
+            if sfui.cdm and sfui.cdm.RefreshLayout then sfui.cdm.RefreshLayout() end
             if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
+            if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
+            if RefreshZones then RefreshZones() end
         end
-        if sfui.cdm and sfui.cdm.RefreshLayout then sfui.cdm.RefreshLayout() end
-        if sfui.trackedicons and sfui.trackedicons.Update then sfui.trackedicons.Update() end
-        if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then sfui.trackedbars.ForceLayoutUpdate() end
-        if RefreshZones then RefreshZones() end
     end
 end
 
@@ -217,6 +221,11 @@ local function OnZoneIconEnter(self)
                     tip:SetSpellByID(self.id)
                 end
             end
+        end
+
+        if not self.isRightSidePool then
+            tip:AddLine(" ")
+            tip:AddLine("|cffff4444Right-Click to remove from panel|r")
         end
         tip:Show()
     end)
@@ -372,6 +381,9 @@ local function AcquireZoneIcon(parent)
     -- Enforce borderless logic removed to respect user settings
 
     common.sync_masque(icon, { Icon = icon.texture })
+
+    icon:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    icon:SetScript("OnClick", OnZoneIconClick)
 
     icon:SetParent(parent)
     icon:ClearAllPoints()
@@ -1039,19 +1051,7 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
             if icon.borders then
                 for _, b in ipairs(icon.borders) do b:Hide() end
             end
-            -- Set attributes for the shared click/drag/tooltip handlers
-            icon.id = cdID
-            icon.type = (type(cdID) == "table" and cdID.type) or "spell"
-            icon.isTrackedBars = isTrackedBars
-            icon.isFromTrackedBars = zone.isTrackedBars
-            icon.isRightSidePool = false
-            icon.entries = entries
-
-            icon:RegisterForClicks("RightButtonUp")
-
-            table.insert(content.icons, icon)
-
-            -- Ensure it has the necessary info for dragging
+            -- Ensure it has the necessary info for dragging and clicking
             local iconId = (type(cdID) == "table" and cdID.id) or cdID
             local entry = (type(cdID) == "table") and cdID or
                 { id = iconId, type = isTrackedBars and "cooldown" or "spell" }
@@ -1067,10 +1067,21 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
                 icon.texture:SetDesaturated(false)
             end
 
+            -- Set attributes for the shared click/drag/tooltip handlers
             icon.id = iconId
-            icon.type = entry.type
+            icon.cdID = cdID
             icon.cooldownID = cooldownID
             icon.entry = entry -- Store original entry for re-insertion
+            icon.type = entry.type
+            icon.isTrackedBars = isTrackedBars
+            icon.isFromTrackedBars = zone.isTrackedBars
+            icon.isRightSidePool = false
+            icon.entries = entries
+
+            icon:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+            icon:SetScript("OnClick", OnZoneIconClick)
+
+            table.insert(content.icons, icon)
             local iconName = GetCooldownName(cooldownID or iconId, entry.type)
             if not iconName and entry.type == "spell" then
                 iconName = C_Spell.GetSpellName(iconId)
