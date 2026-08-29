@@ -14,6 +14,7 @@ local qcfg = g.questlog or {
     sections = {
         { id = "important",  label = "important",        color = { 1.00, 0.40, 0.35 } },
         { id = "campaign",   label = "campaign",         color = { 0.90, 0.75, 0.10 } },
+        { id = "meta",       label = "meta",             color = { 0.00, 1.00, 1.00 } },
         { id = "world",      label = "world quests",     color = { 0.20, 0.85, 0.95 } },
         { id = "activities", label = "activities",       color = { 0.35, 0.90, 0.40 } },
         { id = "zone",       label = "quests",           color = { 1.00, 1.00, 1.00 } },
@@ -23,7 +24,7 @@ local qcfg = g.questlog or {
 --[[
     SFUI Quest Log (Midnight Edition)
     Collapsible quest log panel with integrated World Quests on top.
-    Sections: important | campaign | world quests | activities | quests (white)
+    Sections: important | campaign | meta | world quests | activities | quests (white)
     Features:
       - 100% Non-secure lightweight architecture (zero combat taint / restrictions)
       - Smart Priority Sorting (SuperTrack > Ready for Turn-in > In-Progress > Failed)
@@ -106,6 +107,7 @@ local SECTION_DEFS = qcfg.sections or {
     { id = "scenario",     label = "world event",      color = { 1.00, 0.60, 0.10 } },
     { id = "important",    label = "important",        color = { 1.00, 0.40, 0.35 } },
     { id = "campaign",     label = "campaign",         color = { 0.90, 0.75, 0.10 } },
+    { id = "meta",         label = "meta",             color = { 0.00, 1.00, 1.00 } },
     { id = "world",        label = "world quests",     color = { 0.20, 0.85, 0.95 } },
     { id = "activities",   label = "activities",       color = { 0.35, 0.90, 0.40 } },
     { id = "zone",         label = "quests",           color = { 1.00, 1.00, 1.00 } },
@@ -149,6 +151,18 @@ function State:Update()
 
     local ok1, cm = pcall(_IsChallengeActive)
     if ok1 and cm then self._active = true; return end
+
+    if C_DelvesUI and C_DelvesUI.HasActiveDelve then
+        local okD, hasDelve = pcall(C_DelvesUI.HasActiveDelve)
+        if okD and hasDelve then self._active = true; return end
+    end
+
+    if _G.IsInInstance then
+        local okInst, inInst, instType = pcall(_G.IsInInstance)
+        if okInst and inInst and instType ~= "none" then
+            self._active = true; return
+        end
+    end
 
     if _G.GetInstanceInfo then
         local ok2, _, _, difficultyID = pcall(_G.GetInstanceInfo)
@@ -211,7 +225,8 @@ local function EnsureBlizzardTrackerHook()
 
     pcall(function()
         root:HookScript("OnShow", function(self)
-            if sfui.questlog and sfui.questlog.is_enabled and sfui.questlog.is_enabled() then
+            if (sfui.questlog and sfui.questlog.is_enabled and sfui.questlog.is_enabled())
+                or (sfui.mythic and sfui.mythic.IsEnabled and sfui.mythic.IsEnabled()) then
                 if self.SetAlpha then self:SetAlpha(0) end
                 if self.EnableMouse then self:EnableMouse(false) end
             end
@@ -315,6 +330,7 @@ local sectionLists = {
     scenario     = {},
     world        = {},
     campaign     = {},
+    meta         = {},
     important    = {},
     activities   = {},
     zone         = {},
@@ -324,6 +340,7 @@ local renderedSectionQuests = {
     scenario     = {},
     world        = {},
     campaign     = {},
+    meta         = {},
     important    = {},
     activities   = {},
     zone         = {},
@@ -605,11 +622,13 @@ local function ClassifyQuest(info, questID)
         local ok, cls = pcall(C_QuestInfoSystem.GetQuestClassification, questID)
         if ok and cls then
             if cls == QC_Campaign or cls == QC_Calling    then return "campaign"   end
+            if cls == QC_Meta                             then return "meta"       end
             if cls == QC_Important or cls == QC_Legendary then return "important"  end
             if cls == QC_Recurring                        then return "activities" end
         end
     end
     if info.campaignID and info.campaignID > 0 then return "campaign" end
+    if IsMetaQuest(questID, info) then return "meta" end
     if C_QuestLog.IsImportantQuest then
         local ok, v = pcall(C_QuestLog.IsImportantQuest, questID)
         if ok and v then return "important" end
@@ -1677,9 +1696,64 @@ local function GetScenarioCriteriaSafe(criteriaIndex, stepID)
     return nil
 end
 
+local function FormatTimerSeconds(sec)
+    if not sec or sec <= 0 then return nil end
+    sec = math_floor(sec)
+    if sec >= 3600 then
+        local h = math_floor(sec / 3600)
+        local m = math_floor((sec % 3600) / 60)
+        local s = sec % 60
+        return string_format("%d:%02d:%02d", h, m, s)
+    else
+        local m = math_floor(sec / 60)
+        local s = sec % 60
+        return string_format("%d:%02d", m, s)
+    end
+end
+
+local staticScannedWidgets = {}
+local staticWidgetIDList   = {}
+
+local function AddWidgetIDToScan(wID)
+    if wID and type(wID) == "number" and wID > 0 and not staticScannedWidgets[wID] then
+        staticScannedWidgets[wID] = true
+        staticWidgetIDList[#staticWidgetIDList + 1] = wID
+    end
+end
+
+local function CollectWidgetsFromSet(setID)
+    if not setID or setID <= 0 or not C_UIWidgetManager or not C_UIWidgetManager.GetAllWidgetsBySetID then return end
+    local ok, widgets = pcall(C_UIWidgetManager.GetAllWidgetsBySetID, setID)
+    if ok and type(widgets) == "table" then
+        for _, w in ipairs(widgets) do
+            local wID = (type(w) == "table" and w.widgetID) or (type(w) == "number" and w)
+            if wID then AddWidgetIDToScan(wID) end
+        end
+    end
+end
+
+local function CollectWidgetsFromContainer(container)
+    if not container or not container.widgetFrames then return end
+    for _, wFrame in pairs(container.widgetFrames) do
+        local wID = wFrame.widgetID or (wFrame.GetWidgetID and wFrame:GetWidgetID())
+        if wID then AddWidgetIDToScan(wID) end
+    end
+end
+
 local function ScanWorldEventScenario(list)
-    local inInst = _G.IsInInstance and _G.IsInInstance()
-    if inInst then return end
+    -- mythic.lua owns dungeons, delves, mythic+, and instance scenarios.
+    -- quests.lua strictly only tracks outdoor world events (e.g. Dundun, Community Feast, Time Rifts, etc.)
+    if sfui.mythic and sfui.mythic.IsActive and sfui.mythic.IsActive() then return end
+
+    local inInst, instType = false, "none"
+    if _G.IsInInstance then
+        local okInst, resInst, resType = pcall(_G.IsInInstance)
+        if okInst then inInst, instType = resInst, resType end
+    end
+    if inInst and instType ~= "none" then return end
+
+    if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive() then return end
+    if C_DelvesUI and C_DelvesUI.HasActiveDelve and C_DelvesUI.HasActiveDelve() then return end
 
     local C_Sc = _G.C_Scenario
     if not C_Sc or not C_Sc.IsInScenario or not C_Sc.IsInScenario() then return end
@@ -1687,7 +1761,19 @@ local function ScanWorldEventScenario(list)
     local name, currentStage, numStages, flags, isComplete, _, _, scenarioType = C_Sc.GetInfo()
     if not name or name == "" or isComplete then return end
 
-    local stageName, stageDescription, numCriteria, _, _, _, _, _, _, weightedProgress = C_Sc.GetStepInfo()
+    -- Filter out Delves (8), Dungeons (1), Raids (2), Challenge Mode (5), or instance-flagged scenarios
+    if scenarioType == 8 or scenarioType == 1 or scenarioType == 2 or scenarioType == 5 then return end
+    if flags and bit and bit.band and bit.band(flags, 0x01) ~= 0 and inInst then return end
+
+    local stageName, stageDescription, numCriteria, _, _, _, _, _, _, weightedProgress, _, widgetSetID = C_Sc.GetStepInfo()
+
+    if (not widgetSetID or widgetSetID == 0) and C_ScenarioInfo and C_ScenarioInfo.GetScenarioStepInfo then
+        local ok, sInfo = pcall(C_ScenarioInfo.GetScenarioStepInfo)
+        if ok and sInfo and sInfo.widgetSetID and sInfo.widgetSetID > 0 then
+            widgetSetID = sInfo.widgetSetID
+        end
+    end
+
     local title
     if numStages and numStages > 1 and currentStage and currentStage > 0 then
         title = string_format("%s (Stage %d/%d)", stageName or name, currentStage, numStages)
@@ -1697,85 +1783,508 @@ local function ScanWorldEventScenario(list)
 
     local objs = AcquireTable()
     local done, total = 0, 0
+    local scTimeLeft = nil
 
     -- 1. Criteria scan
     if numCriteria and numCriteria > 0 then
         for i = 1, numCriteria do
             local info = GetScenarioCriteriaSafe(i, currentStage)
             local desc = info and (info.description or info.criteriaString or info.string)
-            if desc and desc ~= "" then
+            if desc and desc ~= "" and not issecretvalue(desc) then
                 local sObj = AcquireTable()
                 local isComp = info.completed == true
                 sObj.finished = isComp
                 if isComp then done = done + 1 end
                 total = total + 1
 
+                local timeTag = nil
+                if info.duration and info.duration > 0 then
+                    local rem = math_max(0, info.duration - (info.elapsed or 0))
+                    if rem > 0 then
+                        local tStr = FormatTimerSeconds(rem)
+                        if tStr then
+                            timeTag = "[" .. tStr .. "]"
+                            if not scTimeLeft then scTimeLeft = tStr end
+                        end
+                    end
+                end
+
                 if info.quantity and info.totalQuantity and info.totalQuantity > 1 then
-                    sObj.text = string_format("%s (%d/%d)", desc, info.quantity, info.totalQuantity)
+                    local baseText = string_format("%s (%d/%d)", desc, info.quantity, info.totalQuantity)
+                    sObj.text = timeTag and (baseText .. " " .. timeTag) or baseText
                     sObj.numFulfilled = info.quantity
                     sObj.numRequired = info.totalQuantity
                 elseif info.isWeightedProgress or (info.criteriaType == 8) then
                     local cur = info.quantity or 0
                     local req = (info.totalQuantity and info.totalQuantity > 0) and info.totalQuantity or 100
                     local pct = math_min(100, math_max(0, math_floor((cur / req) * 100)))
-                    sObj.text = string_format("%s (%d%%)", desc, pct)
+                    local baseText = string_format("%s (%d%%)", desc, pct)
+                    sObj.text = timeTag and (baseText .. " " .. timeTag) or baseText
+                    sObj.barText = (req > 0 and cur > 0) and string_format("%d/%d (%d%%)", cur, req, pct) or (pct .. "%")
                     sObj.type = "progressbar"
                     sObj.numFulfilled = pct
                     sObj.numRequired = 100
                     sObj.finished = (pct >= 100)
                 else
-                    sObj.text = desc
+                    sObj.text = timeTag and (desc .. " " .. timeTag) or desc
                 end
                 table.insert(objs, sObj)
             end
         end
     end
 
-    -- 2. Scenario Widgets Scan (World Events like Community Feast, Theater Troupe, Superbloom, Time Rifts, etc.)
-    local scannedWidgets = AcquireTable()
-    local function ScanContainerWidgets(container)
-        if not container or not container.widgetFrames then return end
-        for _, wFrame in pairs(container.widgetFrames) do
-            local wID = wFrame.widgetID or (wFrame.GetWidgetID and wFrame:GetWidgetID())
-            if wID and not scannedWidgets[wID] and C_UIWidgetManager then
-                scannedWidgets[wID] = true
-                if C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo then
-                    local ok, wInfo = pcall(C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo, wID)
-                    if ok and wInfo and wInfo.shownState == 1 and wInfo.text and wInfo.text ~= "" and not issecretvalue(wInfo.text) then
-                        local sObj = AcquireTable()
-                        sObj.text = wInfo.text
-                        sObj.finished = false
-                        table.insert(objs, sObj)
-                        total = total + 1
-                    end
+    -- 2. Scenario & World Event Widgets Scan (Timers, Progress / Abundance Bars, Captures)
+    wipe(staticScannedWidgets)
+    wipe(staticWidgetIDList)
+
+    if widgetSetID and widgetSetID > 0 then
+        CollectWidgetsFromSet(widgetSetID)
+    end
+
+    if C_UIWidgetManager then
+        if C_UIWidgetManager.GetTopCenterWidgetSetID then
+            local ok, sID = pcall(C_UIWidgetManager.GetTopCenterWidgetSetID)
+            if ok and sID and sID > 0 then CollectWidgetsFromSet(sID) end
+        end
+        if C_UIWidgetManager.GetBelowMinimapWidgetSetID then
+            local ok, sID = pcall(C_UIWidgetManager.GetBelowMinimapWidgetSetID)
+            if ok and sID and sID > 0 then CollectWidgetsFromSet(sID) end
+        end
+        if C_UIWidgetManager.GetObjectiveTrackerWidgetSetID then
+            local ok, sID = pcall(C_UIWidgetManager.GetObjectiveTrackerWidgetSetID)
+            if ok and sID and sID > 0 then CollectWidgetsFromSet(sID) end
+        end
+        if C_UIWidgetManager.GetPowerBarWidgetSetID then
+            local ok, sID = pcall(C_UIWidgetManager.GetPowerBarWidgetSetID)
+            if ok and sID and sID > 0 then CollectWidgetsFromSet(sID) end
+        end
+    end
+
+    CollectWidgetsFromContainer(_G.UIWidgetTopCenterContainerFrame)
+    CollectWidgetsFromContainer(_G.UIWidgetBelowMinimapContainerFrame)
+    CollectWidgetsFromContainer(_G.ObjectiveTrackerUIWidgetContainer)
+    CollectWidgetsFromContainer(_G.UIWidgetPowerBarFrame)
+    CollectWidgetsFromContainer(_G.UIWidgetCenterDisplayFrame)
+
+    for _, wID in ipairs(staticWidgetIDList) do
+        -- A. ScenarioHeaderTimer
+        if C_UIWidgetManager and C_UIWidgetManager.GetScenarioHeaderTimerWidgetVisualizationInfo then
+            local ok, tInfo = pcall(C_UIWidgetManager.GetScenarioHeaderTimerWidgetVisualizationInfo, wID)
+            if ok and tInfo and tInfo.shownState ~= 0 and tInfo.shownState ~= Enum.WidgetShownState.Hidden then
+                local tMin = tInfo.timerMin or 0
+                local tMax = tInfo.timerMax or 0
+                local tVal = tInfo.timerValue or 0
+                local rem = 0
+                if tMax > tMin and tVal >= tMin then
+                    rem = math_max(0, tVal - tMin)
+                elseif tVal > 0 then
+                    rem = tVal
                 end
-                if C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo then
-                    local ok, sInfo = pcall(C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo, wID)
-                    if ok and sInfo and sInfo.shownState == 1 and sInfo.barMax and sInfo.barMax > 0 then
-                        local cur = sInfo.barValue or 0
-                        local maxVal = sInfo.barMax
-                        local pct = math_min(100, math_max(0, math_floor((cur / maxVal) * 100)))
-                        local barLabel = sInfo.barValueText or (sInfo.text and sInfo.text ~= "" and sInfo.text) or name
+                local tStr = FormatTimerSeconds(rem)
+                if tStr then
+                    if not scTimeLeft then scTimeLeft = tStr end
+                    local lbl = (tInfo.headerText and tInfo.headerText ~= "" and not issecretvalue(tInfo.headerText) and tInfo.headerText)
+                             or (tInfo.timerTooltip and tInfo.timerTooltip ~= "" and not issecretvalue(tInfo.timerTooltip) and tInfo.timerTooltip:match("^[^\n]+"))
+                             or "Time Remaining"
+                    local sObj = AcquireTable()
+                    sObj.text = string_format("%s: %s", lbl, tStr)
+                    sObj.finished = (rem <= 0)
+                    table.insert(objs, sObj)
+                    total = total + 1
+                end
+            end
+        end
+
+        -- B. StatusBar (Abundance, Event Progress, Delve Progress)
+        if C_UIWidgetManager and C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo then
+            local ok, sInfo = pcall(C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo, wID)
+            if ok and sInfo and sInfo.shownState ~= 0 and sInfo.shownState ~= Enum.WidgetShownState.Hidden then
+                local minVal = sInfo.barMin or 0
+                local maxVal = sInfo.barMax or 0
+                local curVal = sInfo.barValue or 0
+                local range = maxVal - minVal
+                if range > 0 or curVal > 0 then
+                    local pct = (range > 0) and math_min(100, math_max(0, math_floor(((curVal - minVal) / range) * 100))) or 0
+                    
+                    local valText = nil
+                    if sInfo.overrideBarText and sInfo.overrideBarText ~= "" and not issecretvalue(sInfo.overrideBarText) then
+                        valText = sInfo.overrideBarText
+                    elseif sInfo.barValueText and sInfo.barValueText ~= "" and not issecretvalue(sInfo.barValueText) then
+                        valText = sInfo.barValueText
+                    elseif maxVal > 0 then
+                        valText = string_format("%d/%d", curVal, maxVal)
+                    else
+                        valText = tostring(curVal)
+                    end
+
+                    local barLabel = (sInfo.text and sInfo.text ~= "" and not issecretvalue(sInfo.text) and sInfo.text)
+                                  or (sInfo.tooltip and sInfo.tooltip ~= "" and not issecretvalue(sInfo.tooltip) and sInfo.tooltip:match("^[^\n]+"))
+                                  or (stageName and stageName ~= "" and stageName)
+                                  or name
+                                  or "Progress"
+
+                    local sObj = AcquireTable()
+                    sObj.text = string_format("%s (%d%%)", barLabel, pct)
+                    sObj.barText = valText and string_format("%s (%d%%)", valText, pct) or (pct .. "%")
+                    sObj.type = "progressbar"
+                    sObj.numFulfilled = pct
+                    sObj.numRequired = 100
+                    sObj.finished = (pct >= 100)
+                    table.insert(objs, sObj)
+                    total = total + 1
+                end
+            end
+        end
+
+        -- C. DoubleStatusBar
+        if C_UIWidgetManager and C_UIWidgetManager.GetDoubleStatusBarWidgetVisualizationInfo then
+            local ok, dInfo = pcall(C_UIWidgetManager.GetDoubleStatusBarWidgetVisualizationInfo, wID)
+            if ok and dInfo and dInfo.shownState ~= 0 and dInfo.shownState ~= Enum.WidgetShownState.Hidden then
+                local lMin = dInfo.leftBarMin or 0
+                local lMax = dInfo.leftBarMax or 100
+                local lCur = dInfo.leftBarValue or 0
+                local lRange = lMax - lMin
+                if lRange > 0 or lCur > 0 then
+                    local pct = (lRange > 0) and math_min(100, math_max(0, math_floor(((lCur - lMin) / lRange) * 100))) or 0
+                    local lbl = (dInfo.text and dInfo.text ~= "" and not issecretvalue(dInfo.text) and dInfo.text)
+                             or (dInfo.leftBarTooltip and not issecretvalue(dInfo.leftBarTooltip) and dInfo.leftBarTooltip:match("^[^\n]+"))
+                             or "Progress"
+                    local sObj = AcquireTable()
+                    sObj.text = string_format("%s (%d%%)", lbl, pct)
+                    sObj.barText = (lMax > 0) and string_format("%d/%d (%d%%)", lCur, lMax, pct) or (pct .. "%")
+                    sObj.type = "progressbar"
+                    sObj.numFulfilled = pct
+                    sObj.numRequired = 100
+                    sObj.finished = (pct >= 100)
+                    table.insert(objs, sObj)
+                    total = total + 1
+                end
+            end
+        end
+
+        -- D. FillUpFrames
+        if C_UIWidgetManager and C_UIWidgetManager.GetFillUpFramesWidgetVisualizationInfo then
+            local ok, fInfo = pcall(C_UIWidgetManager.GetFillUpFramesWidgetVisualizationInfo, wID)
+            if ok and fInfo and fInfo.shownState ~= 0 and fInfo.shownState ~= Enum.WidgetShownState.Hidden then
+                local full = fInfo.numFullFrames or 0
+                local totalF = fInfo.numTotalFrames or 0
+                local val = fInfo.fillValue or full
+                local maxV = fInfo.fillMax or totalF
+                if maxV > 0 then
+                    local pct = math_min(100, math_max(0, math_floor((val / maxV) * 100)))
+                    local lbl = (fInfo.tooltip and not issecretvalue(fInfo.tooltip) and fInfo.tooltip:match("^[^\n]+")) or "Abundance"
+                    local sObj = AcquireTable()
+                    sObj.text = string_format("%s (%d%%)", lbl, pct)
+                    sObj.barText = string_format("%d/%d (%d%%)", val, maxV, pct)
+                    sObj.type = "progressbar"
+                    sObj.numFulfilled = pct
+                    sObj.numRequired = 100
+                    sObj.finished = (pct >= 100)
+                    table.insert(objs, sObj)
+                    total = total + 1
+                end
+            end
+        end
+
+        -- E. DiscreteProgressSteps
+        if C_UIWidgetManager and C_UIWidgetManager.GetDiscreteProgressStepsVisualizationInfo then
+            local ok, dpInfo = pcall(C_UIWidgetManager.GetDiscreteProgressStepsVisualizationInfo, wID)
+            if ok and dpInfo and dpInfo.shownState ~= 0 and dpInfo.shownState ~= Enum.WidgetShownState.Hidden then
+                local pVal = dpInfo.progressVal or 0
+                local pMax = dpInfo.progressMax or dpInfo.numSteps or 0
+                if pMax > 0 then
+                    local pct = math_min(100, math_max(0, math_floor((pVal / pMax) * 100)))
+                    local lbl = (dpInfo.tooltip and not issecretvalue(dpInfo.tooltip) and dpInfo.tooltip:match("^[^\n]+")) or "Progress"
+                    local sObj = AcquireTable()
+                    sObj.text = string_format("%s (%d%%)", lbl, pct)
+                    sObj.barText = string_format("%d/%d (%d%%)", pVal, pMax, pct)
+                    sObj.type = "progressbar"
+                    sObj.numFulfilled = pct
+                    sObj.numRequired = 100
+                    sObj.finished = (pct >= 100)
+                    table.insert(objs, sObj)
+                    total = total + 1
+                end
+            end
+        end
+
+        -- F. TextWithState
+        if C_UIWidgetManager and C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo then
+            local ok, wInfo = pcall(C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo, wID)
+            if ok and wInfo and wInfo.shownState ~= 0 and wInfo.shownState ~= Enum.WidgetShownState.Hidden and wInfo.text and wInfo.text ~= "" and not issecretvalue(wInfo.text) then
+                local sObj = AcquireTable()
+                sObj.text = wInfo.text
+                sObj.finished = false
+                table.insert(objs, sObj)
+                total = total + 1
+            end
+        end
+
+        -- G. TextWithSubtext
+        if C_UIWidgetManager and C_UIWidgetManager.GetTextWithSubtextWidgetVisualizationInfo then
+            local ok, wInfo = pcall(C_UIWidgetManager.GetTextWithSubtextWidgetVisualizationInfo, wID)
+            if ok and wInfo and wInfo.shownState ~= 0 and wInfo.shownState ~= Enum.WidgetShownState.Hidden then
+                local txt = (wInfo.title and wInfo.title ~= "" and not issecretvalue(wInfo.title) and wInfo.title)
+                if wInfo.subtext and wInfo.subtext ~= "" and not issecretvalue(wInfo.subtext) then
+                    txt = txt and (txt .. ": " .. wInfo.subtext) or wInfo.subtext
+                end
+                if txt and txt ~= "" then
+                    local sObj = AcquireTable()
+                    sObj.text = txt
+                    sObj.finished = false
+                    table.insert(objs, sObj)
+                    total = total + 1
+                end
+            end
+        end
+
+        -- H. TextureAndText
+        if C_UIWidgetManager and C_UIWidgetManager.GetTextureAndTextVisualizationInfo then
+            local ok, wInfo = pcall(C_UIWidgetManager.GetTextureAndTextVisualizationInfo, wID)
+            if ok and wInfo and wInfo.shownState ~= 0 and wInfo.shownState ~= Enum.WidgetShownState.Hidden and wInfo.text and wInfo.text ~= "" and not issecretvalue(wInfo.text) then
+                local sObj = AcquireTable()
+                sObj.text = wInfo.text
+                sObj.finished = false
+                table.insert(objs, sObj)
+                total = total + 1
+            end
+        end
+
+        -- I. IconAndText
+        if C_UIWidgetManager and C_UIWidgetManager.GetIconAndTextWidgetVisualizationInfo then
+            local ok, wInfo = pcall(C_UIWidgetManager.GetIconAndTextWidgetVisualizationInfo, wID)
+            if ok and wInfo and wInfo.state ~= 0 and wInfo.text and wInfo.text ~= "" and not issecretvalue(wInfo.text) then
+                local sObj = AcquireTable()
+                sObj.text = wInfo.text
+                sObj.finished = false
+                table.insert(objs, sObj)
+                total = total + 1
+            end
+        end
+
+        -- J. StackedResourceTracker
+        if C_UIWidgetManager and C_UIWidgetManager.GetStackedResourceTrackerWidgetVisualizationInfo then
+            local ok, rInfo = pcall(C_UIWidgetManager.GetStackedResourceTrackerWidgetVisualizationInfo, wID)
+            if ok and rInfo and rInfo.shownState ~= 0 and rInfo.shownState ~= Enum.WidgetShownState.Hidden and rInfo.resources then
+                for _, res in ipairs(rInfo.resources) do
+                    if res.text and res.text ~= "" and not issecretvalue(res.text) then
                         local sObj = AcquireTable()
-                        sObj.text = string_format("%s (%d%%)", barLabel, pct)
-                        sObj.type = "progressbar"
-                        sObj.numFulfilled = pct
-                        sObj.numRequired = 100
-                        sObj.finished = (pct >= 100)
+                        sObj.text = res.text
+                        sObj.finished = false
                         table.insert(objs, sObj)
                         total = total + 1
                     end
                 end
             end
         end
+
+        -- K. BulletTextList
+        if C_UIWidgetManager and C_UIWidgetManager.GetBulletTextListWidgetVisualizationInfo then
+            local ok, bInfo = pcall(C_UIWidgetManager.GetBulletTextListWidgetVisualizationInfo, wID)
+            if ok and bInfo and bInfo.shownState ~= 0 and bInfo.shownState ~= Enum.WidgetShownState.Hidden and bInfo.lines then
+                for _, line in ipairs(bInfo.lines) do
+                    if line and line ~= "" and not issecretvalue(line) then
+                        local sObj = AcquireTable()
+                        sObj.text = line
+                        sObj.finished = false
+                        table.insert(objs, sObj)
+                        total = total + 1
+                    end
+                end
+            end
+        end
+
+        -- L. CaptureBar
+        if C_UIWidgetManager and C_UIWidgetManager.GetCaptureBarWidgetVisualizationInfo then
+            local ok, cbInfo = pcall(C_UIWidgetManager.GetCaptureBarWidgetVisualizationInfo, wID)
+            if ok and cbInfo and cbInfo.shownState ~= 0 and cbInfo.shownState ~= Enum.WidgetShownState.Hidden then
+                local minV = cbInfo.barMinValue or 0
+                local maxV = cbInfo.barMaxValue or 100
+                local val = cbInfo.barValue or 0
+                local range = maxV - minV
+                if range > 0 then
+                    local pct = math_min(100, math_max(0, math_floor(((val - minV) / range) * 100)))
+                    local lbl = (cbInfo.tooltip and not issecretvalue(cbInfo.tooltip) and cbInfo.tooltip:match("^[^\n]+")) or "Control"
+                    local sObj = AcquireTable()
+                    sObj.text = string_format("%s (%d%%)", lbl, pct)
+                    sObj.barText = string_format("%d%%", pct)
+                    sObj.type = "progressbar"
+                    sObj.numFulfilled = pct
+                    sObj.numRequired = 100
+                    sObj.finished = (pct >= 100)
+                    table.insert(objs, sObj)
+                    total = total + 1
+                end
+            end
+        end
+
+        -- M. TextColumnRow & TextureAndTextRow
+        if C_UIWidgetManager and C_UIWidgetManager.GetTextColumnRowVisualizationInfo then
+            local ok, tcInfo = pcall(C_UIWidgetManager.GetTextColumnRowVisualizationInfo, wID)
+            if ok and tcInfo and tcInfo.shownState ~= 0 and tcInfo.shownState ~= Enum.WidgetShownState.Hidden and tcInfo.entries then
+                for _, ent in ipairs(tcInfo.entries) do
+                    if ent.text and ent.text ~= "" and not issecretvalue(ent.text) then
+                        local sObj = AcquireTable()
+                        sObj.text = ent.text
+                        sObj.finished = false
+                        table.insert(objs, sObj)
+                        total = total + 1
+                    end
+                end
+            end
+        end
+        if C_UIWidgetManager and C_UIWidgetManager.GetTextureAndTextRowVisualizationInfo then
+            local ok, trInfo = pcall(C_UIWidgetManager.GetTextureAndTextRowVisualizationInfo, wID)
+            if ok and trInfo and trInfo.shownState ~= 0 and trInfo.shownState ~= Enum.WidgetShownState.Hidden and trInfo.entries then
+                for _, ent in ipairs(trInfo.entries) do
+                    if ent.text and ent.text ~= "" and not issecretvalue(ent.text) then
+                        local sObj = AcquireTable()
+                        sObj.text = ent.text
+                        sObj.finished = false
+                        table.insert(objs, sObj)
+                        total = total + 1
+                    end
+                end
+            end
+        end
+
+        -- N. HorizontalCurrencies & ScenarioHeaderCurrenciesAndBackground
+        if C_UIWidgetManager and C_UIWidgetManager.GetHorizontalCurrenciesWidgetVisualizationInfo then
+            local ok, hcInfo = pcall(C_UIWidgetManager.GetHorizontalCurrenciesWidgetVisualizationInfo, wID)
+            if ok and hcInfo and hcInfo.shownState ~= 0 and hcInfo.shownState ~= Enum.WidgetShownState.Hidden and hcInfo.currencies then
+                for _, cur in ipairs(hcInfo.currencies) do
+                    local txt = (cur.leadingText and cur.leadingText ~= "" and not issecretvalue(cur.leadingText) and cur.leadingText)
+                    if cur.text and cur.text ~= "" and not issecretvalue(cur.text) then
+                        txt = txt and (txt .. ": " .. cur.text) or cur.text
+                    end
+                    if txt and txt ~= "" then
+                        local sObj = AcquireTable()
+                        sObj.text = txt
+                        sObj.finished = (cur.isCurrencyMaxed == true)
+                        table.insert(objs, sObj)
+                        total = total + 1
+                    end
+                end
+            end
+        end
+        if C_UIWidgetManager and C_UIWidgetManager.GetScenarioHeaderCurrenciesAndBackgroundWidgetVisualizationInfo then
+            local ok, shcInfo = pcall(C_UIWidgetManager.GetScenarioHeaderCurrenciesAndBackgroundWidgetVisualizationInfo, wID)
+            if ok and shcInfo and shcInfo.shownState ~= 0 and shcInfo.shownState ~= Enum.WidgetShownState.Hidden and shcInfo.currencies then
+                for _, cur in ipairs(shcInfo.currencies) do
+                    local txt = (cur.leadingText and cur.leadingText ~= "" and not issecretvalue(cur.leadingText) and cur.leadingText)
+                    if cur.text and cur.text ~= "" and not issecretvalue(cur.text) then
+                        txt = txt and (txt .. ": " .. cur.text) or cur.text
+                    end
+                    if txt and txt ~= "" then
+                        local sObj = AcquireTable()
+                        sObj.text = txt
+                        sObj.finished = (cur.isCurrencyMaxed == true)
+                        table.insert(objs, sObj)
+                        total = total + 1
+                    end
+                end
+            end
+        end
+
+        -- O. IconTextAndCurrencies
+        if C_UIWidgetManager and C_UIWidgetManager.GetIconTextAndCurrenciesWidgetVisualizationInfo then
+            local ok, itcInfo = pcall(C_UIWidgetManager.GetIconTextAndCurrenciesWidgetVisualizationInfo, wID)
+            if ok and itcInfo and itcInfo.shownState ~= 0 and itcInfo.shownState ~= Enum.WidgetShownState.Hidden then
+                local txt = (itcInfo.text and itcInfo.text ~= "" and not issecretvalue(itcInfo.text) and itcInfo.text)
+                if itcInfo.description and itcInfo.description ~= "" and not issecretvalue(itcInfo.description) then
+                    txt = txt and (txt .. ": " .. itcInfo.description) or itcInfo.description
+                end
+                if txt and txt ~= "" then
+                    local sObj = AcquireTable()
+                    sObj.text = txt
+                    sObj.finished = false
+                    table.insert(objs, sObj)
+                    total = total + 1
+                end
+                if itcInfo.currencies then
+                    for _, cur in ipairs(itcInfo.currencies) do
+                        local cTxt = (cur.leadingText and cur.leadingText ~= "" and not issecretvalue(cur.leadingText) and cur.leadingText)
+                        if cur.text and cur.text ~= "" and not issecretvalue(cur.text) then
+                            cTxt = cTxt and (cTxt .. ": " .. cur.text) or cur.text
+                        end
+                        if cTxt and cTxt ~= "" then
+                            local sObj = AcquireTable()
+                            sObj.text = cTxt
+                            sObj.finished = (cur.isCurrencyMaxed == true)
+                            table.insert(objs, sObj)
+                            total = total + 1
+                        end
+                    end
+                end
+            end
+        end
+
+        -- P. ButtonHeader
+        if C_UIWidgetManager and C_UIWidgetManager.GetButtonHeaderWidgetVisualizationInfo then
+            local ok, bhInfo = pcall(C_UIWidgetManager.GetButtonHeaderWidgetVisualizationInfo, wID)
+            if ok and bhInfo and bhInfo.shownState ~= 0 and bhInfo.shownState ~= Enum.WidgetShownState.Hidden and bhInfo.headerText and bhInfo.headerText ~= "" and not issecretvalue(bhInfo.headerText) then
+                local sObj = AcquireTable()
+                sObj.text = bhInfo.headerText
+                sObj.finished = false
+                table.insert(objs, sObj)
+                total = total + 1
+            end
+        end
     end
 
-    ScanContainerWidgets(_G.UIWidgetTopCenterContainerFrame)
-    ScanContainerWidgets(_G.UIWidgetBelowMinimapContainerFrame)
-    ReleaseTable(scannedWidgets)
+    -- 3. Bonus Steps Scan (Bonus Objectives in Scenario / World Event)
+    if C_Scenario and C_Scenario.GetBonusSteps then
+        local ok, steps = pcall(C_Scenario.GetBonusSteps)
+        if ok and steps and #steps > 0 then
+            for _, bIdx in ipairs(steps) do
+                local bName, bDesc, bNumCrit, _, _, _, bShouldShow = C_Scenario.GetStepInfo(bIdx)
+                if bShouldShow then
+                    local bTitle = (bName and bName ~= "" and bName) or bDesc or "Bonus Objective"
+                    local sObjHeader = AcquireTable()
+                    sObjHeader.text = string_format("|cff33d9f2%s|r", bTitle)
+                    sObjHeader.finished = false
+                    table.insert(objs, sObjHeader)
+                    total = total + 1
+
+                    if bNumCrit and bNumCrit > 0 then
+                        for c = 1, bNumCrit do
+                            local cInfo = GetScenarioCriteriaSafe(c, bIdx)
+                            local cDesc = cInfo and (cInfo.description or cInfo.criteriaString or cInfo.string)
+                            if cDesc and cDesc ~= "" and not issecretvalue(cDesc) then
+                                local bObj = AcquireTable()
+                                local isComp = cInfo.completed == true
+                                bObj.finished = isComp
+                                if isComp then done = done + 1 end
+                                total = total + 1
+
+                                if cInfo.quantity and cInfo.totalQuantity and cInfo.totalQuantity > 1 then
+                                    bObj.text = string_format("%s (%d/%d)", cDesc, cInfo.quantity, cInfo.totalQuantity)
+                                    bObj.numFulfilled = cInfo.quantity
+                                    bObj.numRequired = cInfo.totalQuantity
+                                elseif cInfo.isWeightedProgress or (cInfo.criteriaType == 8) then
+                                    local cur = cInfo.quantity or 0
+                                    local req = (cInfo.totalQuantity and cInfo.totalQuantity > 0) and cInfo.totalQuantity or 100
+                                    local pct = math_min(100, math_max(0, math_floor((cur / req) * 100)))
+                                    bObj.text = string_format("%s (%d%%)", cDesc, pct)
+                                    bObj.barText = (req > 0 and cur > 0) and string_format("%d/%d (%d%%)", cur, req, pct) or (pct .. "%")
+                                    bObj.type = "progressbar"
+                                    bObj.numFulfilled = pct
+                                    bObj.numRequired = 100
+                                    bObj.finished = (pct >= 100)
+                                else
+                                    bObj.text = cDesc
+                                end
+                                table.insert(objs, bObj)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
 
     -- 3. Fallback: Stage Description if no criteria or widgets found
-    if #objs == 0 and stageDescription and stageDescription ~= "" then
+    if #objs == 0 and stageDescription and stageDescription ~= "" and not issecretvalue(stageDescription) then
         local sObj = AcquireTable()
         sObj.text = stageDescription
         sObj.finished = false
@@ -1783,7 +2292,7 @@ local function ScanWorldEventScenario(list)
         total = 1
     end
 
-    if #objs > 0 or (name and name ~= "") then
+    if #objs > 0 and name and name ~= "" then
         local entry = AcquireTable()
         entry.questID            = 99990000 + (currentStage or 1)
         entry.questLogIndex      = nil
@@ -1801,7 +2310,7 @@ local function ScanWorldEventScenario(list)
         entry.total              = total
         entry.singleCountStr     = nil
         entry.isWorldQuest       = false
-        entry.timeLeftText       = nil
+        entry.timeLeftText       = scTimeLeft
         entry.isScenario         = true
 
         table.insert(list, entry)
@@ -2017,7 +2526,8 @@ function QL:DoRefresh()
                             titleStr = baseText
                         end
                     elseif entry.isScenario then
-                        titleStr = "|cffffaa00" .. rawTitle .. COLOR_RESET
+                        local scTimeTag = (entry.timeLeftText) and (" " .. COLOR_TIME .. "[" .. entry.timeLeftText .. "]" .. COLOR_RESET) or ""
+                        titleStr = "|cffffaa00" .. rawTitle .. COLOR_RESET .. scTimeTag
                     elseif entry.isFailed then
                         titleStr = COLOR_FAILED .. rawTitle .. COLOR_RESET .. timeTag
                     elseif entry.isComplete and entry.isAutoTurnIn then
@@ -2103,7 +2613,7 @@ function QL:DoRefresh()
 
                                     -- 1. Objective Text on top
                                     orow.FS:Show()
-                                    local cleanText = obj.text:gsub("%s*%(?%d+%%%)?", ""):gsub("%s*%(?%d+/%d+%)?", "")
+                                    local cleanText = obj.text:gsub("%s*%(?%d+%%%)?", ""):gsub("%s*%(?%d+/%d+%)?", ""):gsub("%s*:%s*$", ""):gsub("^%s*-%s*", "")
                                     if cleanText == "" then cleanText = rawTitle end
                                     local objStr = "- " .. cleanText
                                     if orow.lastObjStr ~= objStr or orow.lastFinished ~= false then
@@ -2122,7 +2632,7 @@ function QL:DoRefresh()
                                         r, g, b = 0.0, 1.0, 1.0
                                     end
                                     orow.Bar:SetStatusBarColor(r * 0.75, g * 0.75, b * 0.75, 0.80)
-                                    orow.Bar.CenterFS:SetText(pct .. "%")
+                                    orow.Bar.CenterFS:SetText(obj.barText or (pct .. "%"))
                                     orow.Bar.CenterFS:SetTextColor(1, 1, 1)
 
                                     y = y + totalH + 2
@@ -2323,6 +2833,10 @@ end
 --  EVENTS
 -- ─────────────────────────────────────────────────────────
 CheckVisibilityAndRefresh = function()
+    if not InCombat() then
+        SuppressBlizzardTracker()
+    end
+
     if not sfui.questlog.is_enabled() then
         if not InCombat() and QL:IsShown() then QL:Hide() end
         return
@@ -2335,7 +2849,6 @@ CheckVisibilityAndRefresh = function()
     end
 
     if not InCombat() then
-        SuppressBlizzardTracker()
         UpdateQuestLogAnchor()
     end
 
@@ -2504,6 +3017,7 @@ Reg("SCENARIO_SPELL_UPDATE")
 Reg("SCENARIO_CRITERIA_SHOW_STATE_UPDATE")
 Reg("SCENARIO_COMPLETED")
 Reg("UPDATE_UI_WIDGET")
+Reg("UPDATE_ALL_UI_WIDGETS")
 Reg("ACTIVE_DELVE_DATA_UPDATE")
 Reg("CHALLENGE_MODE_START")
 Reg("CHALLENGE_MODE_COMPLETED")

@@ -4,6 +4,27 @@
 
 ---
 
+## v12.1.0-9 (2026-08-29)
+
+### Features & Major Improvements
+- **Meta Quests Classification & Header (`frames/quests.lua`, `config.lua`)**:
+  - Added a dedicated `meta` section positioned directly below `campaign` for all meta quests (`QC_Meta` / `IsMetaQuest`).
+  - Added meta quests section configuration with distinct cyan tinting (`0.0, 1.0, 1.0`).
+- **Comprehensive World Event Scenario & Widget Tracking (`frames/quests.lua`)**:
+  - Full support for outdoor world events (such as Dundun, Dunelle's Kindness / Abundance event, Community Feast, Theater Troupe, Superbloom, Time Rifts).
+  - Automated extraction of scenario countdown timers (`ScenarioHeaderTimer`, criteria durations) with bright cyan clock badges.
+  - Complete support for event status and progress bars (`StatusBar`, `DoubleStatusBar`, `FillUpFrames`, `DiscreteProgressSteps`, `CaptureBar`) with formatted value text (e.g. `450/1000 (45%)`).
+  - Exhaustive coverage of all `UIWidgetManager` visualization types (`BulletTextList`, `TextWithState`, `TextWithSubtext`, `TextureAndText`, `HorizontalCurrencies`, `StackedResourceTracker`, `IconTextAndCurrencies`).
+  - Added bonus steps scanning via `C_Scenario.GetBonusSteps()`.
+- **Strict Separation Between Quest Log & Mythic/Delve HUD (`frames/quests.lua`, `frames/mythic.lua`)**:
+  - Enforced strict state isolation so `quests.lua` never renders Delves, Dungeons, Raids, or Mythic+ content handled by `mythic.lua`.
+  - Unconditional suppression of Blizzard's default Objective Tracker across scenario/delve completions and stage transitions.
+- **Midnight Secret Values Taint Fixes (`frames/mythic.lua`)**:
+  - Direct pass-through of secret strings and numbers to native UI elements without invalid Lua comparisons or arithmetic.
+  - Guarded spell descriptions, tooltips, and delve badge metrics against secret value taint errors in WoW 12.0/Midnight.
+
+---
+
 ## v12.1.0-8-1 (2026-08-29)
 
 ### Fixes & Improvements

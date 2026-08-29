@@ -628,6 +628,7 @@ sfui.config = {
             { id = "scenario",     label = "world event",      color = { 1.00, 0.60, 0.10 } },
             { id = "important",    label = "important",        color = { 1.00, 0.40, 0.35 } },
             { id = "campaign",     label = "campaign",         color = { 0.90, 0.75, 0.10 } },
+            { id = "meta",         label = "meta",             color = { 0.00, 1.00, 1.00 } },
             { id = "world",        label = "world quests",     color = { 0.20, 0.85, 0.95 } },
             { id = "activities",   label = "activities",       color = { 0.35, 0.90, 0.40 } },
             { id = "zone",         label = "quests",           color = { 1.00, 1.00, 1.00 } },

@@ -22,7 +22,7 @@ local C_MajorFactions                                = _G.C_MajorFactions
 local BreakUpLargeNumbers                            = _G.BreakUpLargeNumbers or function(n) return tostring(n) end
 local GetWorldElapsedTime                            = _G.GetWorldElapsedTime
 local GameTooltip                                    = sfui.tooltip or _G.GameTooltip
-local issecretvalue                                  = _G.issecretvalue
+local issecretvalue                                  = _G.issecretvalue or function() return false end
 local math_max, math_min, math_floor, math_ceil, math_abs = math.max, math.min, math.floor, math.ceil, math.abs
 local string_format                                  = string.format
 local table_insert, table_sort, wipe                 = table.insert, table.sort, wipe
@@ -370,7 +370,7 @@ local function GetSpellTooltipText(spellID)
         if ok and data and data.lines then
             local textParts = {}
             for _, line in ipairs(data.lines) do
-                if line.leftText and line.leftText ~= "" then
+                if line.leftText and not issecretvalue(line.leftText) and line.leftText ~= "" then
                     table.insert(textParts, line.leftText)
                 end
             end
@@ -381,7 +381,7 @@ local function GetSpellTooltipText(spellID)
     end
     if C_Spell and C_Spell.GetSpellDescription then
         local ok, desc = pcall(C_Spell.GetSpellDescription, spellID)
-        if ok and desc and desc ~= "" then return desc end
+        if ok and desc and not issecretvalue(desc) and desc ~= "" then return desc end
     end
     return ""
 end
@@ -467,39 +467,47 @@ local function GetDelveInfo()
     end
 
     if foundWidget then
-        if foundWidget.headerText and foundWidget.headerText ~= "" then
+        if foundWidget.headerText and not issecretvalue(foundWidget.headerText) and foundWidget.headerText ~= "" then
             delveInfo.name = foundWidget.headerText
         end
-        delveInfo.tierText = foundWidget.tierText
+        if foundWidget.tierText and not issecretvalue(foundWidget.tierText) then
+            delveInfo.tierText = foundWidget.tierText
+        end
 
         if foundWidget.rewardInfo and foundWidget.rewardInfo.shownState ~= (_G.Enum and _G.Enum.UIWidgetRewardShownState and _G.Enum.UIWidgetRewardShownState.Hidden) then
             delveInfo.isBountiful = true
-            delveInfo.bountyTooltip = (foundWidget.rewardInfo.shownState == 1) and foundWidget.rewardInfo.earnedTooltip or
+            local rTooltip = (foundWidget.rewardInfo.shownState == 1) and foundWidget.rewardInfo.earnedTooltip or
                 foundWidget.rewardInfo.unearnedTooltip
+            if rTooltip and not issecretvalue(rTooltip) then
+                delveInfo.bountyTooltip = rTooltip
+            end
         end
 
         if foundWidget.currencies then
             for _, c in ipairs(foundWidget.currencies) do
-                if (c.text and c.text ~= "") or (c.iconFileID and c.iconFileID > 0) then
+                local cText = (c.text and not issecretvalue(c.text)) and c.text or nil
+                local cTooltip = (c.tooltip and not issecretvalue(c.tooltip)) and c.tooltip or ""
+                local cLeading = (c.leadingText and not issecretvalue(c.leadingText)) and c.leadingText or ""
+                if (cText and cText ~= "") or (c.iconFileID and c.iconFileID > 0) then
                     local isLives = false
-                    local tt = (c.tooltip or ""):lower()
+                    local tt = cTooltip:lower()
                     if tt:find("reinforcement") or tt:find("live") or tt:find("revive") or tt:find("death") or tt:find("life") then
                         isLives = true
-                    elseif tonumber(c.text) and not tostring(c.text):find("/") and tonumber(c.text) <= 5 and not delveInfo.livesText then
+                    elseif cText and tonumber(cText) and not tostring(cText):find("/") and tonumber(cText) <= 5 and not delveInfo.livesText then
                         isLives = true
                     end
 
                     if isLives then
-                        delveInfo.livesText = c.text
-                        delveInfo.livesRemaining = tonumber(tostring(c.text):match("(%d+)"))
-                        delveInfo.livesTooltip = c.tooltip
+                        delveInfo.livesText = cText
+                        delveInfo.livesRemaining = cText and tonumber(tostring(cText):match("(%d+)")) or nil
+                        delveInfo.livesTooltip = cTooltip ~= "" and cTooltip or nil
                         delveInfo.livesIcon = c.iconFileID
                     else
                         local curObj = table.remove(currencyPool) or {}
                         curObj.icon = c.iconFileID
-                        curObj.text = c.text or ""
-                        curObj.leadingText = c.leadingText or ""
-                        curObj.tooltip = c.tooltip
+                        curObj.text = cText or ""
+                        curObj.leadingText = cLeading
+                        curObj.tooltip = cTooltip ~= "" and cTooltip or nil
                         table.insert(delveInfo.currencies, curObj)
                     end
                 end
@@ -511,11 +519,12 @@ local function GetDelveInfo()
                 if s.spellID and s.shownState ~= (_G.Enum and _G.Enum.WidgetShownState and _G.Enum.WidgetShownState.Hidden) then
                     local spObj = table.remove(spellPool) or {}
                     spObj.spellID = s.spellID
-                    spObj.text = s.text or ""
+                    spObj.text = (s.text and not issecretvalue(s.text)) and s.text or ""
                     spObj.stack = (s.stackDisplay and s.stackDisplay > 0 and s.stackDisplay) or nil
                     spObj.showAsEarned = s.showAsEarned
-                    local tt = (s.tooltip and s.tooltip ~= "") and s.tooltip or GetSpellTooltipText(s.spellID)
-                    spObj.tooltip = tt
+                    local sTooltip = (s.tooltip and not issecretvalue(s.tooltip) and s.tooltip ~= "") and s.tooltip or nil
+                    local tt = sTooltip or GetSpellTooltipText(s.spellID)
+                    spObj.tooltip = (tt and not issecretvalue(tt) and tt ~= "") and tt or nil
                     table.insert(delveInfo.spells, spObj)
                 end
             end
@@ -771,12 +780,13 @@ local function GetNemesisInfo(delveInfo)
         if ok and numCriteria and numCriteria > 0 then
             for i = 1, numCriteria do
                 local info = GetCriteriaInfoSafe(i, stepID)
-                if info and info.description and info.description ~= "" then
-                    local descLower = info.description:lower()
+                local descText = (info and info.description and not issecretvalue(info.description) and info.description ~= "") and info.description or nil
+                if descText then
+                    local descLower = descText:lower()
                     if descLower:find("nemesis") or descLower:find("zekvir") or descLower:find("influence") or
                         descLower:find("empowered") or descLower:find("underpin") or descLower:find("ky'veza") then
                         nemesis.hasNemesis = true
-                        nemesis.tooltip = info.description
+                        nemesis.tooltip = descText
                         local tot = (info.totalQuantity and info.totalQuantity > 0) and info.totalQuantity or 4
                         nemesis.total = tot
                         if info.completed then
@@ -799,16 +809,16 @@ local function GetNemesisInfo(delveInfo)
     -- 2. Check Delve Spells / Affixes (Highest dynamic fidelity)
     if delveInfo and delveInfo.spells then
         for _, s in ipairs(delveInfo.spells) do
-            local tt = (s.tooltip or ""):lower()
-            if not tt or tt == "" then
-                tt = (GetSpellTooltipText(s.spellID) or ""):lower()
-            end
+            local sTooltip = (s.tooltip and not issecretvalue(s.tooltip) and s.tooltip ~= "") and s.tooltip or nil
+            local tt = (sTooltip or GetSpellTooltipText(s.spellID) or "")
+            if issecretvalue(tt) then tt = "" end
+            tt = tt:lower()
             
             local spellName = ""
             if s.spellID then
                 local n = (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(s.spellID)) or
                     (_G.GetSpellInfo and _G.GetSpellInfo(s.spellID))
-                if n then spellName = n:lower() end
+                if n and not issecretvalue(n) then spellName = n:lower() end
             end
 
             if tt:find("nemesis") or tt:find("zekvir") or tt:find("influence") or tt:find("empowered") or
@@ -909,15 +919,17 @@ local function GetNemesisInfo(delveInfo)
     -- 3. Check Delve Currencies
     if not nemesis.current and delveInfo and delveInfo.currencies then
         for _, c in ipairs(delveInfo.currencies) do
-            local tt = (c.tooltip or ""):lower()
-            local lt = (c.leadingText or ""):lower()
+            local cTooltip = (c.tooltip and not issecretvalue(c.tooltip)) and c.tooltip or ""
+            local cLeading = (c.leadingText and not issecretvalue(c.leadingText)) and c.leadingText or ""
+            local tt = cTooltip:lower()
+            local lt = cLeading:lower()
             if tt:find("nemesis") or tt:find("zekvir") or tt:find("influence") or tt:find("empowered") or
                 tt:find("underpin") or tt:find("ky'veza") or lt:find("nemesis") or lt:find("zekvir") or lt:find("influence") then
                 nemesis.hasNemesis = true
                 nemesis.icon = c.icon or nemesis.icon
-                nemesis.tooltip = c.tooltip or nemesis.tooltip
+                nemesis.tooltip = cTooltip ~= "" and cTooltip or nemesis.tooltip
 
-                local valStr = c.text or c.leadingText or ""
+                local valStr = (c.text and not issecretvalue(c.text) and c.text) or (c.leadingText and not issecretvalue(c.leadingText) and c.leadingText) or ""
                 local cM, tM = valStr:match("(%d+)%s*/%s*(%d+)")
                 if cM and tM then
                     nemesis.current = tonumber(cM)
@@ -936,17 +948,19 @@ local function GetNemesisInfo(delveInfo)
             if C_UIWidgetManager.GetIconAndTextWidgetVisualizationInfo then
                 local okVis, vis = pcall(C_UIWidgetManager.GetIconAndTextWidgetVisualizationInfo, wID)
                 if okVis and vis and vis.shownState ~= (_G.Enum and _G.Enum.WidgetShownState and _G.Enum.WidgetShownState.Hidden) then
-                    local tt = (vis.tooltip or ""):lower()
-                    local txt = (vis.text or ""):lower()
+                    local vTooltip = (vis.tooltip and not issecretvalue(vis.tooltip)) and vis.tooltip or ""
+                    local vText = (vis.text and not issecretvalue(vis.text)) and vis.text or ""
+                    local tt = vTooltip:lower()
+                    local txt = vText:lower()
                     if tt:find("nemesis") or tt:find("zekvir") or tt:find("influence") or txt:find("nemesis") or txt:find("zekvir") then
                         nemesis.hasNemesis = true
-                        nemesis.tooltip = vis.tooltip or nemesis.tooltip
-                        local cW, tW = (vis.text or ""):match("(%d+)%s*/%s*(%d+)")
+                        nemesis.tooltip = vTooltip ~= "" and vTooltip or nemesis.tooltip
+                        local cW, tW = vText:match("(%d+)%s*/%s*(%d+)")
                         if cW and tW then
                             nemesis.current = tonumber(cW)
                             nemesis.total   = tonumber(tW)
-                        elseif tonumber(vis.text) then
-                            nemesis.current = tonumber(vis.text)
+                        elseif tonumber(vText) then
+                            nemesis.current = tonumber(vText)
                         end
                         break
                     end
@@ -955,17 +969,19 @@ local function GetNemesisInfo(delveInfo)
             if not nemesis.current and C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo then
                 local okVis, vis = pcall(C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo, wID)
                 if okVis and vis and vis.shownState ~= (_G.Enum and _G.Enum.WidgetShownState and _G.Enum.WidgetShownState.Hidden) then
-                    local tt = (vis.tooltip or ""):lower()
-                    local txt = (vis.text or ""):lower()
+                    local vTooltip = (vis.tooltip and not issecretvalue(vis.tooltip)) and vis.tooltip or ""
+                    local vText = (vis.text and not issecretvalue(vis.text)) and vis.text or ""
+                    local tt = vTooltip:lower()
+                    local txt = vText:lower()
                     if tt:find("nemesis") or tt:find("zekvir") or tt:find("influence") or txt:find("nemesis") or txt:find("zekvir") then
                         nemesis.hasNemesis = true
-                        nemesis.tooltip = vis.tooltip or nemesis.tooltip
-                        local cW, tW = (vis.text or ""):match("(%d+)%s*/%s*(%d+)")
+                        nemesis.tooltip = vTooltip ~= "" and vTooltip or nemesis.tooltip
+                        local cW, tW = vText:match("(%d+)%s*/%s*(%d+)")
                         if cW and tW then
                             nemesis.current = tonumber(cW)
                             nemesis.total   = tonumber(tW)
-                        elseif tonumber(vis.text) then
-                            nemesis.current = tonumber(vis.text)
+                        elseif tonumber(vText) then
+                            nemesis.current = tonumber(vText)
                         end
                         break
                     end
@@ -1755,22 +1771,32 @@ local function UpdateInstanceState()
                 b.icon:SetSize(16, 16)
                 b.stackText:Hide()
 
-                local valStr = c.text or ""
-                if (not valStr or valStr == "") and c.leadingText and c.leadingText ~= "" then
-                    valStr = c.leadingText
-                end
-                if (not valStr or valStr == "") and c.tooltip then
-                    valStr = c.tooltip:match("(%d+/%d+)") or c.tooltip:match("(%d+ of %d+)") or
-                        c.tooltip:match("(%d+ remaining)") or ""
+                local cText = c.text or ""
+                local cLeading = (c.leadingText and not issecretvalue(c.leadingText)) and c.leadingText or ""
+                local cTooltip = (c.tooltip and not issecretvalue(c.tooltip)) and c.tooltip or ""
+                local valStr = cText
+                if not issecretvalue(valStr) then
+                    if valStr == "" and cLeading ~= "" then
+                        valStr = cLeading
+                    end
+                    if valStr == "" and cTooltip ~= "" then
+                        valStr = cTooltip:match("(%d+/%d+)") or cTooltip:match("(%d+ of %d+)") or
+                            cTooltip:match("(%d+ remaining)") or ""
+                    end
+
+                    local isNemCurr = (cTooltip ~= "" and cTooltip:lower():find("nemesis")) or
+                        (cLeading ~= "" and cLeading:lower():find("nemesis"))
+                    if valStr == "" and isNemCurr and nemesis.text and not issecretvalue(nemesis.text) then
+                        valStr = nemesis.text
+                    end
                 end
 
-                local isNemCurr = (c.tooltip and c.tooltip:lower():find("nemesis")) or
-                    (c.leadingText and c.leadingText:lower():find("nemesis"))
-                if (not valStr or valStr == "") and isNemCurr and nemesis.text then
-                    valStr = nemesis.text
-                end
-
-                if valStr ~= "" then
+                if issecretvalue(valStr) then
+                    b.text:SetText(valStr)
+                    b.text:Show()
+                elseif valStr ~= "" then
+                    local isNemCurr = (cTooltip ~= "" and cTooltip:lower():find("nemesis")) or
+                        (cLeading ~= "" and cLeading:lower():find("nemesis"))
                     if isNemCurr then
                         b.text:SetText(string_format("|cffa335ee%s|r", valStr))
                     elseif valStr:find("/") then
@@ -1787,7 +1813,7 @@ local function UpdateInstanceState()
                 local w = 16 + (b.text:IsShown() and (4 + b.text:GetStringWidth()) or 0)
                 b.frame:SetSize(w, 18)
                 b.frame.title = nil
-                b.frame.customTooltip = c.tooltip
+                b.frame.customTooltip = (c.tooltip and c.tooltip ~= "") and c.tooltip or nil
                 b.frame.spellID = nil
             end
         end
@@ -1803,35 +1829,49 @@ local function UpdateInstanceState()
                 b.icon:SetSize(16, 16)
                 b.stackText:Hide()
 
+                local sText = s.text or ""
+                local sTooltip = (s.tooltip and not issecretvalue(s.tooltip)) and s.tooltip or ""
                 local displayNum = nil
-                if s.stack and tostring(s.stack) ~= "" and tostring(s.stack) ~= "0" then
+                if s.stack and not issecretvalue(s.stack) and tostring(s.stack) ~= "" and tostring(s.stack) ~= "0" then
                     displayNum = tostring(s.stack)
-                elseif s.text and s.text ~= "" then
-                    displayNum = s.text:match("(%d+/%d+)") or s.text:match("(%d+)") or s.text
+                elseif issecretvalue(sText) then
+                    displayNum = sText
+                elseif sText ~= "" then
+                    displayNum = sText:match("(%d+/%d+)") or sText:match("(%d+)") or sText
                 end
 
                 if not displayNum and s.spellID and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
-                    local aura = C_UnitAuras.GetPlayerAuraBySpellID(s.spellID)
-                    if aura and aura.applications and aura.applications > 0 then
-                        displayNum = tostring(aura.applications)
-                    elseif aura and aura.points and aura.points[1] and aura.points[1] > 0 then
-                        displayNum = tostring(aura.points[1])
+                    local okA, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, s.spellID)
+                    if okA and aura then
+                        if aura.applications and not issecretvalue(aura.applications) and aura.applications > 0 then
+                            displayNum = tostring(aura.applications)
+                        elseif aura.points and aura.points[1] and not issecretvalue(aura.points[1]) and aura.points[1] > 0 then
+                            displayNum = tostring(aura.points[1])
+                        end
                     end
                 end
 
-                if not displayNum and s.tooltip then
-                    local match = s.tooltip:match("(%d+/%d+)") or s.tooltip:match("(%d+ of %d+)") or
-                        s.tooltip:match("(%d+ remaining)") or s.tooltip:match("(%d+) groups?") or
-                        s.tooltip:match("(%d+) packs?")
+                if not displayNum and sTooltip ~= "" then
+                    local match = sTooltip:match("(%d+/%d+)") or sTooltip:match("(%d+ of %d+)") or
+                        sTooltip:match("(%d+ remaining)") or sTooltip:match("(%d+) groups?") or
+                        sTooltip:match("(%d+) packs?")
                     if match then displayNum = match end
                 end
 
-                local isNemSpell = (s.tooltip and (s.tooltip:lower():find("nemesis") or s.tooltip:lower():find("zekvir") or s.tooltip:lower():find("influence")))
-                if (not displayNum or displayNum == "") and isNemSpell and nemesis.text then
-                    displayNum = nemesis.text
+                if not issecretvalue(displayNum) then
+                    local isNemSpell = (sTooltip ~= "" and (sTooltip:lower():find("nemesis") or sTooltip:lower():find("zekvir") or sTooltip:lower():find("influence")))
+                    if (not displayNum or displayNum == "") and isNemSpell and nemesis.text and not issecretvalue(nemesis.text) then
+                        displayNum = nemesis.text
+                    end
                 end
 
-                if displayNum and displayNum ~= "" then
+                if issecretvalue(displayNum) then
+                    b.text:SetText(displayNum)
+                    b.text:Show()
+                    local w = 16 + 4 + b.text:GetStringWidth()
+                    b.frame:SetSize(w, 18)
+                elseif displayNum and displayNum ~= "" then
+                    local isNemSpell = (sTooltip ~= "" and (sTooltip:lower():find("nemesis") or sTooltip:lower():find("zekvir") or sTooltip:lower():find("influence")))
                     if isNemSpell then
                         b.text:SetText(string_format("|cffa335ee%s|r", displayNum))
                     elseif displayNum:find("/") then
@@ -2912,6 +2952,9 @@ ev:SetScript("OnEvent", function(self, event, ...)
         event == "ACTIVE_DELVE_DATA_UPDATE" or event == "UPDATE_UI_WIDGET" or
         event == "SCENARIO_COMPLETED" or event == "SCENARIO_POIS_UPDATED" or
         event == "SCENARIO_SPELL_UPDATE" then
+        if sfui.SuppressBlizzardTracker then
+            sfui.SuppressBlizzardTracker()
+        end
         if _mode == nil then
             local okInst, inInst = pcall(_G.IsInInstance)
             if not (okInst and inInst) then return end
