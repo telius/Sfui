@@ -4,6 +4,29 @@
 
 ---
 
+## v12.1.0-14 (2026-08-30)
+
+### Architecture & Central Event Dispatcher
+- **Unified Event Subsystem (`dispatcher.lua`)**:
+  - Implemented centralized event dispatcher (`sfui.events`) handling all global game events, unit events (`RegisterUnitEvent`), throttled events (`RegisterThrottledEvent`), and frame update loops (`RegisterUpdate`) across 20+ addon modules.
+  - Replaced fragmented standalone frames and OnUpdate scripts with a single central event router and unified 0-CPU idle ticker.
+  - Added module routing index and architecture reference directly in the dispatcher header.
+
+### Major Improvements & Bug Fixes
+- **Direct API Forwarding for Mythic+ Forces (`frames/mythic.lua`)**:
+  - Aligned Mythic+ enemy forces calculation and criteria handling with the clean direct API forwarding pattern from `MPlusTimer`.
+  - Added robust detection for raw mob count criteria, 0.1% resolution (`totalQuantity == 1000`), and localized objective keywords without `pcall` arithmetic taint.
+- **Blizzard UI Taint Prevention (`frames/minimap.lua`, `frames/quests.lua`, `frames/mythic.lua`)**:
+  - Resolved `[ADDON_ACTION_BLOCKED] Button:SetPassThroughButtons()` by strictly filtering Blizzard MapCanvas / DataProvider pins out of Minimap button collection.
+  - Fixed `UIWidgetManager` secret arithmetic crashes (`textHeight` / secret value) by replacing direct container frame table lookups with official `C_UIWidgetManager` C-APIs.
+  - Replaced `ShowUIPanel(WorldMapFrame)` calls with `QuestMapFrame_OpenToQuestDetails` and `OpenWorldMap()` to prevent `UIParentPanelManager` state table taint.
+- **Performance Optimizations & Memory Management**:
+  - Added pre-computed lookup tables (`INT_STR_LUT` for 0–200, `DEC_STR_LUT` for 0.1–5.0s) in `common.lua` to eliminate runtime string churn.
+  - Converted minimap menu and mount speed bar scripts to zero-allocation static passes.
+  - Cleaned up dead frame allocations and lifted nested inner functions (`CheckPandemicState`) in `frames/trackedbars.lua`.
+
+---
+
 ## v12.1.0-13 (2026-08-30)
 
 ### Features & Major Improvements

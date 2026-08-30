@@ -16,7 +16,6 @@ local hooksecurefunc = hooksecurefunc
 local C_UnitAuras = C_UnitAuras
 local BuffBarCooldownViewer = BuffBarCooldownViewer
 local C_CooldownViewer = C_CooldownViewer
-local IsInInstance = IsInInstance
 local C_Timer = C_Timer
 local GetTime = GetTime
 local C_Secrets = _G.C_Secrets -- 12.0.5+: secrecy predicate API
@@ -234,24 +233,6 @@ local function CreateBar(cooldownID)
     bar.count:SetPoint("CENTER", bar.icon, "CENTER", 0, 0)
     common.style_text(bar.count, nil, nil, "")
 
-    -- Stack Segments (for stack mode display)
-    bar.segments = {}
-    for i = 1, cfg.maxSegments do
-        local seg = CreateFrame("StatusBar", nil, bar)
-        seg:SetStatusBarTexture(sfui.config.textures.white)
-        seg:SetStatusBarColor(unpack(sfui.config.colors.purple))
-        seg:SetMinMaxValues(0, 1)
-        seg:SetValue(1)
-        seg:Hide()
-
-        -- Segment background
-        seg.bg = seg:CreateTexture(nil, "BACKGROUND")
-        seg.bg:SetAllPoints(seg)
-        seg.bg:SetColorTexture(unpack(cfg.backdrop.color))
-
-        bar.segments[i] = seg
-    end
-
     bar.cooldownID = cooldownID
 
     bar:EnableMouse(true)
@@ -302,10 +283,8 @@ local function SetupBarState(bar, config, cfg)
     local isTimerAndStacks = wantCenteredStacks and showDurationEnabled
 
     if isStackMode then
-        for i = 1, cfg.maxSegments do bar.segments[i]:Hide() end
         bar.status:Show(); bar.time:Show(); bar.icon:Show(); bar.count:Hide()
     else
-        for i = 1, cfg.maxSegments do bar.segments[i]:Hide() end
         -- Standard Mode
         bar.status:Show(); bar.name:Show(); bar.time:Show(); bar.icon:Show()
         bar.count:ClearAllPoints()
@@ -619,19 +598,72 @@ local function ShouldBarBeVisible(config, blizzFrame, isStackModeWithStacks, hid
 end
 
 -- Helper: Perform protected blizzard frame scraping
-local function _pcall_get_app_text(blizzFrame)
-    if blizzFrame.Icon and blizzFrame.Icon.Applications then
-        if not blizzFrame.Icon.Applications:IsShown() then return nil end
-        return blizzFrame.Icon.Applications:GetText()
-    end
-    return nil
-end
-
 local function _pcall_get_duration_text(blizzFrame)
     if blizzFrame.Bar and blizzFrame.Bar.Duration then
         return blizzFrame.Bar.Duration:GetText() or ""
     end
     return ""
+end
+
+local function CheckPandemicState(myBar, blizzFrame, config)
+    local inPandemic = false
+
+    -- Primary: blizzFrame.PandemicIcon is set (not nil) by Blizzard while in pandemic.
+    if blizzFrame.PandemicIcon ~= nil then
+        inPandemic = true
+    else
+        -- 12.0.5+ path: use GetAuraBaseDuration + GetRefreshExtendedDuration
+        local auraUnit = blizzFrame.auraDataUnit or "player"
+        local auraInstanceID = blizzFrame.auraInstanceID
+        if auraInstanceID and common.HasAuraInstanceID(auraInstanceID)
+            and C_UnitAuras.GetAuraBaseDuration and C_UnitAuras.GetRefreshExtendedDuration
+            and not (C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret())
+        then
+            local baseDur = C_UnitAuras.GetAuraBaseDuration(auraUnit, auraInstanceID)
+            if baseDur and baseDur > 0 and C_UnitAuras.GetAuraDuration then
+                local durObj = C_UnitAuras.GetAuraDuration(auraUnit, auraInstanceID)
+                if durObj and not durObj:HasSecretValues() then
+                    local remaining = durObj:GetRemainingDuration()
+                    inPandemic = remaining <= (baseDur * 0.3)
+                end
+            end
+        else
+            -- Fallback: text-parse approach for older builds or bars without auraInstanceID.
+            local text = myBar.time and myBar.time:GetText()
+            if text and text ~= "" then
+                local secs = nil
+                local plain = text:match("^(%d+%.?%d*)%s*s?$")
+                if plain then
+                    secs = tonumber(plain)
+                else
+                    local m, s = text:match("^(%d+)m%s*(%d*)%s*s?$")
+                    if m then secs = tonumber(m) * 60 + (tonumber(s) or 0) end
+                    if not secs then
+                        local mm, ss = text:match("^(%d+):(%d+)$")
+                        if mm then secs = tonumber(mm) * 60 + (tonumber(ss) or 0) end
+                    end
+                end
+
+                if secs and secs >= 0 then
+                    local prevMax = myBar._cachedMaxDur or 0
+                    if secs > prevMax then
+                        myBar._cachedMaxDur = math.min(secs, 600)
+                    end
+                    local maxDur = myBar._cachedMaxDur
+                    if maxDur and maxDur > 0 then
+                        inPandemic = (secs / maxDur) <= 0.3
+                    end
+                end
+            end
+        end
+    end
+
+    myBar._inPandemic = inPandemic
+
+    if inPandemic then
+        local pColor = config.pandemicColor or { 1, 0, 1, 1 } -- default #ff00ff
+        myBar.status:SetStatusBarColor(common.unpack_color(pColor))
+    end
 end
 
 local function _pcall_sync_bar_values(blizzFrame, status, timeString, config, currentStacks)
@@ -967,97 +999,16 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
         end
     end
 
-local function CheckPandemicState(myBar, blizzFrame, config)
-    local inPandemic = false
-
-    -- Primary: blizzFrame.PandemicIcon is set (not nil) by Blizzard while in
-    -- pandemic. Reading nil vs non-nil is safe -- no arithmetic, no secrets.
-    -- NOTE: CooldownViewerBuffBarItemMixin (category-3 bars) does NOT call
-    -- CheckSetPandemicAlertTiggerTime, so PandemicIcon is always nil there.
-    -- We still check it first for any future Blizzard changes or non-buffbar items.
-    if blizzFrame.PandemicIcon ~= nil then
-        inPandemic = true
+    -- Pandemic recolor: entirely pcall-wrapped so any error is safely swallowed.
+    if config and config.pandemicEnabled then
+        -- Reset to false BEFORE the pcall: if detection errors, we never leave stale
+        -- "true" state that would permanently color the bar with the pandemic color.
+        myBar._inPandemic = false
+        pcall(CheckPandemicState, myBar, blizzFrame, config)
     else
-        -- 12.0.5+ path: use GetAuraBaseDuration + GetRefreshExtendedDuration for a
-        -- clean, arithmetic-free pandemic calculation. No string parsing required.
-        local auraUnit = blizzFrame.auraDataUnit or "player"
-        local auraInstanceID = blizzFrame.auraInstanceID
-        if auraInstanceID and common.HasAuraInstanceID(auraInstanceID)
-            and C_UnitAuras.GetAuraBaseDuration and C_UnitAuras.GetRefreshExtendedDuration
-            and not (C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret())
-        then
-            local baseDur = C_UnitAuras.GetAuraBaseDuration(auraUnit, auraInstanceID)
-            -- GetAuraDuration returns a LuaDurationObject — GetRemainingDuration()
-            -- yields a plain taint-free number.
-            if baseDur and baseDur > 0 and C_UnitAuras.GetAuraDuration then
-                local durObj = C_UnitAuras.GetAuraDuration(auraUnit, auraInstanceID)
-                if durObj and not durObj:HasSecretValues() then
-                    local remaining = durObj:GetRemainingDuration()
-                    -- Pandemic window = last 30% of base duration (standard WoW rule)
-                    inPandemic = remaining <= (baseDur * 0.3)
-                end
-            end
-        else
-            -- Fallback: text-parse approach for older builds or bars without auraInstanceID.
-            -- Use the text already synced to myBar.time -- same source as
-            -- _pcall_get_duration_text but avoids a second blizzFrame read.
-            local text = myBar.time and myBar.time:GetText()
-            if text and text ~= "" then
-                -- Parse common WoW timer formats:
-                --   "5.3s"  "12s"  "1m"  "1m 30s"  "1:30"  "60"
-                local secs = nil
-                local plain = text:match("^(%d+%.?%d*)%s*s?$")
-                if plain then
-                    secs = tonumber(plain)
-                else
-                    local m, s = text:match("^(%d+)m%s*(%d*)%s*s?$")
-                    if m then secs = tonumber(m) * 60 + (tonumber(s) or 0) end
-                    if not secs then
-                        local mm, ss = text:match("^(%d+):(%d+)$")
-                        if mm then secs = tonumber(mm) * 60 + (tonumber(ss) or 0) end
-                    end
-                end
-
-                if secs and secs >= 0 then
-                    -- Track the max observed remaining duration as a proxy for total
-                    -- duration. Reset (clamp) when secs has jumped up again (fresh
-                    -- application or talent change) to avoid an inflated threshold.
-                    -- Hard-cap at 600s (10 min) to guard against transient bad reads.
-                    local prevMax = myBar._cachedMaxDur or 0
-                    if secs > prevMax then
-                        myBar._cachedMaxDur = math.min(secs, 600)
-                    end
-                    local maxDur = myBar._cachedMaxDur
-                    -- Pandemic window = last 30% of total duration (standard WoW rule)
-                    if maxDur and maxDur > 0 then
-                        inPandemic = (secs / maxDur) <= 0.3
-                    end
-                end
-            end
-        end
+        -- Pandemic was disabled (or toggled off); clear any stale state.
+        myBar._inPandemic = false
     end
-
-    -- Persist state so SetupBarState re-applies the right color if
-    -- UpdateLayout fires after this point in the same tick.
-    myBar._inPandemic = inPandemic
-
-    if inPandemic then
-        local pColor = config.pandemicColor or { 1, 0, 1, 1 } -- default #ff00ff
-        myBar.status:SetStatusBarColor(common.unpack_color(pColor))
-    end
-end
-
--- Pandemic recolor: entirely pcall-wrapped so any error is safely swallowed.
-if config and config.pandemicEnabled then
-    -- Reset to false BEFORE the pcall: if detection errors, we never leave stale
-    -- "true" state that would permanently color the bar with the pandemic color.
-    myBar._inPandemic = false
-    pcall(CheckPandemicState, myBar, blizzFrame, config)
-else
-    -- Pandemic was disabled (or toggled off); clear any stale state.
-    myBar._inPandemic = false
-end
-
 end
 
 local function SyncWithBlizzard()
