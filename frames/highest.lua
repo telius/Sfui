@@ -136,6 +136,61 @@ local function HasRazoriceEnchant(itemData)
     return false
 end
 
+local embellishCache = {}
+local embellishCacheCount = 0
+local EMBELLISH_CACHE_MAX = 300
+
+local function HasEmbellishment(itemData)
+    if not itemData or not itemData.link then return false end
+    local link = itemData.link
+    if embellishCache[link] ~= nil then
+        return embellishCache[link]
+    end
+
+    local isEmbellished = false
+    local embCat = _G["ITEM_LIMIT_CATEGORY_EMBELLISHED"]
+    local embPattern = embCat and embCat:lower()
+
+    if C_TooltipInfo then
+        local data
+        if itemData.bag and itemData.slot then
+            data = C_TooltipInfo.GetBagItem(itemData.bag, itemData.slot)
+        elseif itemData.equippedSlot then
+            data = C_TooltipInfo.GetInventoryItem("player", itemData.equippedSlot)
+        else
+            data = C_TooltipInfo.GetHyperlink(link)
+        end
+
+        if data and data.lines then
+            for _, line in ipairs(data.lines) do
+                local txt = line.leftText
+                if txt and type(txt) == "string" and txt ~= "" then
+                    local ltxt = txt:lower()
+                    if (embPattern and ltxt:find(embPattern, 1, true))
+                        or ltxt:find("embellish", 1, true)
+                        or ltxt:find("verziert", 1, true)
+                        or ltxt:find("orné", 1, true)
+                        or ltxt:find("adornad", 1, true)
+                        or ltxt:find("украшен", 1, true)
+                        or ltxt:find("美化", 1, true)
+                        or ltxt:find("장식", 1, true) then
+                        isEmbellished = true
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    if embellishCacheCount >= EMBELLISH_CACHE_MAX then
+        _G.wipe(embellishCache)
+        embellishCacheCount = 0
+    end
+    embellishCacheCount = embellishCacheCount + 1
+    embellishCache[link] = isEmbellished
+    return isEmbellished
+end
+
 sfui.highest.rules = {
     -- Death Knight
     [250] = { armor = 4, stat = 1, weaps = { ["2H"] = true } },
@@ -263,6 +318,8 @@ local VALIDATION_CACHE_MAX = 300
 function sfui.highest.ClearCache()
     _G.wipe(validationCache)
     validationCacheCount = 0
+    _G.wipe(embellishCache)
+    embellishCacheCount = 0
 end
 
 -- Returns true, itemLevel, statVal, itemEquipLoc if the item is valid for the spec rules
@@ -586,14 +643,15 @@ function sfui.highest.GetBestItems(isPvP)
         itemData.bag            = bag
         itemData.slot           = slot
         itemData.score          = nil
+        itemData.isEmbellished  = HasEmbellishment(itemData)
 
         for i = 1, numSlots do
             local s = pooledTargetSlots[i]
             table.insert(best[s], itemData)
             if _G.SFUI_DEBUG_SLOT and s == _G.SFUI_DEBUG_SLOT then
                 local nameStr = GetItemInfo(itemLink) or itemLink
-                dbgSlotPrint(string.format("[slot%d] ADDED %s | ilvl=%.0f | equipped=%s | bag=%s,slot=%s",
-                    s, tostring(nameStr), itemLevel, tostring(isEquipped),
+                dbgSlotPrint(string.format("[slot%d] ADDED %s | ilvl=%.0f | emb=%s | equipped=%s | bag=%s,slot=%s",
+                    s, tostring(nameStr), itemLevel, tostring(itemData.isEmbellished), tostring(isEquipped),
                     tostring(bag), tostring(slot)))
             end
         end
@@ -773,8 +831,8 @@ function sfui.highest.GetBestItems(isPvP)
             dbgSlotPrint("=== Slot " .. slotID .. " candidates after scoring ===")
             for rank, itm in ipairs(items) do
                 local nm = GetItemInfo(itm.link) or itm.link
-                dbgSlotPrint(string.format("  #%d %s | ilvl=%.0f | score=%.1f | equipped=%s",
-                    rank, tostring(nm), itm.ilvl, itm.score, tostring(itm.isEquipped)))
+                dbgSlotPrint(string.format("  #%d %s | ilvl=%.0f | emb=%s | score=%.1f | equipped=%s",
+                    rank, tostring(nm), itm.ilvl, tostring(itm.isEmbellished), itm.score, tostring(itm.isEquipped)))
             end
             _G.SFUI_DEBUG_SLOT = nil -- auto-clear after one scan
         end
@@ -797,16 +855,19 @@ function sfui.highest.GetBestItems(isPvP)
             if lockTable and lockTable[itemID] then
                 local _, _, _, itemEquipLoc = GetItemInfoInstant(link)
                 local effectiveILvl = GetDetailedItemLevelInfo(link) or 1
-                finalPick[slotID] = {
+                local itmObj = {
                     link = link,
                     ilvl = effectiveILvl,
                     statVal = 0,
                     is2H = ((itemEquipLoc == "INVTYPE_2HWEAPON" and not rule.weaps["2H_Dual"]) or itemEquipLoc == "INVTYPE_RANGED" or itemEquipLoc == "INVTYPE_RANGEDRIGHT"),
                     isEquipped = true,
+                    equippedSlot = slotID,
                     physId = -slotID,
                     itemEquipLoc = itemEquipLoc,
                     score = 999999,
                 }
+                itmObj.isEmbellished = HasEmbellishment(itmObj)
+                finalPick[slotID] = itmObj
                 best[slotID] = nil
             end
         end
@@ -1019,30 +1080,99 @@ function sfui.highest.GetBestItems(isPvP)
         _G.SFUI_DEBUG_WEAPONS = false
     end
 
+    -- Feature: Dynamic Embellishment Drafting (force_2emb)
+    local force_2emb = specDB and (specDB.force_2emb == true or specDB.force_2embellishments == true)
+    if force_2emb then
+        local currentEmbCount = 0
+        for _, itm in pairs(finalPick) do
+            if itm.isEmbellished then
+                currentEmbCount = currentEmbCount + 1
+            end
+        end
+        local embNeeded = 2 - currentEmbCount
+        if embNeeded > 0 then
+            local embCandidates = {}
+            for s = 1, 15 do
+                if not finalPick[s] and best[s] then
+                    local bestOverallScore = (best[s][1] and best[s][1].score) or 0
+                    for _, itm in ipairs(best[s]) do
+                        if itm.isEmbellished then
+                            local cost = bestOverallScore - itm.score
+                            if cost < 0 then cost = 0 end
+                            table.insert(embCandidates, { slot = s, itm = itm, cost = cost })
+                        end
+                    end
+                end
+            end
+
+            table.sort(embCandidates, function(a, b) return a.cost < b.cost end)
+
+            local embAssigned = 0
+            for _, cand in ipairs(embCandidates) do
+                if embAssigned >= embNeeded then break end
+                if not finalPick[cand.slot] then
+                    local conflict = false
+                    local itemID = GetItemInfoInstant and GetItemInfoInstant(cand.itm.link)
+                    for _, picked in pairs(finalPick) do
+                        if picked.physId == cand.itm.physId then
+                            conflict = true; break
+                        end
+                        if itemID and GetItemInfoInstant and picked.link and GetItemInfoInstant(picked.link) == itemID then
+                            local _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, isUnique = GetItemInfo(cand.itm.link)
+                            if isUnique then
+                                conflict = true; break
+                            end
+                        end
+                    end
+                    if not conflict then
+                        finalPick[cand.slot] = cand.itm
+                        embAssigned = embAssigned + 1
+                    end
+                end
+            end
+        end
+    end
 
     -- Process all other slots
+    local totalEmbCount = 0
+    for _, itm in pairs(finalPick) do
+        if itm.isEmbellished then
+            totalEmbCount = totalEmbCount + 1
+        end
+    end
+
     for slotID = 1, 15 do
-        if not finalPick[slotID] then -- Skip slots already claimed by Tier Drafting
+        if not finalPick[slotID] then -- Skip slots already claimed
             local items = best[slotID]
             if items then
                 for _, itm in ipairs(items) do
                     local alreadyPicked = false
                     local itemID = GetItemInfoInstant and GetItemInfoInstant(itm.link)
 
-                    for _, picked in pairs(finalPick) do
-                        if picked.physId == itm.physId then
-                            alreadyPicked = true; break
-                        end
-                        if itemID and GetItemInfoInstant and picked.link and GetItemInfoInstant(picked.link) == itemID then
-                            local _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, isUnique = GetItemInfo(itm.link)
-                            if isUnique then
+                    -- Hard game limit: maximum 2 active embellishments allowed
+                    if itm.isEmbellished and totalEmbCount >= 2 then
+                        alreadyPicked = true
+                    end
+
+                    if not alreadyPicked then
+                        for _, picked in pairs(finalPick) do
+                            if picked.physId == itm.physId then
                                 alreadyPicked = true; break
+                            end
+                            if itemID and GetItemInfoInstant and picked.link and GetItemInfoInstant(picked.link) == itemID then
+                                local _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, isUnique = GetItemInfo(itm.link)
+                                if isUnique then
+                                    alreadyPicked = true; break
+                                end
                             end
                         end
                     end
 
                     if not alreadyPicked then
                         finalPick[slotID] = itm
+                        if itm.isEmbellished then
+                            totalEmbCount = totalEmbCount + 1
+                        end
                         break
                     end
                 end

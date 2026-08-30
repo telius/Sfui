@@ -500,10 +500,13 @@ local function UpdateLayout()
         local anchor = _G["sfui_bar0_Backdrop"]
         local isBar1 = false
 
-        if _G["sfui_bar1_Backdrop"] and _G["sfui_bar1_Backdrop"]:IsShown() then
+        if _G["SfuiSoulFragmentsBar"] and _G["SfuiSoulFragmentsBar"]:IsShown() then
+            anchor = _G["SfuiSoulFragmentsBar"]
+            isBar1 = true
+        elseif _G["sfui_bar1_Backdrop"] and _G["sfui_bar1_Backdrop"]:IsShown() then
             anchor = _G["sfui_bar1_Backdrop"]
             isBar1 = true
-        elseif _G["sfui_runeBar"] then
+        elseif _G["sfui_runeBar"] and _G["sfui_runeBar"]:IsShown() then
             anchor = _G["sfui_runeBar"]
             isBar1 = true
         end
@@ -756,7 +759,17 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
         currentStacks = 1
     end
 
-    -- Fallback 3: Try Spell Charges (for charge-based spells missing auraInstanceID)
+    -- Fallback 3: Try Spell Display Count (native action bar representation)
+    if not currentStacks and myBar.spellID and C_Spell and C_Spell.GetSpellDisplayCount then
+        local ok, dc = pcall(C_Spell.GetSpellDisplayCount, myBar.spellID)
+        if ok and dc ~= nil then
+            if issecretvalue(dc) or (type(dc) == "number" and dc > 0) then
+                currentStacks = dc
+            end
+        end
+    end
+
+    -- Fallback 4: Try Spell Charges (for charge-based spells missing auraInstanceID)
     if not currentStacks and myBar.spellID then
         local ok, chargeInfo = pcall(C_Spell.GetSpellCharges, myBar.spellID)
         if ok and chargeInfo and chargeInfo.currentCharges and common.SafeGT(chargeInfo.maxCharges, 1) then
@@ -879,10 +892,15 @@ local function SyncBarData(myBar, blizzFrame, config, isStackMode, id)
         myBar.status:SetMinMaxValues(0, maxVal)
 
         if not skipSetValue then
-            if currentStacks == nil then
-                myBar.status:SetValue(0)
+            if issecretvalue and issecretvalue(currentStacks) then
+                pcall(myBar.status.SetValue, myBar.status, currentStacks)
             else
-                myBar.status:SetValue(currentStacks)
+                local num = type(currentStacks) == "number" and currentStacks or tonumber(currentStacks)
+                if num and num == num and num >= -3.4e38 and num <= 3.4e38 then
+                    myBar.status:SetValue(num)
+                else
+                    myBar.status:SetValue(0)
+                end
             end
         end
 
@@ -1258,8 +1276,8 @@ local function UpdateBarsState()
                 if not isStackMode then
                     -- Direct mirror from Blizzard's StatusBar (EllesmereUI lines 4576-4581).
                     -- Passes values directly into widget setters without storing or modifying them in Lua context.
-                    myBar.status:SetMinMaxValues(blizzFrame.Bar:GetMinMaxValues())
-                    myBar.status:SetValue(blizzFrame.Bar:GetValue())
+                    pcall(myBar.status.SetMinMaxValues, myBar.status, blizzFrame.Bar:GetMinMaxValues())
+                    pcall(myBar.status.SetValue, myBar.status, blizzFrame.Bar:GetValue())
 
                     if blizzFrame.Bar.Duration then
                         local durText = blizzFrame.Bar.Duration:GetText()
@@ -1272,6 +1290,22 @@ local function UpdateBarsState()
                             end
                         else
                             myBar.time:SetText("")
+                        end
+                    end
+                else
+                    -- Stack mode continuous update: sync stacks if cached on frame
+                    if myBar.currentStacks ~= nil then
+                        local maxVal = myBar._maxStacks or GetMaxStacksForBar(blizzFrame.cooldownID, config, myBar.spellID) or 10
+                        myBar.status:SetMinMaxValues(0, maxVal)
+                        if issecretvalue and issecretvalue(myBar.currentStacks) then
+                            pcall(myBar.status.SetValue, myBar.status, myBar.currentStacks)
+                        else
+                            local num = type(myBar.currentStacks) == "number" and myBar.currentStacks or tonumber(myBar.currentStacks)
+                            if num and num == num and num >= -3.4e38 and num <= 3.4e38 then
+                                myBar.status:SetValue(num)
+                            else
+                                myBar.status:SetValue(0)
+                            end
                         end
                     end
                 end

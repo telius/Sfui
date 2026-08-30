@@ -55,35 +55,6 @@ do
             if max <= 0 then return nil, nil end
             return max, current
         end
-        if resource == "DEVOURER_FRAGMENTS" then
-            -- Spell IDs verified from 12.0.1.64914 dump
-            local VOID_META_ID = 1217607
-            local DARK_HEART_ID = 1225789
-            local SILENCE_WHISPERS_ID = 1227702
-
-            local inVoidMeta = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID(VOID_META_ID)
-            local current, max = 0, 5
-
-            if inVoidMeta then
-                local aura = C_UnitAuras.GetPlayerAuraBySpellID(SILENCE_WHISPERS_ID)
-                if aura then current = aura.applications end
-                -- Try new API for max cost, fallback to 5
-                if GetCollapsingStarCost then
-                    max = GetCollapsingStarCost()
-                else
-                    max = 5
-                end
-            else
-                local aura = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID(DARK_HEART_ID)
-                if aura then current = aura.applications end
-                if C_Spell and C_Spell.GetSpellMaxCumulativeAuraApplications then
-                    max = C_Spell.GetSpellMaxCumulativeAuraApplications(DARK_HEART_ID)
-                else
-                    max = 5
-                end
-            end
-            return max, current
-        end
         local current = UnitPower("player", resource)
         local max = UnitPowerMax("player", resource)
         if max <= 0 then return nil, nil end
@@ -159,6 +130,9 @@ do
                 rune_bar:SetPoint("BOTTOM", bar0.backdrop, "TOP", 0, spacing)
             end
         end
+        if sfui.soulfragments and sfui.soulfragments.UpdatePosition then
+            sfui.soulfragments:UpdatePosition()
+        end
         if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then
             sfui.trackedbars.ForceLayoutUpdate()
         end
@@ -170,12 +144,8 @@ do
     local function is_in_vehicle()
         if is_dragonflying() then return false end
         if UnitInVehicle("player") or UnitHasVehicleUI("player") then return true end
-        if UnitExists("vehicle") then return true end
-        if C_ActionBar then
-            if C_ActionBar.HasVehicleActionBar and C_ActionBar.HasVehicleActionBar() then return true end
-            if C_ActionBar.HasOverrideActionBar and C_ActionBar.HasOverrideActionBar() then return true end
-            if C_ActionBar.HasTempShapeshiftActionBar and C_ActionBar.HasTempShapeshiftActionBar() then return true end
-        end
+        if UnitExists("vehicle") and UnitVehicleSkin and UnitVehicleSkin("player") ~= nil then return true end
+        if C_ActionBar and C_ActionBar.HasVehicleActionBar and C_ActionBar.HasVehicleActionBar() then return true end
         return false
     end
 
@@ -264,7 +234,6 @@ do
     local function get_bar_minus_1()
         if bar_minus_1 then return bar_minus_1 end
         local bar = common.create_bar("bar_minus_1", "StatusBar", UIParent, nil, "powerBar")
-        bar:GetStatusBarTexture():SetHorizTile(true)
 
         local marker = bar:CreateTexture(nil, "OVERLAY")
         marker:SetColorTexture(1, 1, 1, 0.8)
@@ -321,17 +290,19 @@ do
     local function get_bar0()
         if bar0 then return bar0 end
         local bar = common.create_bar("bar0", "StatusBar", UIParent, nil, "healthBar")
-        bar:GetStatusBarTexture():SetHorizTile(true)
         bar0 = bar
 
-        local textureName = SfuiDB.barTexture
+        local textureName = SfuiDB and SfuiDB.barTexture
         local LSM = LibStub("LibSharedMedia-3.0", true)
         local texturePath
-        if LSM then
+        if LSM and textureName then
             texturePath = LSM:Fetch("statusbar", textureName)
         end
         if not texturePath or texturePath == "" then
             texturePath = cfg.barTexture
+        end
+        if texturePath and texturePath ~= "" then
+            bar:SetStatusBarTexture(texturePath)
         end
 
         local healPredBar = CreateFrame("StatusBar", nil, bar)
@@ -749,6 +720,9 @@ do
 
 
     sfui.bars.update_mount_speed_bar = update_mount_speed_bar_internal
+    sfui.bars.get_bar0 = get_bar0
+    sfui.bars.get_bar_minus_1 = get_bar_minus_1
+    sfui.bars.get_bar1 = get_bar1
 
     function sfui.bars.set_bar_texture(arg1, arg2)
         local texturePath = (type(arg1) == "string") and arg1 or arg2

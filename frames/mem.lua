@@ -303,6 +303,21 @@ function sfui.mem.GetModuleStats()
     end
     stats["transfer"] = transMod
 
+    -- Soul Fragments (Demon Hunter) Module
+    local sfStats = {
+        name = "soul fragments",
+        status = "|cff888888idle|r",
+        line1 = "bar: none • binder: none",
+        line2 = "stacks: 0 • cap: 0",
+    }
+    if sfui.soulfragments_debug_info then
+        local sf = sfui.soulfragments_debug_info()
+        sfStats.status = sf.frameShown and "|cff00ff88active|r" or (sf.frameCreated and "|cff888888hidden|r" or "|cff888888disabled|r")
+        sfStats.line1 = string_format("bar: %s • binder: %s", sf.frameShown and "shown" or (sf.frameCreated and "ready" or "off"), sf.engineBound and "|cff00ff88c++ engine|r" or (sf.cdmCached and "cdm cached" or "lua multi-tier"))
+        sfStats.line2 = string_format("stacks: %s • cap: %d • dividers: %d", tostring(sf.lastStacks or 0), sf.maxCap or 0, sf.dividers or 0)
+    end
+    stats["soulfragments"] = sfStats
+
     return stats
 end
 
@@ -484,7 +499,7 @@ local activeTab = "modules"
 
 local MODULE_ORDER = {
     "quests", "mythic", "trackedbars", "trackedicons", "bars",
-    "gear", "stats", "alts", "merchant", "portals",
+    "soulfragments", "gear", "stats", "alts", "merchant", "portals",
     "castbars", "minimap", "glows", "automation",
     "cursor", "vehicle", "transfer"
 }
@@ -566,7 +581,7 @@ function sfui.mem.create_mem_panel()
     -- -----------------------------------------------------------------------
     -- Row 2: Dedicated Button Action Bar (All Lowercase)
     -- -----------------------------------------------------------------------
-    local tab_modules = CreateFlatButton(frame, "modules & pools (18)", 135, 22)
+    local tab_modules = CreateFlatButton(frame, "modules & pools (" .. #MODULE_ORDER .. ")", 135, 22)
     tab_modules:SetPoint("TOPLEFT", 10, -78)
 
     local tab_profiler = CreateFlatButton(frame, "allocation leaderboard", 135, 22)

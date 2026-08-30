@@ -26,6 +26,7 @@ frames/options.lua
 frames/currency.lua
 frames/minimap.lua
 frames/bars.lua
+frames/class/soulfragments.lua
 frames/research.lua
 frames/castbar.lua
 frames/merchant.lua

@@ -523,7 +523,6 @@ sfui.config = {
         specialCases = {
             [9039] = { maxStacks = 12 },   -- Bone Shield (Death Knight)
             [18469] = { maxStacks = 100 }, -- Ignore Pain (Warrior)
-            [20811] = { maxStacks = 6 },   -- Soul Fragments (Demon Hunter)
         },
         -- Default visibility settings
         hideOOC = false,      -- Hide all bars when out of combat
@@ -545,15 +544,18 @@ sfui.config = {
                 color = { 0, 0.8, 0.067, 1 },    -- Green
                 showName = false,                -- Hide name
             },
-            [20811] = {                          -- Soul Fragments (Demon Hunter)
-                specID = 581,                    -- Vengeance DH
-                stackAboveHealth = true,         -- Attach to healthbar
-                stackMode = true,                -- Use stacks as bar value
-                showStacksText = true,           -- Show stack count
-                color = { 0.64, 0.19, 0.79, 1 }, -- Purple/Magenta
-                showName = false,                -- Hide name
-            },
         },
+    },
+
+    -- Demon Hunter Soul Fragments HUD
+    soulFragments = {
+        enabled = true,
+        height = 12,
+        cellGap = 1,
+        fontSize = 11,
+        showText = true,
+        hideOOC = false,
+        hideEmpty = false,
     },
 
     trackedOptionsWindow = {

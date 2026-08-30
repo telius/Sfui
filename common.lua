@@ -881,7 +881,7 @@ local primaryResourcesCache = {
 
 local secondaryResourcesCache = {
     DEATHKNIGHT = Enum.PowerType.Runes,
-    DEMONHUNTER = { [1480] = "DEVOURER_FRAGMENTS" },
+    DEMONHUNTER = nil,
     DRUID = { [1] = Enum.PowerType.ComboPoints },
     EVOKER = Enum.PowerType.Essence,
     HUNTER = nil,

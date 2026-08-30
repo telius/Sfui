@@ -443,6 +443,14 @@ function sfui.gear.UpdateStatUI()
                     ui.btn4S:SetBackdropColor(unpack(cfg.colors.black))
                 end
             end
+            if ui.btn2E then
+                local on = db.force_2emb
+                if on then
+                    ui.btn2E:SetBackdropColor(0, 0.5, 0.5, 1)
+                else
+                    ui.btn2E:SetBackdropColor(unpack(cfg.colors.black))
+                end
+            end
             if ui.btnILvl then
                 local isTank = (sfui.gear.TANK_SPECS and sfui.gear.TANK_SPECS[specID]) or false
                 local on = db.armor_ilvl_prio
@@ -1187,9 +1195,9 @@ gearFrame:SetScript("OnShow", function(self)
         setActiveLabel:Hide()
         ui.setActiveLabel = setActiveLabel
 
-        -- Tier Force Buttons & Armor iLvl Button
+        -- Tier Force Buttons, Embellishment Force Button & Armor iLvl Button
         local btn2S = common.create_flat_button(card, "2S", 22, 18)
-        btn2S:SetPoint("TOPLEFT", card, "TOPLEFT", CX + 270, BTN_ROW_Y)
+        btn2S:SetPoint("TOPLEFT", card, "TOPLEFT", CX + 258, BTN_ROW_Y)
         btn2S:SetScript("OnClick", function()
             SfuiDB.gear[id] = SfuiDB.gear[id] or {}
             SfuiDB.gear[id].force_2set = not SfuiDB.gear[id].force_2set
@@ -1206,7 +1214,7 @@ gearFrame:SetScript("OnShow", function(self)
         ui.btn2S = btn2S
 
         local btn4S = common.create_flat_button(card, "4S", 22, 18)
-        btn4S:SetPoint("TOPLEFT", card, "TOPLEFT", CX + 295, BTN_ROW_Y)
+        btn4S:SetPoint("TOPLEFT", card, "TOPLEFT", CX + 283, BTN_ROW_Y)
         btn4S:SetScript("OnClick", function()
             SfuiDB.gear[id] = SfuiDB.gear[id] or {}
             local current = (SfuiDB.gear[id].force_4set ~= false) and not SfuiDB.gear[id].force_2set
@@ -1223,9 +1231,26 @@ gearFrame:SetScript("OnShow", function(self)
         btn4S:SetScript("OnLeave", function() hide_tooltip() end)
         ui.btn4S = btn4S
 
+        local btn2E = common.create_flat_button(card, "2E", 22, 18)
+        btn2E:SetPoint("TOPLEFT", card, "TOPLEFT", CX + 308, BTN_ROW_Y)
+        btn2E:SetScript("OnClick", function()
+            SfuiDB.gear[id] = SfuiDB.gear[id] or {}
+            SfuiDB.gear[id].force_2emb = not SfuiDB.gear[id].force_2emb
+            sfui.gear.UpdateStatUI()
+            sfui.gear.Update()
+        end)
+        btn2E:SetScript("OnEnter", function(b)
+            show_tooltip(b, "ANCHOR_TOP", "Force 2 Embellishments", {
+                { "Drafts up to 2 Embellished crafted items into your gear set, prioritizing the pieces with the highest item level and lowest score sacrifice.", 0.8, 0.8, 0.8, true },
+                { "WoW limits active embellishments to a maximum of 2.", 0.6, 0.9, 0.6, true }
+            })
+        end)
+        btn2E:SetScript("OnLeave", function() hide_tooltip() end)
+        ui.btn2E = btn2E
+
         -- Armor iLvl Force Button (Tanks / General)
         local btnILvl = common.create_flat_button(card, "iLvl", 28, 18)
-        btnILvl:SetPoint("TOPLEFT", card, "TOPLEFT", CX + 320, BTN_ROW_Y)
+        btnILvl:SetPoint("TOPLEFT", card, "TOPLEFT", CX + 333, BTN_ROW_Y)
         btnILvl:SetScript("OnClick", function()
             SfuiDB.gear[id] = SfuiDB.gear[id] or {}
             local isTank = (sfui.gear.TANK_SPECS and sfui.gear.TANK_SPECS[id]) or false
