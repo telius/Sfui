@@ -4,6 +4,15 @@
 
 ---
 
+## v12.1.0-15 (2026-08-30)
+
+### CI & Release Distribution
+- **WowUp & Addon Manager Update Tracking (`.github/workflows/release.yml`)**:
+  - Preserved continuous GitHub Releases history by removing destructive release pruning.
+  - Ensures WowUp, CurseForge, Wago, and third-party addon managers retain valid release IDs, version progression, and automated update notifications.
+
+---
+
 ## v12.1.0-14 (2026-08-30)
 
 ### Architecture & Central Event Dispatcher
