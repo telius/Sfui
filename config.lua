@@ -531,18 +531,18 @@ sfui.config = {
         hideInactive = true,  -- Hide bars when cooldowns are inactive
         -- Default bar configuration per cooldown ID
         defaults = {
-            [18469] = {                          -- Ignore Pain (Warrior)
-                specID = 73,                     -- Protection Warrior
-                stackAboveHealth = true,         -- Attach to healthbar (secondary position)
-                color = { 1, 0.533, 0, 1 },      -- Orange
-                showStacksText = true,           -- Show stack count as duration text
+            [18469] = {                       -- Ignore Pain (Warrior)
+                specID = 73,                  -- Protection Warrior
+                stackAboveHealth = true,      -- Attach to healthbar (secondary position)
+                color = { 1, 0.533, 0, 1 },   -- Orange
+                showStacksText = true,        -- Show stack count as duration text
             },
-            [9039] = {                           -- Bone Shield (Death Knight)
-                specID = 250,                    -- Blood DK
-                stackAboveHealth = true,         -- Attach to healthbar
-                stackMode = true,                -- Use stack count as bar value
-                color = { 0, 0.8, 0.067, 1 },    -- Green
-                showName = false,                -- Hide name
+            [9039] = {                        -- Bone Shield (Death Knight)
+                specID = 250,                 -- Blood DK
+                stackAboveHealth = true,      -- Attach to healthbar
+                stackMode = true,             -- Use stack count as bar value
+                color = { 0, 0.8, 0.067, 1 }, -- Green
+                showName = false,             -- Hide name
             },
         },
     },
@@ -550,9 +550,9 @@ sfui.config = {
     -- Demon Hunter Soul Fragments HUD
     soulFragments = {
         enabled = true,
-        height = 12,
+        height = 18,
         cellGap = 1,
-        fontSize = 11,
+        fontSize = 14,
         showText = true,
         hideOOC = false,
         hideEmpty = false,
@@ -627,14 +627,14 @@ sfui.config = {
         throttle = 0.5,
         defaultHidden = false,
         sections = {
-            { id = "scenario",     label = "world event",      color = { 1.00, 0.60, 0.10 } },
-            { id = "important",    label = "important",        color = { 1.00, 0.40, 0.35 } },
-            { id = "campaign",     label = "campaign",         color = { 0.90, 0.75, 0.10 } },
-            { id = "meta",         label = "meta",             color = { 0.00, 1.00, 1.00 } },
-            { id = "world",        label = "world quests",     color = { 0.20, 0.85, 0.95 } },
-            { id = "activities",   label = "activities",       color = { 0.35, 0.90, 0.40 } },
-            { id = "zone",         label = "quests",           color = { 1.00, 1.00, 1.00 } },
-            { id = "achievements", label = "achievements",     color = { 0.85, 0.65, 0.35 } },
+            { id = "scenario",     label = "world event",  color = { 1.00, 0.60, 0.10 } },
+            { id = "important",    label = "important",    color = { 1.00, 0.40, 0.35 } },
+            { id = "campaign",     label = "campaign",     color = { 0.90, 0.75, 0.10 } },
+            { id = "meta",         label = "meta",         color = { 0.00, 1.00, 1.00 } },
+            { id = "world",        label = "world quests", color = { 0.20, 0.85, 0.95 } },
+            { id = "activities",   label = "activities",   color = { 0.35, 0.90, 0.40 } },
+            { id = "zone",         label = "quests",       color = { 1.00, 1.00, 1.00 } },
+            { id = "achievements", label = "achievements", color = { 0.85, 0.65, 0.35 } },
         },
     },
 
@@ -642,17 +642,17 @@ sfui.config = {
     -- Settings for the native M+ timer/objectives frame (frames/mythic.lua).
     -- Runtime overrides are stored in SfuiDB to survive UI reloads.
     mythic = {
-        enabled = true,     -- master toggle (user can opt-out in Options > objectives)
-        width   = 280,      -- HUD frame width in pixels
-        posX    = -10,      -- default TOPRIGHT x-offset from UIParent (matches quest log tracker)
-        posY    = -10,      -- default TOPRIGHT y-offset from UIParent (matches quest log tracker)
+        enabled = true, -- master toggle (user can opt-out in Options > objectives)
+        width   = 280,  -- HUD frame width in pixels
+        posX    = -10,  -- default TOPRIGHT x-offset from UIParent (matches quest log tracker)
+        posY    = -10,  -- default TOPRIGHT y-offset from UIParent (matches quest log tracker)
     },
 
     -- ─── Vehicle Bar ──────────────────────────────────────
     -- Settings for the vehicle/override/possess bar (frames/vehicle.lua).
     vehicle = {
         enabled = true,
-        posX    = 0,        -- default horizontal offset (centered at bottom)
-        posY    = 50,       -- default vertical offset (+50px from bottom)
+        posX    = 0,  -- default horizontal offset (centered at bottom)
+        posY    = 50, -- default vertical offset (+50px from bottom)
     },
 }

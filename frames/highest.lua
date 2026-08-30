@@ -256,13 +256,13 @@ local function HasPrimaryStat(itemLink, primaryStatName)
     -- Tooltip Fallback Check for Deceptive Base Items or un-cached stat structures
     local tooltipData = C_TooltipInfo and C_TooltipInfo.GetHyperlink(itemLink)
     if tooltipData and tooltipData.lines then
-        local primaryString = ""
+        local primaryString = _G[primaryStatName] or ""
         if primaryStatName == "ITEM_MOD_INTELLECT_SHORT" then
-            primaryString = "Intellect"
+            primaryString = primaryString ~= "" and primaryString or "Intellect"
         elseif primaryStatName == "ITEM_MOD_AGILITY_SHORT" then
-            primaryString = "Agility"
+            primaryString = primaryString ~= "" and primaryString or "Agility"
         elseif primaryStatName == "ITEM_MOD_STRENGTH_SHORT" then
-            primaryString = "Strength"
+            primaryString = primaryString ~= "" and primaryString or "Strength"
         end
 
         if primaryString ~= "" then
@@ -270,7 +270,7 @@ local function HasPrimaryStat(itemLink, primaryStatName)
                 local text = line.leftText
                 if text and type(text) == "string" then
                     -- If the dynamic tooltip clearly broadcasts the primary stat or main stat, we know it's there
-                    if text:find(primaryString, 1, true) or text:find("Primary Stat", 1, true) or text:find("Main Stat", 1, true) then
+                    if text:find(primaryString, 1, true) or text:find("Agility", 1, true) or text:find("Primary Stat", 1, true) or text:find("Main Stat", 1, true) then
                         return true
                     end
                 end
@@ -754,7 +754,8 @@ function sfui.highest.GetBestItems(isPvP)
     -- Precalculate scores to avoid heavy math directly inside table.sort
     for slotID, items in pairs(best) do
         local isArmor = ARMOR_SLOTS[slotID] == true
-        local prioritizeIlvl = (isArmor and armorIlvlPrio)
+        local isWeapon = (slotID == 16 or slotID == 17)
+        local prioritizeIlvl = (isArmor and armorIlvlPrio) or isWeapon
 
         for _, itm in ipairs(items) do
             local baseMultiplier = isPvP and 100 or (prioritizeIlvl and 1000 or 10)
@@ -789,12 +790,14 @@ function sfui.highest.GetBestItems(isPvP)
                                 simName = "Mastery"
                             elseif statName == "ITEM_MOD_VERSATILITY" then
                                 simName = "Versatility"
-                            elseif statName == "ITEM_MOD_INTELLECT_SHORT" then
-                                simName = "Intellect"
-                            elseif statName == "ITEM_MOD_AGILITY_SHORT" then
-                                simName = "Agility"
-                            elseif statName == "ITEM_MOD_STRENGTH_SHORT" then
-                                simName = "Strength"
+                            elseif statName == "ITEM_MOD_INTELLECT_SHORT" or statName == "ITEM_MOD_AGILITY_SHORT" or statName == "ITEM_MOD_STRENGTH_SHORT" then
+                                if rule.stat == 4 then
+                                    simName = "Intellect"
+                                elseif rule.stat == 2 then
+                                    simName = "Agility"
+                                elseif rule.stat == 1 then
+                                    simName = "Strength"
+                                end
                             end
 
                             if simName ~= "None" and pweights[simName] then
@@ -808,8 +811,13 @@ function sfui.highest.GetBestItems(isPvP)
                         end
                     elseif statWeights then
                         for statName, statAmount in pairs(itemStats) do
-                            if statWeights[statName] then
-                                score = score + (statAmount * statWeights[statName])
+                            local mappedStatName = statName
+                            if statName == "ITEM_MOD_INTELLECT_SHORT" or statName == "ITEM_MOD_AGILITY_SHORT" or statName == "ITEM_MOD_STRENGTH_SHORT" then
+                                mappedStatName = STAT_MAP[rule.stat] or statName
+                            end
+
+                            if statWeights[mappedStatName] then
+                                score = score + (statAmount * statWeights[mappedStatName])
                             end
 
                             -- Tertiary stat modifiers
@@ -961,7 +969,7 @@ function sfui.highest.GetBestItems(isPvP)
         if best2H then
             -- A 2H weapon occupies two slots, so its base ilvl component must be doubled to compare
             -- against the sum of a 1H + OH score (which organically adds two item levels together).
-            score2H = score2H + (best2H.ilvl * (isPvP and 100 or 10))
+            score2H = score2H + (best2H.ilvl * (isPvP and 100 or 1000))
         end
         local scoreDual = (best1H and best1H.score or 0) + (bestOH and bestOH.score or 0)
 
@@ -1047,7 +1055,12 @@ function sfui.highest.GetBestItems(isPvP)
                 if not itm.is2H and (finalPick[16].physId ~= itm.physId) then
                     local itemID = GetItemInfoInstant and GetItemInfoInstant(itm.link)
                     local pickedID = finalPick[16].link and GetItemInfoInstant and GetItemInfoInstant(finalPick[16].link)
-                    if not (itemID and pickedID and itemID == pickedID) then
+                    local isUnique = false
+                    if itemID and pickedID and itemID == pickedID then
+                        local _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, unique = GetItemInfo(itm.link)
+                        isUnique = unique or false
+                    end
+                    if not isUnique then
                         finalPick[17] = itm
                         break
                     end
@@ -1061,7 +1074,12 @@ function sfui.highest.GetBestItems(isPvP)
                 if not itm.is2H and (finalPick[17].physId ~= itm.physId) then
                     local itemID = GetItemInfoInstant and GetItemInfoInstant(itm.link)
                     local pickedID = finalPick[17].link and GetItemInfoInstant and GetItemInfoInstant(finalPick[17].link)
-                    if not (itemID and pickedID and itemID == pickedID) then
+                    local isUnique = false
+                    if itemID and pickedID and itemID == pickedID then
+                        local _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, unique = GetItemInfo(itm.link)
+                        isUnique = unique or false
+                    end
+                    if not isUnique then
                         finalPick[16] = itm
                         break
                     end

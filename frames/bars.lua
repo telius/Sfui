@@ -545,20 +545,14 @@ do
         bar:SetMinMaxValues(0, max)
         bar:SetValue(current)
 
-        -- Devourer Customization
-        if specID == 1480 then
-            -- Cosmic Purple (#6600FF)
-            bar:SetStatusBarColor(0.4, 0.0, 1.0)
+        local color
+        if cfg.useClassColor then
+            color = common.get_class_or_spec_color()
         else
-            local color
-            if cfg.useClassColor then
-                color = common.get_class_or_spec_color()
-            else
-                color = common.get_resource_color(resource)
-            end
-            if color then
-                bar:SetStatusBarColor(color[1], color[2], color[3])
-            end
+            color = common.get_resource_color(resource)
+        end
+        if color then
+            bar:SetStatusBarColor(color[1], color[2], color[3])
         end
     end
 

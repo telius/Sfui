@@ -46,7 +46,7 @@ local SPEC_CONFIGS = {
     [SPEC_DEVOURER] = {
         cap = 10,
         primaryAura = 1245577,
-        color = { 0.451, 0.353, 0.749, 1.0 }, -- Void Violet
+        color = { 0.4, 0.0, 1.0, 1.0 }, -- #6600ff Cosmic Purple
         reapThreshold = 4,
     },
     [SPEC_HAVOC] = {
@@ -67,6 +67,28 @@ local dividers         = {}
 local thresholdTick    = nil
 local currentSpecConfig = nil
 local cachedMaxCells   = 0
+
+-- Devourer Void Metamorphosis Secondary Bar
+local metaContainer    = nil
+local metaBar          = nil
+local metaText         = nil
+local metaTimerText    = nil
+local metaTick         = nil
+
+-- Talent check helper
+local function IsTalentKnown(spellID)
+    local book = C_SpellBook
+    if book and book.IsSpellKnownOrInSpellBook then
+        local ok, isKnown = pcall(book.IsSpellKnownOrInSpellBook, spellID)
+        if ok and isKnown then return true end
+    elseif book and book.IsSpellKnown then
+        local ok, isKnown = pcall(book.IsSpellKnown, spellID)
+        if ok and isKnown then return true end
+    elseif IsPlayerSpell and IsPlayerSpell(spellID) then
+        return true
+    end
+    return false
+end
 
 -- HOLD state: held indefinitely only while engine restrictions actively hide auras
 local lastKnownStacks = 0
@@ -165,9 +187,9 @@ local function BuildAuraContainer(specCap)
 
             local fs = carrier:CreateFontString(nil, "OVERLAY")
             fs:SetDrawLayer("OVERLAY", 7)
-            fs:SetFontObject(sfui.config.font_small)
+            fs:SetFontObject(sfui.config.font)
             fs:SetPoint("CENTER", b, "CENTER", 0, 0)
-            common.style_text(fs, nil, nil, "")
+            common.style_text(fs, sfui.config.font, 12, "")
 
             if b.SetApplicationCount then
                 local fmt = nil
@@ -410,51 +432,63 @@ end
 -- ------------------------------------------------------------
 -- UI Layout & Grid Builder
 -- ------------------------------------------------------------
-local function RebuildDividers(maxCap)
-    if not container then return end
-    cachedMaxCells = maxCap
+local function UpdateThresholdTick(specCfg, maxCap, currentStacks)
+    if not container or not thresholdTick then return end
+    local reapThreshold = specCfg and specCfg.reapThreshold
+    if not reapThreshold then
+        thresholdTick:Hide()
+        return
+    end
 
+    local spec = common.get_current_spec_id and common.get_current_spec_id() or 0
+    local hasMoC = false
+    if spec == SPEC_DEVOURER and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, 1238495) -- Moment of Craving
+        if ok and aura then hasMoC = true end
+    end
+
+    local activeThreshold = hasMoC and 10 or reapThreshold
     local width  = container:GetWidth()
     local height = container:GetHeight()
     if width  <= 0 then width  = 220 end
-    if height <= 0 then height = 10  end
+    if height <= 0 then height = 14  end
 
     local tbCfg  = sfui.config.trackedBars
     local pad    = (tbCfg and tbCfg.backdrop and tbCfg.backdrop.padding) or 1
     local innerW = width - 2 * pad
     local innerH = height - 2 * pad
+    local cellWidth = innerW / maxCap
 
-    local numDividers = maxCap - 1
-    local cellWidth   = innerW / maxCap
+    if activeThreshold and activeThreshold <= maxCap then
+        thresholdTick:ClearAllPoints()
+        thresholdTick:SetPoint("LEFT", container, "LEFT", pad + activeThreshold * cellWidth, 0)
+        thresholdTick:SetHeight(innerH)
 
-    for i = 1, math.max(numDividers, #dividers) do
-        local div = dividers[i]
-        if i <= numDividers then
-            if not div then
-                div = container:CreateTexture(nil, "OVERLAY", nil, 6)
-                div:SetColorTexture(0.051, 0.059, 0.090, 1.0)  -- #0d0f17
-                dividers[i] = div
-            end
-            div:SetSize(1, innerH)
-            div:ClearAllPoints()
-            div:SetPoint("LEFT", container, "LEFT", pad + i * cellWidth, 0)
-            div:Show()
-        elseif div then
-            div:Hide()
-        end
-    end
-
-    if thresholdTick then
-        local specCfg = currentSpecConfig
-        if specCfg and specCfg.reapThreshold and specCfg.reapThreshold < maxCap then
-            thresholdTick:ClearAllPoints()
-            thresholdTick:SetPoint("LEFT", container, "LEFT", pad + specCfg.reapThreshold * cellWidth, 0)
-            thresholdTick:SetHeight(innerH)
-            thresholdTick:Show()
+        if hasMoC then
+            thresholdTick:SetColorTexture(1.0, 0.85, 0.2, 1.0) -- Gold for 10-soul MoC
         else
-            thresholdTick:Hide()
+            local n = (type(currentStacks) == "number" and currentStacks) or 0
+            if n >= activeThreshold then
+                thresholdTick:SetColorTexture(0.2, 1.0, 0.85, 0.95) -- Primed (bright emerald/cyan accent)
+            else
+                thresholdTick:SetColorTexture(0.925, 0.878, 0.800, 0.6) -- Muted cream
+            end
         end
+        thresholdTick:Show()
+    else
+        thresholdTick:Hide()
     end
+end
+
+local function RebuildDividers(maxCap)
+    if not container then return end
+    cachedMaxCells = maxCap
+
+    for i = 1, #dividers do
+        if dividers[i] then dividers[i]:Hide() end
+    end
+
+    UpdateThresholdTick(currentSpecConfig, maxCap, lastKnownStacks)
 end
 
 -- ------------------------------------------------------------
@@ -466,7 +500,7 @@ local function CreateSoulFragmentsFrame()
     local cfg    = sfui.config.soulFragments or {}
     local tbCfg  = sfui.config.trackedBars
     local width  = (sfui.config.healthBar and sfui.config.healthBar.width) or 220
-    local height = cfg.height or tbCfg.attachedHeight or 10
+    local height = cfg.height or 14
 
     -- Container: same BackdropTemplate + SetBackdrop as CreateBar() in trackedbars.lua.
     local bgColor = tbCfg.backdrop.color
@@ -492,7 +526,7 @@ local function CreateSoulFragmentsFrame()
     bar:SetValue(0)
     bar:SetFrameLevel(container:GetFrameLevel() + 1)
 
-    -- Threshold landmark tick (e.g. 4-soul Reap)
+    -- Threshold landmark tick (e.g. 4-soul Reap / 10-soul MoC)
     local tick = container:CreateTexture(nil, "OVERLAY", nil, 7)
     tick:SetWidth(1)
     tick:SetColorTexture(0.925, 0.878, 0.800, 0.9)  -- Cream
@@ -502,11 +536,170 @@ local function CreateSoulFragmentsFrame()
     -- Fallback Centered Stack Count Number (when CustomAuraContainer is unavailable)
     countText = container:CreateFontString(nil, "OVERLAY")
     countText:SetDrawLayer("OVERLAY", 7)
-    countText:SetFontObject(sfui.config.font_small)
+    countText:SetFontObject(sfui.config.font)
     countText:SetPoint("CENTER", container, "CENTER", 0, 0)
-    common.style_text(countText, nil, nil, "")
+    common.style_text(countText, sfui.config.font, 12, "")
 
     return container
+end
+
+-- ------------------------------------------------------------
+-- Devourer Void Metamorphosis Frame Initialization
+-- ------------------------------------------------------------
+local function CreateVoidMetaFrame()
+    if metaContainer then return metaContainer end
+
+    local tbCfg      = sfui.config.trackedBars
+    local width      = (sfui.config.healthBar and sfui.config.healthBar.width) or 220
+    local metaHeight = 12
+
+    local bgColor = tbCfg.backdrop.color
+    local pad     = tbCfg.backdrop.padding
+
+    metaContainer = CreateFrame("Frame", "SfuiVoidMetaBar", UIParent, "BackdropTemplate")
+    metaContainer:SetFrameStrata("MEDIUM")
+    metaContainer:SetFrameLevel(15)
+    metaContainer:SetSize(width, metaHeight)
+    metaContainer:SetBackdrop({
+        bgFile = sfui.config.textures.white,
+        tile   = true,
+        tileSize = 32,
+    })
+    metaContainer:SetBackdropColor(unpack(bgColor))
+
+    metaBar = CreateFrame("StatusBar", "SfuiVoidMetaStatusBar", metaContainer)
+    metaBar:SetPoint("TOPLEFT",     metaContainer, "TOPLEFT",     pad, -pad)
+    metaBar:SetPoint("BOTTOMRIGHT", metaContainer, "BOTTOMRIGHT", -pad, pad)
+    metaBar:SetStatusBarTexture(sfui.config.textures.white)
+    metaBar:SetMinMaxValues(0, 50)
+    metaBar:SetValue(0)
+    metaBar:SetStatusBarColor(0.000, 0.553, 0.745, 1.0) -- ReapMeter Devourer Build Azure (#008dbe)
+    metaBar:SetFrameLevel(metaContainer:GetFrameLevel() + 1)
+
+    local tick = metaContainer:CreateTexture(nil, "OVERLAY", nil, 7)
+    tick:SetWidth(1)
+    tick:SetColorTexture(0.925, 0.878, 0.800, 0.9)
+    tick:Hide()
+    metaTick = tick
+
+    -- Dedicated text carrier frame above the status bar fill
+    local textCarrier = CreateFrame("Frame", nil, metaContainer)
+    textCarrier:SetAllPoints(metaContainer)
+    textCarrier:SetFrameLevel(metaBar:GetFrameLevel() + 5)
+
+    metaText = textCarrier:CreateFontString(nil, "OVERLAY")
+    metaText:SetDrawLayer("OVERLAY", 7)
+    metaText:SetFontObject(sfui.config.font)
+    metaText:SetPoint("CENTER", textCarrier, "CENTER", 0, 0)
+    common.style_text(metaText, sfui.config.font, 11, "")
+
+    metaTimerText = textCarrier:CreateFontString(nil, "OVERLAY")
+    metaTimerText:SetDrawLayer("OVERLAY", 7)
+    metaTimerText:SetFontObject(sfui.config.font)
+    metaTimerText:SetPoint("RIGHT", textCarrier, "RIGHT", -pad - 4, 0)
+    common.style_text(metaTimerText, sfui.config.font, 10, "")
+
+    return metaContainer
+end
+
+-- ------------------------------------------------------------
+-- Devourer Void Metamorphosis Render Loop
+-- ------------------------------------------------------------
+local function UpdateVoidMetaDisplay(shouldShow)
+    local spec = common.get_current_spec_id and common.get_current_spec_id() or 0
+    if spec ~= SPEC_DEVOURER or not shouldShow then
+        if metaContainer and metaContainer:IsShown() then
+            metaContainer:Hide()
+        end
+        return
+    end
+
+    if not metaContainer then
+        CreateVoidMetaFrame()
+    end
+    if not metaContainer:IsShown() then
+        metaContainer:Show()
+    end
+
+    local VOID_META_ID        = 1217607
+    local DARK_HEART_ID       = 1225789
+    local SILENCE_WHISPERS_ID = 1227702
+    local SOUL_GLUTTON_ID     = 1247534
+
+    local inVoidMeta = false
+    local metaExpiration = 0
+    if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, VOID_META_ID)
+        if ok and aura then
+            inVoidMeta = true
+            metaExpiration = aura.expirationTime or 0
+        end
+    end
+
+    local tbCfg = sfui.config.trackedBars
+    local pad   = (tbCfg and tbCfg.backdrop and tbCfg.backdrop.padding) or 1
+    local width = metaContainer:GetWidth()
+    if width <= 0 then width = 220 end
+    local innerW = width - 2 * pad
+    local innerH = (metaContainer:GetHeight() > 0 and metaContainer:GetHeight() or 12) - 2 * pad
+
+    if inVoidMeta then
+        -- In Void Metamorphosis: Collapsing Star build (0 to 30) - ReapMeter Form Violet (#735abf)
+        local starStacks = 0
+        if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+            local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, SILENCE_WHISPERS_ID)
+            if ok and aura and aura.applications then
+                starStacks = aura.applications
+            end
+        end
+
+        local maxStar = 30
+        metaBar:SetMinMaxValues(0, maxStar)
+        metaBar:SetValue(math.min(starStacks, maxStar))
+        metaBar:SetStatusBarColor(0.0, 0.40, 1.0, 1.0) -- Cosmic Blue (#0066ff)
+
+        metaText:SetText(starStacks > 0 and (starStacks .. " / " .. maxStar) or "META")
+
+        if metaExpiration and metaExpiration > 0 then
+            local rem = math.max(0, metaExpiration - GetTime())
+            metaTimerText:SetText(string.format("%.1fs", rem))
+        else
+            metaTimerText:SetText("")
+        end
+
+        if metaTick then
+            metaTick:Hide()
+        end
+    else
+        -- Out of Void Metamorphosis: Dark Heart build (0 to 50, or 35 with Soul Glutton)
+        local darkHeartStacks = 0
+        if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+            local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, DARK_HEART_ID)
+            if ok and aura and aura.applications then
+                darkHeartStacks = aura.applications
+            end
+        end
+
+        local hasSG = IsTalentKnown(SOUL_GLUTTON_ID)
+        local maxStacks = hasSG and 35 or 50
+
+        metaBar:SetMinMaxValues(0, maxStacks)
+        metaBar:SetValue(math.min(darkHeartStacks, maxStacks))
+
+        if darkHeartStacks >= maxStacks then
+            metaText:SetText("|cffedcd4eMETA READY|r")
+            metaBar:SetStatusBarColor(0.929, 0.804, 0.306, 1.0) -- ReapMeter GOLD
+        else
+            metaText:SetText(darkHeartStacks > 0 and (darkHeartStacks .. " / " .. maxStacks) or "")
+            metaBar:SetStatusBarColor(0.000, 0.553, 0.745, 1.0) -- ReapMeter Devourer Build Azure (#008dbe)
+        end
+
+        metaTimerText:SetText("")
+
+        if metaTick then
+            metaTick:Hide()
+        end
+    end
 end
 
 -- ------------------------------------------------------------
@@ -536,6 +729,7 @@ local function UpdateDisplay()
                 sfui.trackedbars.ForceLayoutUpdate()
             end
         end
+        UpdateVoidMetaDisplay(false)
         return
     end
 
@@ -556,6 +750,36 @@ local function UpdateDisplay()
         if not InCombatLockdown() then
             BuildAuraContainer(cap)
         end
+    end
+
+    -- Feature 1 & 2: Dynamic Threshold (MoC 10 vs 4) and Spender Primed status
+    UpdateThresholdTick(currentSpecConfig, cap, lastKnownStacks)
+
+    -- Feature 2 & 3: Metamorphosis State Tint & Overcap Warning
+    local inMeta = false
+    if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        local metaID = (spec == SPEC_DEVOURER and 1217607) or (spec == SPEC_VENGEANCE and 187827) or 162264
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, metaID)
+        if ok and aura then inMeta = true end
+    end
+
+    local currentCount = (type(lastKnownStacks) == "number" and lastKnownStacks) or 0
+    local isOvercapping = (currentCount >= cap)
+    local tbCfg = sfui.config.trackedBars
+    local defBg = (tbCfg and tbCfg.backdrop and tbCfg.backdrop.color) or { 0.051, 0.059, 0.090, 0.9 }
+
+    if isOvercapping then
+        container:SetBackdropColor(0.28, 0.08, 0.05, 0.95) -- Alert amber-red backdrop
+    elseif inMeta then
+        if spec == SPEC_DEVOURER then
+            container:SetBackdropColor(0.18, 0.05, 0.32, 0.95) -- Ethereal void purple backdrop
+        elseif spec == SPEC_VENGEANCE then
+            container:SetBackdropColor(0.15, 0.0, 0.28, 0.95) -- Cosmic purple backdrop
+        else
+            container:SetBackdropColor(0.0, 0.18, 0.10, 0.95) -- Fel green backdrop
+        end
+    else
+        container:SetBackdropColor(unpack(defBg))
     end
 
     -- If C++ engine is not driving the bar via CustomAuraContainer, fallback to Lua update
@@ -589,6 +813,8 @@ local function UpdateDisplay()
     else
         if countText then countText:SetText("") end
     end
+
+    UpdateVoidMetaDisplay(shouldShow)
 end
 
 -- ------------------------------------------------------------
@@ -611,20 +837,50 @@ function sfui.soulfragments:UpdatePosition()
     local widthMultiplier = (sfui.config.trackedBars
                              and sfui.config.trackedBars.attachedWidthMultiplier) or 0.8
     local width  = healthWidth * widthMultiplier
-    local height = cfg.height or 10
-
-    container:SetSize(width, height)
-    container:ClearAllPoints()
-    if target then
-        container:SetPoint("BOTTOM", target, "TOP", 0, spacing)
-    else
-        local posY = (SfuiDB and SfuiDB.healthBarY)
-                     or (sfui.config.bars and sfui.config.bars.pos and sfui.config.bars.pos.y)
-                     or -150
-        container:SetPoint("BOTTOM", UIParent, "CENTER", 0, posY + 20)
-    end
+    local height = cfg.height or 14
 
     local spec = common.get_current_spec_id and common.get_current_spec_id() or 0
+
+    if spec == SPEC_DEVOURER then
+        if not metaContainer then
+            CreateVoidMetaFrame()
+        end
+        if metaContainer then
+            metaContainer:SetSize(width, 12)
+            metaContainer:ClearAllPoints()
+            if target then
+                metaContainer:SetPoint("BOTTOM", target, "TOP", 0, spacing)
+            else
+                local posY = (SfuiDB and SfuiDB.healthBarY)
+                             or (sfui.config.bars and sfui.config.bars.pos and sfui.config.bars.pos.y)
+                             or -150
+                metaContainer:SetPoint("BOTTOM", UIParent, "CENTER", 0, posY + 20)
+            end
+        end
+
+        container:SetSize(width, height)
+        container:ClearAllPoints()
+        if metaContainer then
+            container:SetPoint("BOTTOM", metaContainer, "TOP", 0, spacing)
+        elseif target then
+            container:SetPoint("BOTTOM", target, "TOP", 0, spacing)
+        end
+    else
+        if metaContainer then
+            metaContainer:Hide()
+        end
+        container:SetSize(width, height)
+        container:ClearAllPoints()
+        if target then
+            container:SetPoint("BOTTOM", target, "TOP", 0, spacing)
+        else
+            local posY = (SfuiDB and SfuiDB.healthBarY)
+                         or (sfui.config.bars and sfui.config.bars.pos and sfui.config.bars.pos.y)
+                         or -150
+            container:SetPoint("BOTTOM", UIParent, "CENTER", 0, posY + 20)
+        end
+    end
+
     currentSpecConfig = SPEC_CONFIGS[spec] or SPEC_CONFIGS[SPEC_VENGEANCE]
     RebuildDividers(currentSpecConfig.cap)
     BuildAuraContainer(currentSpecConfig.cap)
@@ -642,8 +898,11 @@ end
 -- ------------------------------------------------------------
 function sfui.soulfragments:Initialize()
     CreateSoulFragmentsFrame()
-
     local spec = common.get_current_spec_id and common.get_current_spec_id() or 0
+    if spec == SPEC_DEVOURER then
+        CreateVoidMetaFrame()
+    end
+
     currentSpecConfig = SPEC_CONFIGS[spec] or SPEC_CONFIGS[SPEC_VENGEANCE]
     self:UpdatePosition()
     BuildAuraContainer(currentSpecConfig.cap)
@@ -741,6 +1000,7 @@ function sfui.soulfragments_debug_info()
     return {
         frameCreated = container ~= nil,
         frameShown   = container and container:IsShown() or false,
+        metaShown    = metaContainer and metaContainer:IsShown() or false,
         engineBound  = isBoundToEngine,
         cdmCached    = sfCDMFrame ~= nil,
         lastStacks   = lastKnownStacks,

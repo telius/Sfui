@@ -4,6 +4,26 @@
 
 ---
 
+## v12.1.0-13 (2026-08-30)
+
+### Features & Major Improvements
+- **Devourer Demon Hunter Void Metamorphosis HUD (`frames/class/soulfragments.lua`, `config.lua`)**:
+  - Implemented standalone dual-phase **Void Metamorphosis** HUD bar for Devourer Demon Hunter:
+    - *Out of Form*: Tracks *Dark Heart* stacks ($0\rightarrow 50$, or $35$ with *Soul Glutton*) in Azure (`#008dbe`), switching to radiant gold (`#edcd4e`) with `META READY` indicator at trigger threshold.
+    - *In Form*: Tracks active *Void Metamorphosis* duration timer and *Collapsing Star* build ($0\rightarrow 30$) in Astral Cosmic Blue (`#0066ff`).
+  - Added dynamic vertical dual-bar stacking system anchored flush above player health bar with tracked aura bars stacked above.
+  - Added Dynamic Moment of Craving (MoC) 10-soul reap threshold indicator and overcap warning state backdrops.
+  - Seamless flat bar styling without cell dividers, and proper text layering above status bar textures.
+- **Decoupled Demon Hunter Resources (`frames/bars.lua`, `frames/trackedbars.lua`)**:
+  - Cleaned up core unit frames and secondary power bar logic, isolating Demon Hunter resource management exclusively into `soulfragments.lua`.
+- **Gear Optimization & Weapon Scoring (`frames/highest.lua`)**:
+  - Fixed hybrid 1H weapon (axes, swords, fist weapons) stat mapping: primary stats dynamically map to active spec stat (Agility/Strength/Intellect), preventing shared weapons from receiving 0 main stat score under Pawn/stat weighting.
+  - Implemented heavy item level prioritization on Weapon slots ($\times 1000$ base multiplier), ensuring high-ilvl weapons (e.g. 298 vs 259/276) properly outrank lower-ilvl items due to Weapon DPS scaling.
+  - Fixed dual-wielding duplicate non-unique weapons when main hand is locked.
+  - Added locale-independent primary stat tooltip evaluation using Blizzard's localized constants.
+
+---
+
 ## v12.1.0-10 (2026-08-29)
 
 ### Fixes & Improvements
