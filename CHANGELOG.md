@@ -4,6 +4,15 @@
 
 ---
 
+## v12.1.0-16 (2026-08-30)
+
+### Versioning & Distribution
+- **Aligned TOC Versioning with Release Tags (`sfui.toc`)**:
+  - Aligned TOC `Version` tag format to standard `v<WoWVersion>-<Release>` (e.g. `v12.1.0-16`).
+  - Ensures WowUp, CurseForge, and Wago display matching version strings across local installations and remote releases.
+
+---
+
 ## v12.1.0-15 (2026-08-30)
 
 ### CI & Release Distribution
