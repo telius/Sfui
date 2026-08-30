@@ -13,6 +13,8 @@ enable-nolib-creation: yes
 manual-changelog: CHANGELOG.md
 
 ignore:
+  - .agent
+  - .vscode
   - .git
   - .github
   - .gitignore
