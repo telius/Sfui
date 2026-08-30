@@ -353,6 +353,9 @@ sfui.mem.RecordAllocation = RecordAllocation
 local function StopWatcher()
     if not watcherActive then return end
     watcherActive = false
+    if sfui.events and sfui.events.SetMemProfiling then
+        sfui.events.SetMemProfiling(false)
+    end
     if watcherTimer then
         watcherTimer:Cancel()
         watcherTimer = nil
@@ -447,6 +450,9 @@ function sfui.mem.StartWatcher(duration)
     watcherStartLuaMem = collectgarbage("count")
     watcherStartTime = GetTime()
     watcherActive = true
+    if sfui.events and sfui.events.SetMemProfiling then
+        sfui.events.SetMemProfiling(true)
+    end
 
     print(PREFIX .. string_format("|cff00ff88starting memory allocation watcher for %d seconds...|r", duration))
 

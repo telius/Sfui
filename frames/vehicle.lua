@@ -248,6 +248,7 @@ healthStatusBar:SetPoint("BOTTOMRIGHT", healthBackdrop, "BOTTOMRIGHT", -1, 1)
 healthStatusBar:SetStatusBarTexture(GetBarTexture())
 
 local function UpdateVehicleHealth(force)
+    if not frame:IsShown() then return end
     local unit = GetVehicleUnit()
     _lastUnit = unit
     local cur = (UnitExists(unit) and UnitHealth(unit)) or UnitHealth("player") or 100
@@ -685,61 +686,96 @@ frame:SetScript("OnHide", function()
     StopCastBar()
 end)
 
--- ─── Events ──────────────────────────────────────────────────────────────────
-frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-frame:RegisterEvent("PLAYER_REGEN_ENABLED")
-frame:RegisterEvent("UNIT_ENTERED_VEHICLE")
-frame:RegisterEvent("UNIT_EXITED_VEHICLE")
-frame:RegisterEvent("VEHICLE_UPDATE")
-frame:RegisterEvent("UPDATE_VEHICLE_ACTIONBAR")
-frame:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR")
-frame:RegisterEvent("UPDATE_POSSESS_BAR")
-frame:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
-frame:RegisterEvent("ACTIONBAR_UPDATE_STATE")
-frame:RegisterEvent("UPDATE_BINDINGS")
-frame:RegisterEvent("UNIT_HEALTH")
-frame:RegisterEvent("UNIT_MAXHEALTH")
-frame:RegisterEvent("UNIT_POWER_UPDATE")
-frame:RegisterEvent("UNIT_MAXPOWER")
-frame:RegisterEvent("UNIT_DISPLAYPOWER")
-frame:RegisterEvent("UNIT_SPELLCAST_START")
-frame:RegisterEvent("UNIT_SPELLCAST_STOP")
-frame:RegisterEvent("UNIT_SPELLCAST_FAILED")
-frame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
-frame:RegisterEvent("UNIT_SPELLCAST_DELAYED")
-frame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_START")
-frame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_UPDATE")
-frame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_STOP")
-frame:RegisterEvent("UNIT_SPELLCAST_EMPOWER_START")
-frame:RegisterEvent("UNIT_SPELLCAST_EMPOWER_UPDATE")
-frame:RegisterEvent("UNIT_SPELLCAST_EMPOWER_STOP")
-
-frame:SetScript("OnEvent", function(self, event, arg1)
+-- ─── Events (via sfui.events — global + unit-filtered) ───────────────────────
+-- Global lifecycle events
+local function on_vehicle_global(event)
     if event == "PLAYER_REGEN_ENABLED" then
         if pendingUpdate then UpdateBar() end
-    elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
-        local vUnit = GetVehicleUnit()
-        if arg1 == vUnit or arg1 == "vehicle" or arg1 == "pet" or arg1 == "player" then
-            UpdateVehicleHealth()
-        end
-    elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" or event == "UNIT_DISPLAYPOWER" then
-        local vUnit = GetVehicleUnit()
-        if arg1 == vUnit or arg1 == "vehicle" or arg1 == "pet" or arg1 == "player" then
-            UpdateVehiclePower()
-        end
-    elseif event:find("^UNIT_SPELLCAST_") then
-        local vUnit = GetVehicleUnit()
-        if arg1 == vUnit or arg1 == "vehicle" or arg1 == "pet" or arg1 == "player" then
-            if event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_CHANNEL_STOP" or event == "UNIT_SPELLCAST_EMPOWER_STOP" then
-                StopCastBar()
-            else
-                StartCast(arg1)
-            end
-        end
     else
         UpdateBar()
     end
-end)
+end
+sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD",    on_vehicle_global)
+sfui.events.RegisterEvent("PLAYER_REGEN_ENABLED",     on_vehicle_global)
+sfui.events.RegisterEvent("UNIT_ENTERED_VEHICLE",     on_vehicle_global)
+sfui.events.RegisterEvent("UNIT_EXITED_VEHICLE",      on_vehicle_global)
+sfui.events.RegisterEvent("VEHICLE_UPDATE",           on_vehicle_global)
+sfui.events.RegisterEvent("UPDATE_VEHICLE_ACTIONBAR", on_vehicle_global)
+sfui.events.RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR",on_vehicle_global)
+sfui.events.RegisterEvent("UPDATE_POSSESS_BAR",       on_vehicle_global)
+sfui.events.RegisterEvent("UPDATE_BONUS_ACTIONBAR",   on_vehicle_global)
+sfui.events.RegisterEvent("ACTIONBAR_UPDATE_STATE",   on_vehicle_global)
+sfui.events.RegisterEvent("UPDATE_BINDINGS",          on_vehicle_global)
+
+-- Unit-filtered health/power: only fire for player or vehicle unit, never for
+-- Unit-filtered health/power: only fire for player or vehicle unit, never for
+-- every friendly unit in a raid.
+local function on_unit_health(_, unit)
+    if not frame:IsShown() then return end
+    local vUnit = GetVehicleUnit()
+    if unit == "player" or unit == "vehicle" or unit == "pet" or unit == vUnit then
+        UpdateVehicleHealth()
+    end
+end
+local function on_unit_power(_, unit)
+    if not frame:IsShown() then return end
+    local vUnit = GetVehicleUnit()
+    if unit == "player" or unit == "vehicle" or unit == "pet" or unit == vUnit then
+        UpdateVehiclePower()
+    end
+end
+sfui.events.RegisterUnitEvent("UNIT_HEALTH",       "player",  on_unit_health)
+sfui.events.RegisterUnitEvent("UNIT_HEALTH",       "vehicle", on_unit_health)
+sfui.events.RegisterUnitEvent("UNIT_MAXHEALTH",    "player",  on_unit_health)
+sfui.events.RegisterUnitEvent("UNIT_MAXHEALTH",    "vehicle", on_unit_health)
+sfui.events.RegisterUnitEvent("UNIT_POWER_UPDATE", "player",  on_unit_power)
+sfui.events.RegisterUnitEvent("UNIT_POWER_UPDATE", "vehicle", on_unit_power)
+sfui.events.RegisterUnitEvent("UNIT_MAXPOWER",     "player",  on_unit_power)
+sfui.events.RegisterUnitEvent("UNIT_MAXPOWER",     "vehicle", on_unit_power)
+sfui.events.RegisterUnitEvent("UNIT_DISPLAYPOWER", "player",  on_unit_power)
+sfui.events.RegisterUnitEvent("UNIT_DISPLAYPOWER", "vehicle", on_unit_power)
+
+-- Unit-filtered spellcast events
+local CAST_STOP_EVENTS = {
+    UNIT_SPELLCAST_STOP        = true,
+    UNIT_SPELLCAST_FAILED      = true,
+    UNIT_SPELLCAST_INTERRUPTED = true,
+    UNIT_SPELLCAST_CHANNEL_STOP= true,
+    UNIT_SPELLCAST_EMPOWER_STOP= true,
+}
+local function on_unit_cast(event, unit)
+    if not frame:IsShown() then return end
+    local vUnit = GetVehicleUnit()
+    if unit == "player" or unit == "vehicle" or unit == "pet" or unit == vUnit then
+        if CAST_STOP_EVENTS[event] then
+            StopCastBar()
+        else
+            StartCast(unit)
+        end
+    end
+end
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_START",          "player",  on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_START",          "vehicle", on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_STOP",           "player",  on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_STOP",           "vehicle", on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_FAILED",         "player",  on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_FAILED",         "vehicle", on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED",    "player",  on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED",    "vehicle", on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_DELAYED",        "player",  on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_DELAYED",        "vehicle", on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START",  "player",  on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START",  "vehicle", on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_UPDATE", "player",  on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_UPDATE", "vehicle", on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP",   "player",  on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP",   "vehicle", on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_START",  "player",  on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_START",  "vehicle", on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_UPDATE", "player",  on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_UPDATE", "vehicle", on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_STOP",   "player",  on_unit_cast)
+sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_STOP",   "vehicle", on_unit_cast)
 
 function sfui.vehicle_debug_info()
     return {

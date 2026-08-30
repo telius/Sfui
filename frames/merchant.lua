@@ -42,10 +42,8 @@ local classArmor = {
 }
 local preferredArmor = classArmor[playerClass]
 
--- Update spec cache when spec changes
-local specUpdateFrame = CreateFrame("Frame")
-specUpdateFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-specUpdateFrame:SetScript("OnEvent", function()
+-- Update spec cache when spec changes (via central dispatcher)
+sfui.events.RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", function()
     playerSpecID = common.get_current_spec_id()
 end)
 
@@ -745,12 +743,8 @@ local function update_repair_buttons()
     end
 end
 
-frame:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
-frame:HookScript("OnEvent", function(self, event)
-    if event == "MERCHANT_SHOW" or event == "UPDATE_INVENTORY_DURABILITY" then
-        update_repair_buttons()
-    end
-end)
+sfui.events.RegisterEvent("UPDATE_INVENTORY_DURABILITY", update_repair_buttons)
+sfui.events.RegisterEvent("MERCHANT_SHOW",               update_repair_buttons)
 
 
 sfui.merchant.filteredIndices = {}
@@ -1131,90 +1125,90 @@ end
 
 local isSystemClose = false
 
-frame:RegisterEvent("MERCHANT_SHOW")
-frame:RegisterEvent("MERCHANT_CLOSED")
-frame:RegisterEvent("MERCHANT_UPDATE")
-frame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
-frame:RegisterEvent("HOUSING_STORAGE_UPDATED")
-frame:RegisterEvent("HOUSING_STORAGE_ENTRY_UPDATED")
-frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+-- Events (via central dispatcher — frame is a visual-only container now)
+sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", function()
+    C_Timer.After(2, function() sfui.merchant.populate_decor_cache() end)
+end)
 
-frame:SetScript("OnEvent", function(self, event, ...)
-    if event == "PLAYER_ENTERING_WORLD" then
-        C_Timer.After(2, function() sfui.merchant.populate_decor_cache() end)
-    elseif event == "MERCHANT_SHOW" then
-        wipe(sfui.merchant.lockCache)
-        update_header()
-        sfui.merchant.reset_scroll_and_rebuild()
-        if not SfuiDB.enableMerchant then return end
-        self:Show()
-        sfui.merchant.build_item_list()
+sfui.events.RegisterEvent("MERCHANT_SHOW", function()
+    wipe(sfui.merchant.lockCache)
+    update_header()
+    sfui.merchant.reset_scroll_and_rebuild()
+    if not SfuiDB.enableMerchant then return end
+    frame:Show()
+    sfui.merchant.build_item_list()
 
-        if MerchantFrame then
+    if MerchantFrame then
+        MerchantFrame:SetAlpha(0)
+        C_Timer.After(0.01, function()
             MerchantFrame:SetAlpha(0)
-            C_Timer.After(0.01, function()
-                MerchantFrame:SetAlpha(0)
-                MerchantFrame:EnableMouse(false)
-                MerchantFrame:SetFrameStrata("BACKGROUND")
-                MerchantFrame:SetScale(0.001)
-                MerchantFrame:ClearAllPoints()
-                MerchantFrame:SetPoint("TOPRIGHT", UIParent, "TOPLEFT", -1000, 1000)
+            MerchantFrame:EnableMouse(false)
+            MerchantFrame:SetFrameStrata("BACKGROUND")
+            MerchantFrame:SetScale(0.001)
+            MerchantFrame:ClearAllPoints()
+            MerchantFrame:SetPoint("TOPRIGHT", UIParent, "TOPLEFT", -1000, 1000)
+        end)
+    end
+end)
+
+sfui.events.RegisterEvent("MERCHANT_CLOSED", function()
+    wipe(sfui.merchant.lockCache)
+    isSystemClose = true
+    frame:Hide()
+    isSystemClose = false
+    if MerchantFrame then
+        MerchantFrame:SetAlpha(1)
+        MerchantFrame:EnableMouse(true)
+        MerchantFrame:SetFrameStrata("HIGH")
+        MerchantFrame:SetScale(1)
+    end
+end)
+
+local function on_merchant_update(event, ...)
+    if event == "GET_ITEM_INFO_RECEIVED" then
+        local itemID, success = ...
+        if not success or not itemID then return end
+
+        -- Only rebuild if the item is actually in the merchant's current stock
+        local found = false
+        for i = 1, GetMerchantNumItems() do
+            local link = GetMerchantItemLink(i)
+            if link and get_item_id(link) == itemID then
+                found = true
+                break
+            end
+        end
+        if not found then return end
+    end
+
+    if frame:IsShown() then
+        if not frame.updatePending then
+            frame.updatePending = true
+            C_Timer.After(0.05, function()
+                if frame:IsShown() then sfui.merchant.build_item_list() end
+                frame.updatePending = false
             end)
         end
-    elseif event == "MERCHANT_CLOSED" then
-        wipe(sfui.merchant.lockCache)
-        isSystemClose = true
-        self:Hide()
-        isSystemClose = false
-        if MerchantFrame then
-            MerchantFrame:SetAlpha(1)
-            MerchantFrame:EnableMouse(true)
-            MerchantFrame:SetFrameStrata("HIGH")
-            MerchantFrame:SetScale(1)
-        end
-    elseif event == "MERCHANT_UPDATE" or event == "GET_ITEM_INFO_RECEIVED"
-        or event == "HOUSING_STORAGE_UPDATED" or event == "HOUSING_STORAGE_ENTRY_UPDATED" then
-        if event == "GET_ITEM_INFO_RECEIVED" then
-            local itemID, success = ...
-            if not success or not itemID then return end
+    end
 
-            -- Only rebuild if the item is actually in the merchant's current stock
-            local found = false
-            for i = 1, GetMerchantNumItems() do
-                local link = GetMerchantItemLink(i)
-                if link and get_item_id(link) == itemID then
-                    found = true
-                    break
-                end
-            end
-            if not found then return end
-        end
-
-        if self:IsShown() then
-            if not self.updatePending then
-                self.updatePending = true
-                C_Timer.After(0.05, function()
-                    if self:IsShown() then sfui.merchant.build_item_list() end
-                    self.updatePending = false
-                end)
-            end
-        end
-
-        if event == "HOUSING_STORAGE_ENTRY_UPDATED" then
-            local entryID = ...
-            if entryID and C_HousingCatalog.GetCatalogEntryInfo then
-                local info = C_HousingCatalog.GetCatalogEntryInfo(entryID)
-                if info and info.itemID and SfuiDecorDB and SfuiDecorDB.items then
-                    SfuiDecorDB.items[info.itemID] = {
-                        o = (info.quantity or 0) + (info.remainingRedeemable or 0),
-                        p = info.numPlaced or 0,
-                        s = info.quantity or 0
-                    }
-                end
+    if event == "HOUSING_STORAGE_ENTRY_UPDATED" then
+        local entryID = ...
+        if entryID and C_HousingCatalog.GetCatalogEntryInfo then
+            local info = C_HousingCatalog.GetCatalogEntryInfo(entryID)
+            if info and info.itemID and SfuiDecorDB and SfuiDecorDB.items then
+                SfuiDecorDB.items[info.itemID] = {
+                    o = (info.quantity or 0) + (info.remainingRedeemable or 0),
+                    p = info.numPlaced or 0,
+                    s = info.quantity or 0
+                }
             end
         end
     end
-end)
+end
+sfui.events.RegisterEvent("MERCHANT_UPDATE",             on_merchant_update)
+sfui.events.RegisterEvent("GET_ITEM_INFO_RECEIVED",       on_merchant_update)
+sfui.events.RegisterEvent("HOUSING_STORAGE_UPDATED",      on_merchant_update)
+sfui.events.RegisterEvent("HOUSING_STORAGE_ENTRY_UPDATED",on_merchant_update)
 
 tinsert(UISpecialFrames, "SfuiMerchantFrame")
 frame:Hide()

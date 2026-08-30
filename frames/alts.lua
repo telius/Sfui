@@ -2390,86 +2390,87 @@ function sfui.alts.initialize()
     sfui.alts.RefreshDynamicCategories()
     sfui.alts.SyncCurrentCharacter()
 
-    local eventFrame = CreateFrame("Frame")
-    eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    eventFrame:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
-    eventFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
-    eventFrame:RegisterEvent("WEEKLY_REWARDS_UPDATE")
-    eventFrame:RegisterEvent("QUEST_TURNED_IN")
-    eventFrame:RegisterEvent("PLAYER_LEVEL_UP")
-    eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
-    eventFrame:RegisterEvent("SKILL_LINES_CHANGED")
-    eventFrame:RegisterEvent("CHAT_MSG_SKILL")
-    eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    eventFrame:RegisterEvent("PLAYER_LEAVING_WORLD")
-    eventFrame:RegisterEvent("CHALLENGE_MODE_MAPS_UPDATE")
-    eventFrame:RegisterEvent("CHALLENGE_MODE_LEADERS_UPDATE")
-    eventFrame:RegisterEvent("MYTHIC_PLUS_NEW_WEEKLY_RECORD")
-    eventFrame:RegisterEvent("MYTHIC_PLUS_CURRENT_AFFIX_UPDATE")
-    eventFrame:RegisterEvent("UPDATE_INSTANCE_INFO")
-
-    eventFrame:SetScript("OnEvent", function(_, event, ...)
-        if event == "PLAYER_ENTERING_WORLD" then
-            leavingWorld = false
-        end
-
-        if event == "CHALLENGE_MODE_MAPS_UPDATE" or event == "CHALLENGE_MODE_LEADERS_UPDATE" or event == "MYTHIC_PLUS_NEW_WEEKLY_RECORD" or event == "MYTHIC_PLUS_CURRENT_AFFIX_UPDATE" or event == "UPDATE_INSTANCE_INFO" then
-            sfui.alts.PerformSync()
-            if frame and frame:IsShown() then
-                sfui.alts.UpdateUI(true)
-            end
-        end
-
-
-        if event == "CHALLENGE_MODE_COMPLETED" then
-            -- Force the server to sync Vault and M+ run structures immediately
-            if C_MythicPlus and C_MythicPlus.RequestMapInfo then C_MythicPlus.RequestMapInfo() end
-            if C_MythicPlus and C_MythicPlus.RequestRewards then C_MythicPlus.RequestRewards() end
-            if C_WeeklyRewards and C_WeeklyRewards.OnUIInteract then C_WeeklyRewards.OnUIInteract() end
-
-            -- Check if this dungeon is marked as a Nebulous Voidcore bonus roll target
-            local guid = GetCurrentCharacterGUID()
-            local altData = guid and SfuiDB.alts and SfuiDB.alts[guid]
-            if altData and altData.voidcoreTargets then
-                local info = C_ChallengeMode.GetChallengeCompletionInfo()
-                if info and info.mapChallengeModeID then
-                    if altData.voidcoreTargets[info.mapChallengeModeID] then
-                        local dungeonName = C_ChallengeMode.GetMapUIInfo(info.mapChallengeModeID) or "this dungeon"
-                        sfui.common.print(string.format(
-                            "|cffcc44ff◆ Bonus Roll Reminder:|r Use a |cffffcc00Nebulous Voidcore|r on %s!",
-                            dungeonName
-                        ))
-                    end
-                end
-            end
-        end
-
-        -- Track per-character completion of warband pool quests.
-        if event == "QUEST_TURNED_IN" then
-            local questID = ...
-            if questID then
-                for _, pID in ipairs(LEGENDS_POOL) do
-                    if questID == pID then
-                        local guid = GetCurrentCharacterGUID()
-                        if guid and SfuiDB.alts[guid] then
-                            SfuiDB.alts[guid].quests = SfuiDB.alts[guid].quests or {}
-                            SfuiDB.alts[guid].quests.legends = SfuiDB.alts[guid].quests.legends or {}
-                            SfuiDB.alts[guid].quests.legends.completed = true
-                        end
-                        break
-                    end
-                end
-            end
-        end
-
-        if event == "PLAYER_LEAVING_WORLD" then
-            -- Sync immediately on logout to catch final changes, protected by validation guards in PerformSync
-            leavingWorld = true
-            sfui.alts.PerformSync(true)
-        else
-            sfui.alts.SyncCurrentCharacter()
-        end
+    -- Events (via central dispatcher)
+    sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", function()
+        leavingWorld = false
+        sfui.alts.SyncCurrentCharacter()
     end)
+
+    sfui.events.RegisterEvent("PLAYER_LEAVING_WORLD", function()
+        -- Sync immediately on logout to catch final changes
+        leavingWorld = true
+        sfui.alts.PerformSync(true)
+    end)
+
+    sfui.events.RegisterEvent("PLAYER_REGEN_ENABLED", function()
+        sfui.alts.SyncCurrentCharacter()
+    end)
+
+    local function on_alts_sync()
+        sfui.alts.PerformSync()
+        if frame and frame:IsShown() then
+            sfui.alts.UpdateUI(true)
+        end
+    end
+    sfui.events.RegisterEvent("CHALLENGE_MODE_MAPS_UPDATE",       on_alts_sync)
+    sfui.events.RegisterEvent("CHALLENGE_MODE_LEADERS_UPDATE",    on_alts_sync)
+    sfui.events.RegisterEvent("MYTHIC_PLUS_NEW_WEEKLY_RECORD",    on_alts_sync)
+    sfui.events.RegisterEvent("MYTHIC_PLUS_CURRENT_AFFIX_UPDATE", on_alts_sync)
+    sfui.events.RegisterEvent("UPDATE_INSTANCE_INFO",             on_alts_sync)
+
+    sfui.events.RegisterEvent("CHALLENGE_MODE_COMPLETED", function()
+        -- Force the server to sync Vault and M+ run structures immediately
+        if C_MythicPlus and C_MythicPlus.RequestMapInfo then C_MythicPlus.RequestMapInfo() end
+        if C_MythicPlus and C_MythicPlus.RequestRewards then C_MythicPlus.RequestRewards() end
+        if C_WeeklyRewards and C_WeeklyRewards.OnUIInteract then C_WeeklyRewards.OnUIInteract() end
+
+        -- Check if this dungeon is marked as a Nebulous Voidcore bonus roll target
+        local guid = GetCurrentCharacterGUID()
+        local altData = guid and SfuiDB.alts and SfuiDB.alts[guid]
+        if altData and altData.voidcoreTargets then
+            local info = C_ChallengeMode.GetChallengeCompletionInfo()
+            if info and info.mapChallengeModeID then
+                if altData.voidcoreTargets[info.mapChallengeModeID] then
+                    local dungeonName = C_ChallengeMode.GetMapUIInfo(info.mapChallengeModeID) or "this dungeon"
+                    sfui.common.print(string.format(
+                        "|cffcc44ff◆ Bonus Roll Reminder:|r Use a |cffffcc00Nebulous Voidcore|r on %s!",
+                        dungeonName
+                    ))
+                end
+            end
+        end
+        sfui.alts.SyncCurrentCharacter()
+    end)
+
+    sfui.events.RegisterEvent("QUEST_TURNED_IN", function(_, questID)
+        -- Track per-character completion of warband pool quests.
+        if questID then
+            for _, pID in ipairs(LEGENDS_POOL) do
+                if questID == pID then
+                    local guid = GetCurrentCharacterGUID()
+                    if guid and SfuiDB.alts[guid] then
+                        SfuiDB.alts[guid].quests = SfuiDB.alts[guid].quests or {}
+                        SfuiDB.alts[guid].quests.legends = SfuiDB.alts[guid].quests.legends or {}
+                        SfuiDB.alts[guid].quests.legends.completed = true
+                    end
+                    break
+                end
+            end
+        end
+        sfui.alts.SyncCurrentCharacter()
+    end)
+
+    local function on_alts_simple_sync()
+        sfui.alts.SyncCurrentCharacter()
+    end
+    sfui.events.RegisterEvent("CURRENCY_DISPLAY_UPDATE",  on_alts_simple_sync)
+    sfui.events.RegisterEvent("WEEKLY_REWARDS_UPDATE",    on_alts_simple_sync)
+    sfui.events.RegisterEvent("PLAYER_LEVEL_UP",          on_alts_simple_sync)
+    sfui.events.RegisterEvent("PLAYER_EQUIPMENT_CHANGED", on_alts_simple_sync)
+    sfui.events.RegisterEvent("SKILL_LINES_CHANGED",      on_alts_simple_sync)
+    sfui.events.RegisterEvent("CHAT_MSG_SKILL",           on_alts_simple_sync)
+
+
 
     SlashCmdList["SFUIALTS"] = function(msg)
         if msg == "resetweeklies" then

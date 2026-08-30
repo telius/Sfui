@@ -61,25 +61,9 @@ do
         return max, current
     end
 
-    -- Resolve C_ActionBar references once at module load (they never change)
-    local _getBonusIdx = C_ActionBar and C_ActionBar.GetBonusBarIndex or GetBonusBarIndex
-    local _getBonusOff = C_ActionBar and C_ActionBar.GetBonusBarOffset or GetBonusBarOffset
-
-    -- Cached dragonflying state — invalidated only when glide state changes
-    local _dragonflyingCache = nil
-
-    local function invalidate_dragonflying_cache()
-        _dragonflyingCache = nil
-    end
-
-    local function is_dragonflying()
-        if _dragonflyingCache ~= nil then return _dragonflyingCache end
-        local isFlying, canGlide, _ = C_PlayerInfo.GetGlidingInfo()
-        local hasSkyridingBar = _getBonusIdx and _getBonusOff and
-            (_getBonusIdx() == 11 and _getBonusOff() == 5) or false
-        _dragonflyingCache = isFlying or (canGlide and hasSkyridingBar)
-        return _dragonflyingCache
-    end
+    local is_dragonflying = common.is_dragonflying
+    local is_in_vehicle = common.is_in_vehicle
+    local invalidate_dragonflying_cache = common.invalidate_dragonflying_cache
 
     local function update_bar_positions()
         local spacing = cfg.barLayout.spacing
@@ -139,14 +123,6 @@ do
         if sfui.trackedicons and sfui.trackedicons.MarkDirty then
             sfui.trackedicons.MarkDirty(0.5, true)
         end
-    end
-
-    local function is_in_vehicle()
-        if is_dragonflying() then return false end
-        if UnitInVehicle("player") or UnitHasVehicleUI("player") then return true end
-        if UnitExists("vehicle") and UnitVehicleSkin and UnitVehicleSkin("player") ~= nil then return true end
-        if C_ActionBar and C_ActionBar.HasVehicleActionBar and C_ActionBar.HasVehicleActionBar() then return true end
-        return false
     end
 
     local function update_bar_visibility()
@@ -766,27 +742,25 @@ do
         end
     end
 
-    -- High-frequency unit events: use a dedicated frame with RegisterUnitEvent
-    -- so only "player" fires are dispatched. In cities, UNIT_HEALTH fires
-    -- hundreds of times/sec for nearby NPCs — the central dispatcher would
-    -- run pcall+ipairs on every one of those, wasting CPU and generating GC pressure.
-    local playerUnitFrame = CreateFrame("Frame")
-    playerUnitFrame:RegisterUnitEvent("UNIT_HEALTH", "player")
-    playerUnitFrame:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
-    playerUnitFrame:RegisterUnitEvent("UNIT_ABSORB_AMOUNT_CHANGED", "player")
-    playerUnitFrame:SetScript("OnEvent", function(_, event, unit, ...)
-        if event == "UNIT_POWER_UPDATE" then
-            if not should_throttle("bar_minus_1") then
-                update_bar_minus_1()
-                update_bar1()
-            end
-        else -- UNIT_HEALTH or UNIT_ABSORB_AMOUNT_CHANGED
-            if not should_throttle("bar0") then
-                local max, current = UnitHealthMax("player"), UnitHealth("player")
-                update_bar0(current, max)
-            end
+    -- Unit events: player-only via the central unit-event frame.
+    local function on_unit_power()
+        if not should_throttle("bar_minus_1") then
+            update_bar_minus_1()
+            update_bar1()
         end
-    end)
+    end
+    local function on_unit_health()
+        if not should_throttle("bar0") then
+            local max, current = UnitHealthMax("player"), UnitHealth("player")
+            update_bar0(current, max)
+        end
+    end
+    -- UNIT_HEALTH and UNIT_ABSORB_AMOUNT_CHANGED share the same handler.
+    sfui.events.RegisterUnitEvents(
+        {"UNIT_HEALTH", "UNIT_ABSORB_AMOUNT_CHANGED"},
+        "player", on_unit_health
+    )
+    sfui.events.RegisterUnitEvent("UNIT_POWER_UPDATE", "player", on_unit_power)
 
     sfui.events.RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", on_event)
     sfui.events.RegisterEvent("UPDATE_SHAPESHIFT_FORM", on_event)

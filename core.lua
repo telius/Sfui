@@ -38,10 +38,8 @@ local function update_pixel_scale()
 end
 sfui.update_pixel_scale = update_pixel_scale
 
--- Event frame for scale updates
-local scale_event_frame = CreateFrame("Frame")
-scale_event_frame:RegisterEvent("UI_SCALE_CHANGED")
-scale_event_frame:SetScript("OnEvent", update_pixel_scale)
+-- Scale updates via central dispatcher
+sfui.events.RegisterEvent("UI_SCALE_CHANGED", update_pixel_scale)
 
 
 function sfui.slash_command_handler(msg)
@@ -120,99 +118,92 @@ end
 
 SlashCmdList["SFUI"] = sfui.slash_command_handler
 SlashCmdList["RL"] = sfui.reload_ui_handler
-local event_frame = CreateFrame("Frame")
-event_frame:RegisterEvent("ADDON_LOADED")
-event_frame:RegisterEvent("PLAYER_LOGIN")
+sfui.events.RegisterEvent("ADDON_LOADED", function(_, name)
+    if string_lower(name or "") == "sfui" then
+        local LSM = LibStub("LibSharedMedia-3.0", true)
+        if LSM then
+            LSM:Register("statusbar", "Flat", "Interface/Buttons/WHITE8X8")
+            LSM:Register("statusbar", "Blizzard", "Interface/TargetingFrame/UI-StatusBar")
+            LSM:Register("statusbar", "Raid", "Interface/RaidFrame/Raid-Bar-Hp-Fill")
+            LSM:Register("statusbar", "Spark", "Interface/CastingBar/UI-CastingBar-Spark")
+        end
 
+        -- Database & Config Sync
+        SfuiDB = SfuiDB or {}
+        SfuiDB.alts = SfuiDB.alts or {}
+        SfuiDB.altsHiddenSections = SfuiDB.altsHiddenSections or {}
+        SfuiDB.altsCollapsed = SfuiDB.altsCollapsed or {}
+        SfuiDB.minimap_icon = SfuiDB.minimap_icon or {}
+        SfuiDB.gear = SfuiDB.gear or {}
+        SfuiDB.gear_char = SfuiDB.gear_char or {}
+        SfuiDB.trackedBars = SfuiDB.trackedBars or {}
+        SfuiDB.iconGlobalSettings = SfuiDB.iconGlobalSettings or {}
+        SfuiDB.trackedOptionsWindow = SfuiDB.trackedOptionsWindow or {}
+        SfuiDB.currencyCaps = SfuiDB.currencyCaps or {}
+        SfuiDB.items = SfuiDB.items or {}
+        SfuiDB.mythicBestTimes = SfuiDB.mythicBestTimes or {}
 
-local ipairs = ipairs
+        SfuiDecorDB = SfuiDecorDB or {}
+        SfuiDecorDB.items = SfuiDecorDB.items or {}
 
-event_frame:SetScript("OnEvent", function(self, event, ...)
-    if event == "ADDON_LOADED" then
-        local name = ...
-        if string_lower(name) == "sfui" then
-            local LSM = LibStub("LibSharedMedia-3.0", true)
-            if LSM then
-                LSM:Register("statusbar", "Flat", "Interface/Buttons/WHITE8X8")
-                LSM:Register("statusbar", "Blizzard", "Interface/TargetingFrame/UI-StatusBar")
-                LSM:Register("statusbar", "Raid", "Interface/RaidFrame/Raid-Bar-Hp-Fill")
-                LSM:Register("statusbar", "Spark", "Interface/CastingBar/UI-CastingBar-Spark")
-            end
+        if sfui.initialize_database then
+            sfui.initialize_database()
+        end
 
-            -- Database & Config Sync
-            SfuiDB = SfuiDB or {}
-            SfuiDB.alts = SfuiDB.alts or {}
-            SfuiDB.altsHiddenSections = SfuiDB.altsHiddenSections or {}
-            SfuiDB.altsCollapsed = SfuiDB.altsCollapsed or {}
-            SfuiDB.minimap_icon = SfuiDB.minimap_icon or {}
-            SfuiDB.gear = SfuiDB.gear or {}
-            SfuiDB.gear_char = SfuiDB.gear_char or {}
-            SfuiDB.trackedBars = SfuiDB.trackedBars or {}
-            SfuiDB.iconGlobalSettings = SfuiDB.iconGlobalSettings or {}
-            SfuiDB.trackedOptionsWindow = SfuiDB.trackedOptionsWindow or {}
-            SfuiDB.currencyCaps = SfuiDB.currencyCaps or {}
-            SfuiDB.items = SfuiDB.items or {}
-            SfuiDB.mythicBestTimes = SfuiDB.mythicBestTimes or {}
+        -- Migrate cooldown panels to per-spec structure
+        if sfui.common and sfui.common.migrate_cooldown_panels_to_spec then
+            sfui.common.migrate_cooldown_panels_to_spec()
+        end
 
-            SfuiDecorDB = SfuiDecorDB or {}
-            SfuiDecorDB.items = SfuiDecorDB.items or {}
+        local tocVersion = C_AddOns.GetAddOnMetadata("sfui", "Version")
+        if tocVersion then
+            sfui.config.version = tocVersion
+        end
 
-            if sfui.initialize_database then
-                sfui.initialize_database()
-            end
-
-            -- Migrate cooldown panels to per-spec structure
-            if sfui.common and sfui.common.migrate_cooldown_panels_to_spec then
-                sfui.common.migrate_cooldown_panels_to_spec()
-            end
-
-            local tocVersion = C_AddOns.GetAddOnMetadata("sfui", "Version")
-            if tocVersion then
-                sfui.config.version = tocVersion
-            end
-
-            if sfui.config and sfui.config.cvars_on_load then
-                for _, cvar_data in ipairs(sfui.config.cvars_on_load) do
-                    C_CVar.SetCVar(cvar_data.name, cvar_data.value)
-                end
-            end
-
-            -- Migrate legacy SCT CVars to _v2
-            local legacyCVars = {
-                "floatingCombatTextDodgeParryMiss",
-                "floatingCombatTextDamageReduction",
-                "floatingCombatTextEnergyGains",
-                "floatingCombatTextAuras",
-                "floatingCombatTextCombatState"
-            }
-            for _, legacy in ipairs(legacyCVars) do
-                if SfuiDB[legacy] ~= nil then
-                    SfuiDB[legacy .. "_v2"] = SfuiDB[legacy]
-                    SfuiDB[legacy] = nil
-                end
-            end
-
-            -- Enforce Combat Text Settings from DB
-            local combatTextCVars = {
-                "enableFloatingCombatText",
-                "floatingCombatTextCombatDamage",
-                "floatingCombatTextCombatLogPeriodicSpells",
-                "floatingCombatTextCombatHealing",
-                "floatingCombatTextPetMeleeDamage",
-                "floatingCombatTextPetSpellDamage",
-                "floatingCombatTextDodgeParryMiss_v2",
-                "floatingCombatTextDamageReduction_v2",
-                "floatingCombatTextEnergyGains_v2",
-                "floatingCombatTextAuras_v2",
-                "floatingCombatTextCombatState_v2"
-            }
-            for _, cvar in ipairs(combatTextCVars) do
-                if SfuiDB[cvar] ~= nil then
-                    C_CVar.SetCVar(cvar, SfuiDB[cvar] and "1" or "0")
-                end
+        if sfui.config and sfui.config.cvars_on_load then
+            for _, cvar_data in ipairs(sfui.config.cvars_on_load) do
+                C_CVar.SetCVar(cvar_data.name, cvar_data.value)
             end
         end
-    elseif event == "PLAYER_LOGIN" then
+
+        -- Migrate legacy SCT CVars to _v2
+        local legacyCVars = {
+            "floatingCombatTextDodgeParryMiss",
+            "floatingCombatTextDamageReduction",
+            "floatingCombatTextEnergyGains",
+            "floatingCombatTextAuras",
+            "floatingCombatTextCombatState"
+        }
+        for _, legacy in ipairs(legacyCVars) do
+            if SfuiDB[legacy] ~= nil then
+                SfuiDB[legacy .. "_v2"] = SfuiDB[legacy]
+                SfuiDB[legacy] = nil
+            end
+        end
+
+        -- Enforce Combat Text Settings from DB
+        local combatTextCVars = {
+            "enableFloatingCombatText",
+            "floatingCombatTextCombatDamage",
+            "floatingCombatTextCombatLogPeriodicSpells",
+            "floatingCombatTextCombatHealing",
+            "floatingCombatTextPetMeleeDamage",
+            "floatingCombatTextPetSpellDamage",
+            "floatingCombatTextDodgeParryMiss_v2",
+            "floatingCombatTextDamageReduction_v2",
+            "floatingCombatTextEnergyGains_v2",
+            "floatingCombatTextAuras_v2",
+            "floatingCombatTextCombatState_v2"
+        }
+        for _, cvar in ipairs(combatTextCVars) do
+            if SfuiDB[cvar] ~= nil then
+                C_CVar.SetCVar(cvar, SfuiDB[cvar] and "1" or "0")
+            end
+        end
+    end
+end)
+
+sfui.events.RegisterEvent("PLAYER_LOGIN", function(event)
         if sfui.update_pixel_scale then sfui.update_pixel_scale() end
 
         if sfui.create_currency_frame then
@@ -369,6 +360,4 @@ event_frame:SetScript("OnEvent", function(self, event, ...)
             })
             icon:Register("sfui", broker, SfuiDB.minimap_icon)
         end
-        self:UnregisterEvent("PLAYER_LOGIN")
-    end
 end)

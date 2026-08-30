@@ -831,24 +831,22 @@ end
 function sfui.portals.initialize()
     -- Rebuild the portals frame when the player's spells change
     -- (learns a new portal spell via training, quest reward, etc.)
-    local eventFrame = CreateFrame("Frame")
-    eventFrame:RegisterEvent("SPELLS_CHANGED")
-    eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-    eventFrame:SetScript("OnEvent", function(self, event)
-        if event == "PLAYER_ENTERING_WORLD" then
-            -- Always rebuild on login/reload to reflect current character
+    sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", function()
+        -- Always rebuild on login/reload to reflect current character
+        invalidate_portals_frame()
+    end)
+    sfui.events.RegisterEvent("SPELLS_CHANGED", function()
+        -- Only invalidate if already built (avoids work before first open)
+        if portalFrame then
             invalidate_portals_frame()
-        elseif event == "SPELLS_CHANGED" and portalFrame then
-            -- Only invalidate if already built (avoids work before first open)
-            invalidate_portals_frame()
-        elseif event == "PLAYER_REGEN_DISABLED" then
-            if portalFrame and portalFrame:IsShown() then
-                portalFrame:Hide()
-            end
-            disarm()
-            hide_tooltip()
         end
+    end)
+    sfui.events.RegisterEvent("PLAYER_REGEN_DISABLED", function()
+        if portalFrame and portalFrame:IsShown() then
+            portalFrame:Hide()
+        end
+        disarm()
+        hide_tooltip()
     end)
 end
 

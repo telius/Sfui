@@ -907,115 +907,7 @@ local resourceColorsCache = {
 }
 
 local cachedSpecID = 0
-sfui.events = {}
-
-local eventCallbacks = {}
-local updateCallbacks = {}
-
-local central_event_frame = CreateFrame("Frame")
-central_event_frame:SetScript("OnEvent", function(self, event, ...)
-    local cbs = eventCallbacks[event]
-    if cbs then
-        local memProfiling = (sfui.mem and sfui.mem.IsWatcherActive and sfui.mem.IsWatcherActive())
-        local memBefore = memProfiling and collectgarbage("count") or 0
-
-        for _, cb in ipairs(cbs) do
-            -- Catch errors to prevent one bad callback from breaking all others listening to this event
-            local ok, err = pcall(cb, event, ...)
-            if not ok then
-                print("|cff6600ffsfui|r: Event callback error (" .. tostring(event) .. "):", err)
-            end
-        end
-
-        if memProfiling then
-            local memAfter = collectgarbage("count")
-            local delta = memAfter - memBefore
-            if delta > 0 or true then
-                sfui.mem.RecordAllocation(event, delta > 0 and delta or 0)
-            end
-        end
-    end
-end)
-
-local updateTimer = 0
-central_event_frame:SetScript("OnUpdate", function(self, elapsed)
-    updateTimer = updateTimer + elapsed
-    local memProfiling = (sfui.mem and sfui.mem.IsWatcherActive and sfui.mem.IsWatcherActive())
-
-    for _, data in ipairs(updateCallbacks) do
-        data.elapsed = data.elapsed + elapsed
-        if data.elapsed >= data.interval then
-            local memBefore = memProfiling and collectgarbage("count") or 0
-            local ok, err = pcall(data.callback, data.elapsed)
-            if not ok then
-                print("|cff6600ffsfui|r: Update callback error:", err)
-            end
-            if memProfiling then
-                local memAfter = collectgarbage("count")
-                local delta = memAfter - memBefore
-                sfui.mem.RecordAllocation(data.name or "UpdateLoop", delta > 0 and delta or 0)
-            end
-            data.elapsed = 0
-        end
-    end
-end)
-
-
--- Register an event callback
-function sfui.events.RegisterEvent(event, callback)
-    if event == "PLAYER_LOGIN" and IsLoggedIn() then
-        local ok, err = pcall(callback, event)
-        if not ok then
-            print("|cff6600ffsfui|r: Event callback error (PLAYER_LOGIN immediate):", err)
-        end
-        return
-    end
-
-    if not eventCallbacks[event] then
-        eventCallbacks[event] = {}
-        central_event_frame:RegisterEvent(event)
-    end
-    -- Prevent duplicate registrations of the same function
-    for _, cb in ipairs(eventCallbacks[event]) do
-        if cb == callback then return end
-    end
-    table.insert(eventCallbacks[event], callback)
-end
-
--- Unregister an event callback
-function sfui.events.UnregisterEvent(event, callback)
-    local cbs = eventCallbacks[event]
-    if not cbs then return end
-    for i = #cbs, 1, -1 do
-        if cbs[i] == callback then
-            table.remove(cbs, i)
-        end
-    end
-    if #cbs == 0 then
-        central_event_frame:UnregisterEvent(event)
-        eventCallbacks[event] = nil
-    end
-end
-
--- Register a throttled update loop
-function sfui.events.RegisterUpdate(arg1, arg2, arg3)
-    local interval, callback, name
-    if type(arg1) == "string" then
-        name = arg1
-        interval = arg2
-        callback = arg3
-    else
-        interval = arg1
-        callback = arg2
-    end
-
-    table.insert(updateCallbacks, {
-        interval = interval or 0,
-        elapsed = 0,
-        callback = callback,
-        name = name
-    })
-end
+-- sfui.events is defined in dispatcher.lua (loaded before common.lua)
 
 local function update_cached_spec_id()
     local spec = (C_SpecializationInfo and C_SpecializationInfo.GetSpecialization and C_SpecializationInfo.GetSpecialization()) or (GetSpecialization and GetSpecialization())
@@ -1056,6 +948,55 @@ function sfui.common.get_current_spec_id()
     if cachedSpecID == 0 then update_cached_spec_id() end
     return cachedSpecID
 end
+
+-- ------------------------------------------------------------
+-- Central Vehicle and Dragonflying / Skyriding State Cache
+-- ------------------------------------------------------------
+local _dragonflyingCache = nil
+local _getBonusIdx = C_ActionBar and C_ActionBar.GetBonusBarIndex or GetBonusBarIndex
+local _getBonusOff = C_ActionBar and C_ActionBar.GetBonusBarOffset or GetBonusBarOffset
+
+function sfui.common.invalidate_dragonflying_cache()
+    _dragonflyingCache = nil
+end
+
+function sfui.common.is_dragonflying()
+    if _dragonflyingCache ~= nil then return _dragonflyingCache end
+    local ok, isFlying, canGlide = pcall(C_PlayerInfo.GetGlidingInfo)
+    if not ok then
+        _dragonflyingCache = false
+        return false
+    end
+    local hasSkyridingBar = _getBonusIdx and _getBonusOff and
+        (_getBonusIdx() == 11 and _getBonusOff() == 5) or false
+    _dragonflyingCache = (isFlying or (canGlide and hasSkyridingBar)) and true or false
+    return _dragonflyingCache
+end
+
+function sfui.common.is_in_vehicle()
+    if sfui.common.is_dragonflying() then return false end
+    if UnitInVehicle("player") or UnitHasVehicleUI("player") then return true end
+    if UnitExists("vehicle") and UnitVehicleSkin and UnitVehicleSkin("player") ~= nil then return true end
+    if C_ActionBar and C_ActionBar.HasVehicleActionBar and C_ActionBar.HasVehicleActionBar() then return true end
+    return false
+end
+
+local function on_glide_or_vehicle_event()
+    sfui.common.invalidate_dragonflying_cache()
+end
+
+sfui.events.RegisterEvent("PLAYER_CAN_GLIDE_CHANGED",     on_glide_or_vehicle_event)
+sfui.events.RegisterEvent("PLAYER_IS_GLIDING_CHANGED",    on_glide_or_vehicle_event)
+sfui.events.RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED", on_glide_or_vehicle_event)
+sfui.events.RegisterEvent("UPDATE_SHAPESHIFT_FORM",       on_glide_or_vehicle_event)
+sfui.events.RegisterEvent("UNIT_ENTERED_VEHICLE",         on_glide_or_vehicle_event)
+sfui.events.RegisterEvent("UNIT_EXITED_VEHICLE",          on_glide_or_vehicle_event)
+sfui.events.RegisterEvent("VEHICLE_UPDATE",               on_glide_or_vehicle_event)
+sfui.events.RegisterEvent("UPDATE_VEHICLE_ACTIONBAR",     on_glide_or_vehicle_event)
+sfui.events.RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR",    on_glide_or_vehicle_event)
+sfui.events.RegisterEvent("UPDATE_POSSESS_BAR",           on_glide_or_vehicle_event)
+sfui.events.RegisterEvent("UPDATE_BONUS_ACTIONBAR",       on_glide_or_vehicle_event)
+sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD",        on_glide_or_vehicle_event)
 
 
 function sfui.common.update_widget_bar(widget_frame, icons_pool, labels_pool, source_data, get_details_func)

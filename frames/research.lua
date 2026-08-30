@@ -110,9 +110,7 @@ function sfui.research.initialize()
         return original()
     end
 
-    local f = CreateFrame("Frame")
-    f:RegisterEvent("ADDON_LOADED")
-    f:SetScript("OnEvent", function(_, _, addonName)
+    sfui.events.RegisterEvent("ADDON_LOADED", function(_, addonName)
         if addonName == "Blizzard_OrderHallUI" then
             sfui.research.apply_side_buttons(OrderHallTalentFrame)
         elseif addonName == "Blizzard_GenericTraitUI" then

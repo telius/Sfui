@@ -1429,10 +1429,8 @@ function sfui.trackedbars.initialize()
     sfui.trackedbars._cdMirror   = _cdMirror
     sfui.trackedbars._cdDurCache = _cdDurCache
 
-    local cdMirrorFrame = CreateFrame("Frame")
-    cdMirrorFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-    cdMirrorFrame:SetScript("OnEvent", function(_, event, _, _, castSid)
-        if event ~= "UNIT_SPELLCAST_SUCCEEDED" or not castSid then return end
+    sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player", function(_, _, _, _, castSid)
+        if not castSid then return end
         -- spellID arg is always plain — safe to use directly.
         local dur = _cdDurCache[castSid]
         if not dur then

@@ -37,21 +37,20 @@ function sfui.cursor.initialize()
         ring:SetVertexColor(color[1], color[2], color[3], 0.8)
     end
 
-    -- Event Handler
-    f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-    f:RegisterEvent("PLAYER_ENTERING_WORLD")
-    f:RegisterEvent("UI_SCALE_CHANGED")
-
+    -- Event Handler (via central dispatcher)
     local cachedScale = GetEffectiveScale(uiparent)
 
-    f:SetScript("OnEvent", function(_, event)
+    local function on_cursor_event(event)
         if event == "UI_SCALE_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
             cachedScale = GetEffectiveScale(uiparent)
         end
         if event ~= "UI_SCALE_CHANGED" then
             UpdateColor()
         end
-    end)
+    end
+    sfui.events.RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", on_cursor_event)
+    sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD",         on_cursor_event)
+    sfui.events.RegisterEvent("UI_SCALE_CHANGED",              on_cursor_event)
 
     -- Optimized Update Loop - uses SetPoint offset instead of ClearAllPoints
     f.OnUpdate = function(self, elapsed)

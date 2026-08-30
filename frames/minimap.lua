@@ -658,69 +658,62 @@ function sfui.minimap.update_button_bar_position()
     end
 end
 
-frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-frame:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
-frame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
-frame:RegisterEvent("MINIMAP_UPDATE_ZOOM")
-frame:RegisterEvent("ADDON_LOADED")
-
 local startup_scans = 0
-frame:SetScript("OnEvent", function(self, event, ...)
-    if event == "PLAYER_ENTERING_WORLD" then
-        sfui.minimap.initialize_masque()
-        if SfuiDB.minimap_auto_zoom then
-            set_default_zoom()
-        end
-        sfui.minimap.enable_button_manager(SfuiDB.minimap_collect_buttons)
-        sfui.minimap.update_clock_position()
 
-        if MinimapCluster and MinimapCluster.IndicatorFrame then
-            MinimapCluster.IndicatorFrame:Hide(); MinimapCluster.IndicatorFrame:SetAlpha(0)
-        end
-        if MinimapCluster and MinimapCluster.BorderTop then
-            MinimapCluster.BorderTop:Hide(); MinimapCluster.BorderTop:SetAlpha(0)
-        end
+-- One-shot: runs once on first PLAYER_ENTERING_WORLD then unregisters itself
+local function on_minimap_entering_world(event)
+    sfui.minimap.initialize_masque()
+    if SfuiDB.minimap_auto_zoom then
+        set_default_zoom()
+    end
+    sfui.minimap.enable_button_manager(SfuiDB.minimap_collect_buttons)
+    sfui.minimap.update_clock_position()
 
-        -- Startup timer to catch late-loading buttons and clock
-        if SfuiDB.minimap_collect_buttons then
-            C_Timer.NewTicker(2, function(self)
-                startup_scans = startup_scans + 1
-                if startup_scans > 5 then
-                    self:Cancel()
-                else
-                    if ButtonManager:collect_buttons() then
-                        ButtonManager:arrange_buttons()
-                    end
-                    sfui.minimap.update_clock_position()
+    if MinimapCluster and MinimapCluster.IndicatorFrame then
+        MinimapCluster.IndicatorFrame:Hide(); MinimapCluster.IndicatorFrame:SetAlpha(0)
+    end
+    if MinimapCluster and MinimapCluster.BorderTop then
+        MinimapCluster.BorderTop:Hide(); MinimapCluster.BorderTop:SetAlpha(0)
+    end
+
+    -- Startup timer to catch late-loading buttons and clock
+    if SfuiDB.minimap_collect_buttons then
+        C_Timer.NewTicker(2, function(self)
+            startup_scans = startup_scans + 1
+            if startup_scans > 5 then
+                self:Cancel()
+            else
+                if ButtonManager:collect_buttons() then
+                    ButtonManager:arrange_buttons()
                 end
-            end)
-        end
-
-        self:UnregisterEvent("PLAYER_ENTERING_WORLD")
-        return
+                sfui.minimap.update_clock_position()
+            end
+        end)
     end
 
-    if event == "ADDON_LOADED" then
-        local loadedAddon = select(1, ...)
-        if loadedAddon == "Blizzard_TimeManager" then
-            sfui.minimap.update_clock_position()
-        end
-        if SfuiDB.minimap_collect_buttons then
-            if ButtonManager:collect_buttons() then
-                ButtonManager:arrange_buttons()
-            end
-        end
-        return
-    end
+    -- One-shot: unregister after first world entry
+    sfui.events.UnregisterEvent("PLAYER_ENTERING_WORLD", on_minimap_entering_world)
+end
+sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", on_minimap_entering_world)
 
-    -- Autozoom on manual zoom changes
-    if event == "MINIMAP_UPDATE_ZOOM" then
-        if SfuiDB.minimap_auto_zoom and Minimap:GetZoom() ~= DEFAULT_ZOOM then
-            if zoom_timer then
-                zoom_timer:Cancel()
-            end
-            zoom_timer = C_Timer.NewTimer(SfuiDB.minimap_auto_zoom_delay or 5, set_default_zoom)
+sfui.events.RegisterEvent("ADDON_LOADED", function(_, loadedAddon)
+    if loadedAddon == "Blizzard_TimeManager" then
+        sfui.minimap.update_clock_position()
+    end
+    if SfuiDB and SfuiDB.minimap_collect_buttons then
+        if ButtonManager:collect_buttons() then
+            ButtonManager:arrange_buttons()
         end
+    end
+end)
+
+-- Autozoom on manual zoom changes
+sfui.events.RegisterEvent("MINIMAP_UPDATE_ZOOM", function()
+    if SfuiDB.minimap_auto_zoom and Minimap:GetZoom() ~= DEFAULT_ZOOM then
+        if zoom_timer then
+            zoom_timer:Cancel()
+        end
+        zoom_timer = C_Timer.NewTimer(SfuiDB.minimap_auto_zoom_delay or 5, set_default_zoom)
     end
 end)
 

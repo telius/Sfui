@@ -21,13 +21,12 @@ local SF_ROOTS = {
     [203981]  = true,  -- Vengeance Soul Fragments
     [1245577] = true,  -- Devourer Soul Fragments
     [1245584] = true,  -- Devourer Shattered Souls
-    [210788]  = true,  -- Lesser Soul Fragments (Havoc)
     [1227619] = true,  -- Shattered Souls (CDM entry)
     [20811]   = true,
 }
 
 -- Ordered list for direct aura reads
-local SF_SPELLS = { 203981, 1245577, 1245584, 210788 }
+local SF_SPELLS = { 203981, 1245577, 1245584 }
 
 -- Native action bar spells that mirror Soul Fragment display count
 local ACTION_DISPLAY_SPELLS = {
@@ -49,12 +48,6 @@ local SPEC_CONFIGS = {
         color = { 0.4, 0.0, 1.0, 1.0 }, -- #6600ff Cosmic Purple
         reapThreshold = 4,
     },
-    [SPEC_HAVOC] = {
-        cap = 5,
-        primaryAura = 210788,
-        color = { 0.000, 0.596, 0.424, 1.0 }, -- Fel Emerald
-        reapThreshold = nil,
-    },
 }
 
 -- ------------------------------------------------------------
@@ -63,7 +56,6 @@ local SPEC_CONFIGS = {
 local container        = nil
 local bar              = nil
 local countText        = nil
-local dividers         = {}
 local thresholdTick    = nil
 local currentSpecConfig = nil
 local cachedMaxCells   = 0
@@ -74,6 +66,8 @@ local metaBar          = nil
 local metaText         = nil
 local metaTimerText    = nil
 local metaTick         = nil
+local metaHasTimerText = false
+local metaHasText      = false
 
 -- Talent check helper
 local function IsTalentKnown(spellID)
@@ -238,26 +232,26 @@ local function frameMatchesSF(frame)
     local cdID = frame.cooldownID
     local sID = frame.spellID or (frame.info and frame.info.spellID)
 
-    if cdID and not issecretvalue(cdID) and SF_ROOTS[cdID] then
+    if type(cdID) == "number" and SF_ROOTS[cdID] then
         return true
     end
-    if sID and not issecretvalue(sID) and SF_ROOTS[sID] then
+    if type(sID) == "number" and SF_ROOTS[sID] then
         return true
     end
 
     -- Only call GetCooldownViewerCooldownInfo when safe (out of combat)
     if not InCombatLockdown() and frame.GetCooldownID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
         local ok, id = pcall(frame.GetCooldownID, frame)
-        if ok and id and not issecretvalue(id) then
+        if ok and type(id) == "number" then
             local okI, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, id)
             if okI and type(info) == "table" then
-                if not issecretvalue(info.spellID) and info.spellID and SF_ROOTS[info.spellID] then
+                if type(info.spellID) == "number" and SF_ROOTS[info.spellID] then
                     return true
                 end
                 if type(info.linkedSpellIDs) == "table" then
                     for i = 1, #info.linkedSpellIDs do
                         local sid = info.linkedSpellIDs[i]
-                        if not issecretvalue(sid) and sid and SF_ROOTS[sid] then return true end
+                        if type(sid) == "number" and SF_ROOTS[sid] then return true end
                     end
                 end
             end
@@ -305,13 +299,15 @@ end
 --   Tier 4: Genuine 0 vs Engine Restriction HOLD
 -- ------------------------------------------------------------
 local function GetSFApplications(specCfg)
+    local restricted = EngineAurasRestricted()
+
     -- 1. Primary Direct Aura Check (Instant, 0ms latency)
     if specCfg and specCfg.primaryAura and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
         local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, specCfg.primaryAura)
         if ok and aura then
             local apps = aura.applications
-            if issecretvalue(apps) then return apps end
             if type(apps) == "number" then return apps end
+            if restricted and issecretvalue(apps) then return apps end
             return 1 -- Aura exists without explicit count -> 1 stack
         end
     end
@@ -324,8 +320,8 @@ local function GetSFApplications(specCfg)
                 local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, sID)
                 if ok and aura then
                     local apps = aura.applications
-                    if issecretvalue(apps) then return apps end
                     if type(apps) == "number" then return apps end
+                    if restricted and issecretvalue(apps) then return apps end
                     return 1
                 end
             end
@@ -338,7 +334,9 @@ local function GetSFApplications(specCfg)
             local sID = ACTION_DISPLAY_SPELLS[i]
             local ok, dc = pcall(C_Spell.GetSpellDisplayCount, sID)
             if ok and dc ~= nil then
-                if issecretvalue(dc) or (type(dc) == "number" and dc > 0) then
+                if type(dc) == "number" and dc > 0 then
+                    return dc
+                elseif restricted and issecretvalue(dc) then
                     return dc
                 end
             end
@@ -357,7 +355,7 @@ local function GetSFApplications(specCfg)
     -- 5. Secrecy determination:
     -- If engine actively restricts auras right now (M+ key), a missing read means HOLD.
     -- Otherwise, in normal gameplay, absence is genuine 0.
-    if EngineAurasRestricted() then
+    if restricted then
         return nil
     end
 
@@ -393,39 +391,10 @@ local function GetSoulFragmentStacks()
 end
 
 -- ------------------------------------------------------------
--- Vehicle / Dragonflying Helpers
--- Mirrors bars.lua logic with event-driven cache invalidation.
+-- Vehicle / Dragonflying Helpers (Centralized via common.lua)
 -- ------------------------------------------------------------
-local _getBonusIdx = C_ActionBar and C_ActionBar.GetBonusBarIndex or GetBonusBarIndex
-local _getBonusOff = C_ActionBar and C_ActionBar.GetBonusBarOffset or GetBonusBarOffset
-local _dragonflyingCache = nil
-
-local function invalidate_dragonflying_cache()
-    _dragonflyingCache = nil
-end
-
-local function is_dragonflying()
-    if _dragonflyingCache ~= nil then return _dragonflyingCache end
-    local ok, isFlying, canGlide = pcall(C_PlayerInfo.GetGlidingInfo)
-    if not ok then
-        _dragonflyingCache = false
-        return false
-    end
-    local hasSkyridingBar = _getBonusIdx and _getBonusOff and
-        (_getBonusIdx() == 11 and _getBonusOff() == 5) or false
-    _dragonflyingCache = (isFlying or (canGlide and hasSkyridingBar)) and true or false
-    return _dragonflyingCache
-end
-
-local function is_in_vehicle()
-    if is_dragonflying() then return false end
-    if UnitInVehicle("player") or UnitHasVehicleUI("player") then return true end
-    if UnitExists("vehicle") and UnitVehicleSkin
-            and UnitVehicleSkin("player") ~= nil then return true end
-    if C_ActionBar and C_ActionBar.HasVehicleActionBar
-            and C_ActionBar.HasVehicleActionBar() then return true end
-    return false
-end
+local is_dragonflying = common.is_dragonflying
+local is_in_vehicle   = common.is_in_vehicle
 
 
 
@@ -483,11 +452,6 @@ end
 local function RebuildDividers(maxCap)
     if not container then return end
     cachedMaxCells = maxCap
-
-    for i = 1, #dividers do
-        if dividers[i] then dividers[i]:Hide() end
-    end
-
     UpdateThresholdTick(currentSpecConfig, maxCap, lastKnownStacks)
 end
 
@@ -515,7 +479,7 @@ local function CreateSoulFragmentsFrame()
         tile   = true,
         tileSize = 32,
     })
-    container:SetBackdropColor(unpack(bgColor))
+    container:SetBackdropColor(bgColor[1], bgColor[2], bgColor[3], bgColor[4] or 0.9)
 
     -- Fallback StatusBar (used when CustomAuraContainer is unavailable)
     bar = CreateFrame("StatusBar", "SfuiSoulFragmentsStatusBar", container)
@@ -565,7 +529,7 @@ local function CreateVoidMetaFrame()
         tile   = true,
         tileSize = 32,
     })
-    metaContainer:SetBackdropColor(unpack(bgColor))
+    metaContainer:SetBackdropColor(bgColor[1], bgColor[2], bgColor[3], bgColor[4] or 0.9)
 
     metaBar = CreateFrame("StatusBar", "SfuiVoidMetaStatusBar", metaContainer)
     metaBar:SetPoint("TOPLEFT",     metaContainer, "TOPLEFT",     pad, -pad)
@@ -663,8 +627,12 @@ local function UpdateVoidMetaDisplay(shouldShow)
         if metaExpiration and metaExpiration > 0 then
             local rem = math.max(0, metaExpiration - GetTime())
             metaTimerText:SetText(string.format("%.1fs", rem))
+            metaHasTimerText = true
         else
-            metaTimerText:SetText("")
+            if metaHasTimerText then
+                metaTimerText:SetText("")
+                metaHasTimerText = false
+            end
         end
 
         if metaTick then
@@ -689,12 +657,23 @@ local function UpdateVoidMetaDisplay(shouldShow)
         if darkHeartStacks >= maxStacks then
             metaText:SetText("|cffedcd4eMETA READY|r")
             metaBar:SetStatusBarColor(0.929, 0.804, 0.306, 1.0) -- ReapMeter GOLD
-        else
-            metaText:SetText(darkHeartStacks > 0 and (darkHeartStacks .. " / " .. maxStacks) or "")
+            metaHasText = true
+        elseif darkHeartStacks > 0 then
+            metaText:SetText(darkHeartStacks .. " / " .. maxStacks)
             metaBar:SetStatusBarColor(0.000, 0.553, 0.745, 1.0) -- ReapMeter Devourer Build Azure (#008dbe)
+            metaHasText = true
+        else
+            if metaHasText then
+                metaText:SetText("")
+                metaHasText = false
+            end
+            metaBar:SetStatusBarColor(0.000, 0.553, 0.745, 1.0)
         end
 
-        metaTimerText:SetText("")
+        if metaHasTimerText then
+            metaTimerText:SetText("")
+            metaHasTimerText = false
+        end
 
         if metaTick then
             metaTick:Hide()
@@ -718,7 +697,10 @@ local function UpdateDisplay()
     local cfg     = sfui.config.soulFragments or {}
     local enabled = (cfg.enabled ~= false) and (SfuiDB == nil or SfuiDB.enableSoulFragments ~= false)
 
-    local shouldShow = enabled and showCoreBars
+    local spec = common.get_current_spec_id and common.get_current_spec_id() or 0
+    currentSpecConfig = SPEC_CONFIGS[spec]
+
+    local shouldShow = enabled and showCoreBars and (currentSpecConfig ~= nil)
     local wasShown   = container:IsShown()
 
     if not shouldShow then
@@ -741,8 +723,6 @@ local function UpdateDisplay()
         end
     end
 
-    local spec = common.get_current_spec_id and common.get_current_spec_id() or 0
-    currentSpecConfig = SPEC_CONFIGS[spec] or SPEC_CONFIGS[SPEC_VENGEANCE]
     local cap = currentSpecConfig.cap
 
     if cachedMaxCells ~= cap then
@@ -779,7 +759,7 @@ local function UpdateDisplay()
             container:SetBackdropColor(0.0, 0.18, 0.10, 0.95) -- Fel green backdrop
         end
     else
-        container:SetBackdropColor(unpack(defBg))
+        container:SetBackdropColor(defBg[1], defBg[2], defBg[3], defBg[4] or 0.9)
     end
 
     -- If C++ engine is not driving the bar via CustomAuraContainer, fallback to Lua update
@@ -826,6 +806,19 @@ function sfui.soulfragments:UpdatePosition()
     end
     if not container then return end
 
+    local spec = common.get_current_spec_id and common.get_current_spec_id() or 0
+    currentSpecConfig = SPEC_CONFIGS[spec]
+
+    if not currentSpecConfig then
+        if container then container:Hide() end
+        if auraContainer then auraContainer:Hide() end
+        if metaContainer then metaContainer:Hide() end
+        if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then
+            sfui.trackedbars.ForceLayoutUpdate()
+        end
+        return
+    end
+
     local bar0    = (sfui.bars and sfui.bars.get_bar0 and sfui.bars.get_bar0()) or _G["sfui_bar0"]
     local target  = (bar0 and bar0.backdrop) or bar0 or _G["sfui_bar0_Backdrop"]
 
@@ -838,8 +831,6 @@ function sfui.soulfragments:UpdatePosition()
                              and sfui.config.trackedBars.attachedWidthMultiplier) or 0.8
     local width  = healthWidth * widthMultiplier
     local height = cfg.height or 14
-
-    local spec = common.get_current_spec_id and common.get_current_spec_id() or 0
 
     if spec == SPEC_DEVOURER then
         if not metaContainer then
@@ -881,7 +872,6 @@ function sfui.soulfragments:UpdatePosition()
         end
     end
 
-    currentSpecConfig = SPEC_CONFIGS[spec] or SPEC_CONFIGS[SPEC_VENGEANCE]
     RebuildDividers(currentSpecConfig.cap)
     BuildAuraContainer(currentSpecConfig.cap)
 
@@ -903,9 +893,14 @@ function sfui.soulfragments:Initialize()
         CreateVoidMetaFrame()
     end
 
-    currentSpecConfig = SPEC_CONFIGS[spec] or SPEC_CONFIGS[SPEC_VENGEANCE]
-    self:UpdatePosition()
-    BuildAuraContainer(currentSpecConfig.cap)
+    currentSpecConfig = SPEC_CONFIGS[spec]
+    if currentSpecConfig then
+        self:UpdatePosition()
+        BuildAuraContainer(currentSpecConfig.cap)
+    else
+        if container then container:Hide() end
+        if metaContainer then metaContainer:Hide() end
+    end
 
     if _initialized then
         UpdateDisplay()
@@ -913,14 +908,12 @@ function sfui.soulfragments:Initialize()
     end
     _initialized = true
 
-    -- Unit events: require RegisterUnitEvent for player-only filtering.
-    -- UNIT_AURA / UNIT_SPELLCAST_SUCCEEDED / UNIT_POWER_UPDATE fire for every
-    -- nearby unit on the central frame — we only want the player's.
-    local unitFrame = CreateFrame("Frame")
-    unitFrame:RegisterUnitEvent("UNIT_AURA",               "player")
-    unitFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-    unitFrame:RegisterUnitEvent("UNIT_POWER_UPDATE",        "player")
-    unitFrame:SetScript("OnEvent", function() UpdateDisplay() end)
+    -- Unit events: player-only via the central unit-event frame.
+    local function onUnitEvent() UpdateDisplay() end
+    sfui.events.RegisterUnitEvents(
+        {"UNIT_AURA", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_POWER_UPDATE"},
+        "player", onUnitEvent
+    )
 
     -- 20 FPS update loop — registered once via the shared dispatcher.
     -- sfui.events.RegisterUpdate has no dedup, so the _initialized guard above
@@ -941,21 +934,24 @@ end
 -- ------------------------------------------------------------
 local function onSpecChanged()
     local sp = common.get_current_spec_id and common.get_current_spec_id() or 0
-    currentSpecConfig = SPEC_CONFIGS[sp] or SPEC_CONFIGS[SPEC_VENGEANCE]
-    invalidate_dragonflying_cache()
-    if not InCombatLockdown() then
-        BuildAuraContainer(currentSpecConfig.cap)
+    currentSpecConfig = SPEC_CONFIGS[sp]
+    if currentSpecConfig then
+        if not InCombatLockdown() then
+            BuildAuraContainer(currentSpecConfig.cap)
+        end
+        if container then sfui.soulfragments:UpdatePosition() end
+    else
+        DropAuraContainer()
+        if container then container:Hide() end
+        if metaContainer then metaContainer:Hide() end
+        if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then
+            sfui.trackedbars.ForceLayoutUpdate()
+        end
     end
-    if container then sfui.soulfragments:UpdatePosition() end
     UpdateDisplay()
 end
 
 local function onCombatOrTarget() UpdateDisplay() end
-
-local function onGlideOrVehicle()
-    invalidate_dragonflying_cache()
-    UpdateDisplay()
-end
 
 local function onEncounterBoundary()
     -- Aura instance IDs re-randomize between pulls; drop the cached CDM
@@ -982,14 +978,6 @@ sfui.events.RegisterEvent("PLAYER_REGEN_DISABLED", onCombatOrTarget)
 sfui.events.RegisterEvent("PLAYER_REGEN_ENABLED",  onCombatOrTarget)
 sfui.events.RegisterEvent("PLAYER_TARGET_CHANGED", onCombatOrTarget)
 
-sfui.events.RegisterEvent("PLAYER_CAN_GLIDE_CHANGED",     onGlideOrVehicle)
-sfui.events.RegisterEvent("PLAYER_IS_GLIDING_CHANGED",    onGlideOrVehicle)
-sfui.events.RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED", onGlideOrVehicle)
-sfui.events.RegisterEvent("UPDATE_SHAPESHIFT_FORM",       onGlideOrVehicle)
-sfui.events.RegisterEvent("UNIT_ENTERED_VEHICLE",         onGlideOrVehicle)
-sfui.events.RegisterEvent("UNIT_EXITED_VEHICLE",          onGlideOrVehicle)
-sfui.events.RegisterEvent("VEHICLE_UPDATE",               onGlideOrVehicle)
-
 sfui.events.RegisterEvent("ENCOUNTER_START", onEncounterBoundary)
 sfui.events.RegisterEvent("ENCOUNTER_END",   onEncounterBoundary)
 
@@ -1005,13 +993,12 @@ function sfui.soulfragments_debug_info()
         cdmCached    = sfCDMFrame ~= nil,
         lastStacks   = lastKnownStacks,
         maxCap       = currentSpecConfig and currentSpecConfig.cap or 0,
-        dividers     = #dividers,
+        active       = currentSpecConfig ~= nil,
     }
 end
 
 -- PLAYER_ENTERING_WORLD triggers Initialize on every login/reload.
 -- Routes through sfui.events, same as bars.lua.
 sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", function()
-    invalidate_dragonflying_cache()
     sfui.soulfragments:Initialize()
 end)
