@@ -2472,39 +2472,36 @@ function sfui.alts.initialize()
 
 
 
-    SlashCmdList["SFUIALTS"] = function(msg)
-        if msg == "resetweeklies" then
-            for _, d in pairs(SfuiDB.alts or {}) do
-                if d.quests then wipe(d.quests) end
-                if d.profKP then
-                    for _, pData in pairs(d.profKP) do
-                        if type(pData) == "table" then
-                            pData.done = 0
-                            if pData.details then
-                                pData.details.treatise = false
-                                pData.details.quest = false
-                                pData.details.treasures = 0
-                            end
+    function sfui.alts.ResetWeeklies()
+        for _, d in pairs(SfuiDB.alts or {}) do
+            if d.quests then wipe(d.quests) end
+            if d.profKP then
+                for _, pData in pairs(d.profKP) do
+                    if type(pData) == "table" then
+                        pData.done = 0
+                        if pData.details then
+                            pData.details.treatise = false
+                            pData.details.quest = false
+                            pData.details.treasures = 0
                         end
                     end
                 end
-                if d.vault then
-                    d.vault.hasReward = nil
-                    if d.vault.raid then wipe(d.vault.raid) end
-                    if d.vault.dungeon then wipe(d.vault.dungeon) end
-                    if d.vault.world then wipe(d.vault.world) end
-                    if d.vault.dungeonRuns then wipe(d.vault.dungeonRuns) end
-                end
-                if d.m0 then wipe(d.m0) end
-                if d.raids then wipe(d.raids) end
             end
-            sfui.alts.UpdateUI(true)
+            if d.vault then
+                d.vault.hasReward = nil
+                if d.vault.raid then wipe(d.vault.raid) end
+                if d.vault.dungeon then wipe(d.vault.dungeon) end
+                if d.vault.world then wipe(d.vault.world) end
+                if d.vault.dungeonRuns then wipe(d.vault.dungeonRuns) end
+            end
+            if d.m0 then wipe(d.m0) end
+            if d.raids then wipe(d.raids) end
+        end
+        sfui.alts.UpdateUI(true)
+        if sfui.common and sfui.common.print then
             sfui.common.print("Manually reset all weekly data for alts.")
-        else
-            sfui.alts.Toggle()
         end
     end
-    SLASH_SFUIALTS1 = "/alts"
 
     function sfui.alts_debug_info()
         local altCount = 0

@@ -704,7 +704,7 @@ function sfui.castbar.set_bar_texture(texturePath)
     end
 end
 
-sfui.events.RegisterEvent("PLAYER_LOGIN", function()
+function sfui.castbar.initialize()
     SetupBar("castBar", "player")
     SetupTargetBar("targetCastBar", "target")
 
@@ -719,7 +719,7 @@ sfui.events.RegisterEvent("PLAYER_LOGIN", function()
         _G.OverlayPlayerCastingBarFrame:UnregisterAllEvents()
         _G.OverlayPlayerCastingBarFrame:Hide()
     end
-end)
+end
 
 function sfui.castbar_debug_info()
     local pBar = sfui.castbar.bars and sfui.castbar.bars["player"]

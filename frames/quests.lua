@@ -1291,8 +1291,10 @@ local function AcquireRow()
                 pcall(C_SuperTrack.SetSuperTrackedQuestID, s.questID)
             end
 
-            if ShowUIPanel and WorldMapFrame and not WorldMapFrame:IsShown() then
-                pcall(ShowUIPanel, WorldMapFrame)
+            if QuestMapFrame_OpenToQuestDetails and s.questID then
+                pcall(QuestMapFrame_OpenToQuestDetails, s.questID)
+            elseif _G.OpenWorldMap then
+                pcall(_G.OpenWorldMap)
             end
             Refresh:Request()
         end)
@@ -1773,16 +1775,6 @@ local function CollectWidgetsFromSet(setID)
     end
 end
 
-local function CollectWidgetsFromContainer(container)
-    if not container then return end
-    if container.widgetFrames then
-        for _, wFrame in pairs(container.widgetFrames) do
-            local wID = wFrame.widgetID or (wFrame.GetWidgetID and wFrame:GetWidgetID()) or (wFrame.widgetInfo and wFrame.widgetInfo.widgetID)
-            if wID then AddWidgetIDToScan(wID) end
-        end
-    end
-end
-
 local function ScanWorldEventScenario(list)
     -- mythic.lua owns dungeons, delves, mythic+, and instance scenarios.
     -- quests.lua strictly only tracks outdoor world events (e.g. Dundun, Community Feast, Time Rifts, etc.)
@@ -1966,12 +1958,6 @@ local function ScanWorldEventScenario(list)
             if ok and sID and sID > 0 then CollectWidgetsFromSet(sID) end
         end
     end
-
-    CollectWidgetsFromContainer(_G.UIWidgetTopCenterContainerFrame)
-    CollectWidgetsFromContainer(_G.UIWidgetBelowMinimapContainerFrame)
-    CollectWidgetsFromContainer(_G.ObjectiveTrackerUIWidgetContainer)
-    CollectWidgetsFromContainer(_G.UIWidgetPowerBarFrame)
-    CollectWidgetsFromContainer(_G.UIWidgetCenterDisplayFrame)
 
     for _, wID in ipairs(staticWidgetIDList) do
         -- A. ScenarioHeaderTimer
@@ -3014,7 +3000,18 @@ CheckVisibilityAndRefresh = function()
     end
 end
 
-QL:SetScript("OnEvent", function(_, event, arg1, arg2)
+-- ─────────────────────────────────────────────────────────
+--  EVENTS
+-- ─────────────────────────────────────────────────────────
+-- Migrated from QL:SetScript("OnEvent") + per-event QL:RegisterEvent() to
+-- the central sfui.events dispatcher. Benefits:
+--   * Shares the same OnEvent dispatch pass as mythic.lua, eliminating the
+--     C_Timer.After(0) ordering workaround on PLAYER_ENTERING_WORLD.
+--   * UPDATE_UI_WIDGET, UPDATE_ALL_UI_WIDGETS, and zone transitions get
+--     RegisterThrottledEvent to absorb burst traffic before Lua is entered.
+--   * ADDON_LOADED is handled via the central frame (QL itself does not need
+--     to be an event frame at all — it remains purely a visual root panel).
+local function on_ql_event(event, arg1, arg2)
     if event == "PLAYER_LOGIN" then
         sfui.questlog.initialize()
 
@@ -3029,9 +3026,10 @@ QL:SetScript("OnEvent", function(_, event, arg1, arg2)
     elseif event == "PLAYER_ENTERING_WORLD" then
         local state = GetQLState()
         state.hidden = false
-        -- Defer one frame so mythic.lua (loaded after us) fires its
-        -- PLAYER_ENTERING_WORLD handler first and sets _mode before we evaluate.
-        C_Timer.After(0, CheckVisibilityAndRefresh)
+        -- No C_Timer.After(0) needed: the central dispatcher fires all
+        -- PLAYER_ENTERING_WORLD handlers in the same pass, so mythic.lua's
+        -- _mode is already set before CheckVisibilityAndRefresh runs here.
+        CheckVisibilityAndRefresh()
 
     elseif event == "SUPER_TRACKING_CHANGED" then
         SyncSuperTrackIndicator()
@@ -3143,12 +3141,18 @@ QL:SetScript("OnEvent", function(_, event, arg1, arg2)
     else
         Refresh:Request()
     end
-end)
+end  -- on_ql_event
 
--- pcall-wrapped registration (safe against removed/renamed events per MidnightObjective pattern)
-local function Reg(e) pcall(QL.RegisterEvent, QL, e) end
+-- ─────────────────────────────────────────────────────────
+--  EVENT REGISTRATION (central dispatcher)
+-- ─────────────────────────────────────────────────────────
+-- All events previously registered via QL:RegisterEvent are now routed
+-- through sfui.events so they share the global dispatcher frame.
+-- High-burst events use RegisterThrottledEvent to avoid redundant Lua calls.
 
-Reg("PLAYER_LOGIN")
+-- Helper: pcall-guarded registration matching the old Reg() pattern.
+local function Reg(e) sfui.events.RegisterEvent(e, on_ql_event) end
+
 Reg("PLAYER_REGEN_DISABLED")
 Reg("PLAYER_REGEN_ENABLED")
 Reg("ADDON_LOADED")
@@ -3164,7 +3168,6 @@ Reg("ACHIEVEMENT_EARNED")
 Reg("SCENARIO_UPDATE")
 Reg("SCENARIO_CRITERIA_UPDATE")
 Reg("SCENARIO_POI_UPDATE")
-Reg("SCENARIO_POIS_UPDATED")
 Reg("SCENARIO_SPELL_UPDATE")
 Reg("SCENARIO_CRITERIA_SHOW_STATE_UPDATE")
 Reg("SCENARIO_CRITERIA_PROGRESS_UPDATE")
@@ -3174,31 +3177,35 @@ Reg("CRITERIA_UPDATE")
 Reg("CRITERIA_COMPLETE")
 Reg("QUEST_CRITERIA_UPDATE")
 Reg("QUEST_POI_UPDATE")
-Reg("UPDATE_UI_WIDGET")
-Reg("UPDATE_ALL_UI_WIDGETS")
 Reg("ACTIVE_DELVE_DATA_UPDATE")
 Reg("CHALLENGE_MODE_START")
 Reg("CHALLENGE_MODE_COMPLETED")
 Reg("CHALLENGE_MODE_RESET")
-Reg("ZONE_CHANGED_NEW_AREA")
-Reg("ZONE_CHANGED")
-Reg("ZONE_CHANGED_INDOORS")
 Reg("SUPER_TRACKING_CHANGED")
 Reg("PLAYER_ENTERING_WORLD")
 
--- ─────────────────────────────────────────────────────────
---  SLASH COMMAND
--- ─────────────────────────────────────────────────────────
-SLASH_SFQL1 = "/sfql"
-SLASH_SFQL2 = "/sfquestlog"
-SlashCmdList["SFQL"] = function(msg)
-    local clean = msg and _G.strtrim and _G.strtrim(msg):lower() or (msg and msg:lower() or "")
-    if clean == "reset" or clean == "unhide" then
-        sfui.questlog.unhide_all()
-        return
+-- Zone change events fire simultaneously in triplicate on zone transitions.
+-- Throttle to 0.3s so the three events collapse into a single handler call.
+do
+    local function _on_zone_change(event, a1, a2)
+        on_ql_event(event, a1, a2)
     end
-    sfui.questlog.toggle()
+    sfui.events.RegisterThrottledEvent("ZONE_CHANGED_NEW_AREA",  0.3, _on_zone_change)
+    sfui.events.RegisterThrottledEvent("ZONE_CHANGED",           0.3, _on_zone_change)
+    sfui.events.RegisterThrottledEvent("ZONE_CHANGED_INDOORS",   0.3, _on_zone_change)
 end
+
+-- UPDATE_UI_WIDGET and UPDATE_ALL_UI_WIDGETS fire very frequently during
+-- Delve/M+ objective progression and in city hubs with widget boards.
+-- Throttle to 0.2s to absorb bursts before Lua dispatch is entered at all.
+do
+    local function _on_widget_update(event, a1, a2)
+        on_ql_event(event, a1, a2)
+    end
+    sfui.events.RegisterThrottledEvent("UPDATE_UI_WIDGET",      0.2, _on_widget_update)
+    sfui.events.RegisterThrottledEvent("UPDATE_ALL_UI_WIDGETS", 0.2, _on_widget_update)
+end
+
 
 function sfui.questlog_debug_info()
     local pCount, wCount, wqCount = 0, 0, 0

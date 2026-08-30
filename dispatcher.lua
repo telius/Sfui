@@ -4,22 +4,47 @@ sfui = sfui or {}
 -- ============================================================================
 -- SFUI Central Event Dispatcher
 --
--- Single-frame event routing for the entire addon.
+-- Single-frame event routing and throttled update management for the entire addon.
 --
 -- Usage:
 --   sfui.events.RegisterEvent("EVENT_NAME", function(event, ...) end)
 --   sfui.events.UnregisterEvent("EVENT_NAME", callback)
 --   sfui.events.RegisterUnitEvent("UNIT_AURA", "player", callback)
+--   sfui.events.RegisterUnitEvents({"UNIT_HEALTH", "UNIT_ABSORB_AMOUNT_CHANGED"}, "player", cb)
 --   sfui.events.UnregisterUnitEvent("UNIT_AURA", "player", callback)
+--   sfui.events.RegisterThrottledEvent("UPDATE_UI_WIDGET", 0.2, callback)
 --   sfui.events.RegisterUpdate("name", interval, callback)
 --
--- Design:
---   * One Frame object for all global (non-unit) events.
---   * One Frame object for all unit-filtered events (RegisterUnitEvent).
---   * OnEvent dispatches to per-event subscriber tables.
---   * pcall guards every callback so one error never silences others.
---   * Duplicate registration is silently skipped.
---   * Memory profiling hooks into sfui.mem when active.
+-- Architecture:
+--   * Single Global Frame (`SfuiDispatcherFrame`) for non-unit game events.
+--   * Isolated Per-Unit Frames (`SfuiDispatcherUnitFrame_<unit>`) for RegisterUnitEvent.
+--   * Snapshot scratch table (`_snap`) prevents mid-dispatch mutation errors.
+--   * Zero-overhead dispatch loop with conditional profiling (`_memActive`).
+--   * Minimum update interval floor (0.016s ≈ 60fps) on all RegisterUpdate loops.
+--
+-- Subsystems & Routing Destinations:
+--   Core & State:
+--     • core.lua                    - Scale recalculation (UI_SCALE_CHANGED), master boot sequence.
+--     • common.lua                  - Spec change cache, vehicle/flight state, out-of-combat queue.
+--     • commands.lua                - Keybinding synchronization (UPDATE_BINDINGS).
+--   Combat & UI Bars:
+--     • frames/bars.lua             - Player health, absorbs, power, runes, vigor, form changes.
+--     • frames/class/soulfragments.lua - Demon Hunter soul fragments, fury changes, void decay.
+--     • frames/trackedbars.lua      - Cooldown & aura status bars, spellcast edge mirrors.
+--     • frames/trackedicons.lua     - Cooldown & aura icon grid, charges, glow timeouts.
+--     • frames/vehicle.lua          - Vehicle health/energy bars, action button keybinds.
+--   Objectives & Dungeons:
+--     • frames/quests.lua           - Quest log, objective tracker, scenario criteria, zone cache.
+--     • frames/mythic.lua           - M+ & Delve HUD, keystone receptacle, deaths (UNIT_DIED).
+--   Utilities & Automation:
+--     • frames/alts.lua             - Warband alt sync, profession KP, trade skill updates.
+--     • frames/automation.lua       - Master's Hammer repair popup, role checks, LFG auto-confirm.
+--     • frames/merchant.lua         - Auto-junk selling & auto-repair vendor triggers.
+--     • frames/transfer.lua         - Warband bank transfer helper window.
+--     • frames/research.lua         - Trait tree & research currency updates.
+--     • frames/compare.lua          - Equipment auto-comparison CVar tracking.
+--     • frames/portals.lua          - Combat close & portal list synchronization.
+--     • frames/mem.lua              - Real-time memory allocation profiling & watcher hooks.
 -- ============================================================================
 
 sfui.events = {}
@@ -163,8 +188,12 @@ function sfui.events.RegisterEvent(event, callback)
     end
 
     if not eventCallbacks[event] then
+        local ok = pcall(ev_frame.RegisterEvent, ev_frame, event)
+        if not ok then
+            -- Unknown or deprecated event in current client build; ignore safely
+            return
+        end
         eventCallbacks[event] = {}
-        ev_frame:RegisterEvent(event)
     end
     local cbs = eventCallbacks[event]
     for i = 1, #cbs do
@@ -181,7 +210,7 @@ function sfui.events.UnregisterEvent(event, callback)
         if cbs[i] == callback then table.remove(cbs, i) end
     end
     if #cbs == 0 then
-        ev_frame:UnregisterEvent(event)
+        pcall(ev_frame.UnregisterEvent, ev_frame, event)
         eventCallbacks[event] = nil
     end
 end
@@ -209,7 +238,11 @@ function sfui.events.RegisterUnitEvent(event, unit, callback)
 
     local f = get_or_create_unit_frame(unit)
     if #cbs == 1 then
-        f:RegisterUnitEvent(event, unit)
+        local ok = pcall(f.RegisterUnitEvent, f, event, unit)
+        if not ok then
+            table.remove(cbs)
+            return
+        end
     end
 end
 
@@ -236,7 +269,7 @@ function sfui.events.UnregisterUnitEvent(event, unit, callback)
     end
     if #cbs == 0 then
         if unitFrames[unit] then
-            unitFrames[unit]:UnregisterEvent(event)
+            pcall(unitFrames[unit].UnregisterEvent, unitFrames[unit], event)
         end
         unitEventCallbacks[unit][event] = nil
     end

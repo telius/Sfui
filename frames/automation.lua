@@ -490,9 +490,6 @@ end)
 sfui.events.RegisterEvent("LFG_LIST_SEARCH_RESULTS_RECEIVED", function()
     C_Timer.After(0.1, initialize_lfg_buttons)
 end)
-sfui.events.RegisterEvent("PLAYER_LOGIN", function()
-    setup_lfg_dialog()
-end)
 sfui.events.RegisterEvent("BAG_UPDATE", function()
     hammerCache.checked = false
     hammerCache.found = false
@@ -644,10 +641,11 @@ local function init_auction_house_automation()
     end
 end
 
-sfui.events.RegisterEvent("PLAYER_LOGIN", function()
+function sfui.automation.initialize()
+    setup_lfg_dialog()
     init_keystone_automation()
     init_auction_house_automation()
-end)
+end
 
 sfui.events.RegisterEvent("AUCTION_HOUSE_SHOW", function()
     init_auction_house_automation()

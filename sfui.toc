@@ -54,4 +54,5 @@ frames/highest.lua
 frames/quests.lua
 frames/mythic.lua
 frames/mem.lua
+commands.lua
 

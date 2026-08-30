@@ -771,9 +771,9 @@ local function build_portals_frame()
                 end
             end
             if openLegacyMenu and openLegacyMenu:IsShown() then
-                local children = { openLegacyMenu:GetChildren() }
-                for _, child in ipairs(children) do
-                    if child.refresh then child.refresh() end
+                for i = 1, select("#", openLegacyMenu:GetChildren()) do
+                    local child = select(i, openLegacyMenu:GetChildren())
+                    if child and child.refresh then child.refresh() end
                 end
             end
         end

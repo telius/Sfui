@@ -883,8 +883,7 @@ end
 -- ---------------------------------------------------------------------------
 -- 5. SLASH COMMAND HANDLER
 -- ---------------------------------------------------------------------------
-SLASH_SFMEM1 = "/sfmem"
-SlashCmdList["SFMEM"] = function(msg)
+function sfui.mem.HandleSlash(msg)
     local clean = msg and _G.strtrim and _G.strtrim(msg):lower() or (msg and msg:lower() or "")
     local cmd, arg = clean:match("^(%S+)%s*(.*)$")
     cmd = cmd or clean
@@ -922,3 +921,4 @@ SlashCmdList["SFMEM"] = function(msg)
         sfui.mem.ToggleGUI()
     end
 end
+

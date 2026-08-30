@@ -183,7 +183,7 @@ local function UpdateCountText(icon, displayStr)
     else
         -- Non-secret: safe to branch. Convert to string for uniform dirty-check.
         -- "" or "0" hides the badge (no display count, or items with stack=0).
-        local str = (displayStr ~= nil and displayStr ~= 0) and tostring(displayStr) or ""
+        local str = (displayStr ~= nil and displayStr ~= 0) and sfui.common.get_cached_int_string(displayStr) or ""
         if str ~= "" and str ~= "0" then
             if icon._lastCount ~= str then
                 icon._lastCount = str

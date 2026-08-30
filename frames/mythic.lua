@@ -424,12 +424,6 @@ local function GetDelveInfo()
         local ok, bgSet = pcall(C_DelvesUI.GetDelveEntranceBackgroundWidgetSetID)
         if ok and bgSet then table.insert(staticWidgetSetIDs, bgSet) end
     end
-    if _G.UIWidgetTopCenterContainerFrame and _G.UIWidgetTopCenterContainerFrame.widgetSetID then
-        table.insert(staticWidgetSetIDs, _G.UIWidgetTopCenterContainerFrame.widgetSetID)
-    end
-    if _G.UIWidgetBelowMinimapContainerFrame and _G.UIWidgetBelowMinimapContainerFrame.widgetSetID then
-        table.insert(staticWidgetSetIDs, _G.UIWidgetBelowMinimapContainerFrame.widgetSetID)
-    end
     if C_UIWidgetManager then
         if C_UIWidgetManager.GetObjectiveTrackerWidgetSetID then
             local ok, id = pcall(C_UIWidgetManager.GetObjectiveTrackerWidgetSetID)
@@ -703,22 +697,22 @@ end
 
 local function GetCriteriaInfoSafe(criteriaIndex, stepID)
     if stepID and C_ScenarioInfo and C_ScenarioInfo.GetCriteriaInfoByStep then
-        local ok, info = pcall(C_ScenarioInfo.GetCriteriaInfoByStep, stepID, criteriaIndex)
-        if ok and info and type(info) == "table" then
+        local info = C_ScenarioInfo.GetCriteriaInfoByStep(stepID, criteriaIndex)
+        if info then
             info.description = info.description or info.criteriaString or info.string
             return info
         end
     end
     if C_ScenarioInfo and C_ScenarioInfo.GetCriteriaInfo then
-        local ok, info = pcall(C_ScenarioInfo.GetCriteriaInfo, criteriaIndex)
-        if ok and info and type(info) == "table" then
+        local info = C_ScenarioInfo.GetCriteriaInfo(criteriaIndex)
+        if info then
             info.description = info.description or info.criteriaString or info.string
             return info
         end
     end
     if C_Scenario and C_Scenario.GetCriteriaInfo then
-        local ok, desc, cType, comp, quant, totQuant, flags, assetID, quantStr, critID, dur, el, isWeight = pcall(C_Scenario.GetCriteriaInfo, criteriaIndex)
-        if ok and desc and desc ~= "" then
+        local desc, cType, comp, quant, totQuant, flags, assetID, quantStr, critID, dur, el, isWeight = C_Scenario.GetCriteriaInfo(criteriaIndex)
+        if desc and desc ~= "" then
             return {
                 description = desc,
                 criteriaType = cType,
@@ -736,8 +730,8 @@ local function GetCriteriaInfoSafe(criteriaIndex, stepID)
         end
     end
     if stepID and C_Scenario and C_Scenario.GetCriteriaInfoByStep then
-        local ok, desc, cType, comp, quant, totQuant, flags, assetID, quantStr, critID, dur, el, isWeight = pcall(C_Scenario.GetCriteriaInfoByStep, stepID, criteriaIndex)
-        if ok and desc and desc ~= "" then
+        local desc, cType, comp, quant, totQuant, flags, assetID, quantStr, critID, dur, el, isWeight = C_Scenario.GetCriteriaInfoByStep(stepID, criteriaIndex)
+        if desc and desc ~= "" then
             return {
                 description = desc,
                 criteriaType = cType,
@@ -1948,10 +1942,21 @@ local function UpdateInstanceState()
     -- Helper to test if a criteria is a progress/percentage bar objective
     local function IsProgressCriteria(info)
         if not info then return false end
-        if info.isWeightedProgress then return true end
+        if info.isWeightedProgress or info.weightedProgress then return true end
         if info.criteriaType == 8 then return true end
-        if info.totalQuantity == 100 or info.totalQuantity == 1000 then return true end
-        if info.quantityString and not issecretvalue(info.quantityString) and info.quantityString:find("%%") then return true end
+        local total = info.totalQuantity
+        if total and not issecretvalue(total) and (total == 100 or total == 1000) then return true end
+        local qStr = info.quantityString
+        if qStr and not issecretvalue(qStr) and qStr:find("%%") then return true end
+        local desc = info.description or info.criteriaString or info.string
+        if desc and not issecretvalue(desc) then
+            local lower = desc:lower()
+            if lower:find("%%") or lower:find("forces") or lower:find("enemy forces") or
+               lower:find("streitkräfte") or lower:find("troupes") or lower:find("fuerzas") or
+               lower:find("tropas") or lower:find("сила") then
+                return true
+            end
+        end
         return false
     end
 
@@ -2088,12 +2093,13 @@ local function UpdateInstanceState()
 
                     local nameStr = CleanObjectiveName(rawDesc)
                     if not isComplete and info.quantity and info.totalQuantity and info.totalQuantity > 1 then
-                        local isWeighted = IsProgressCriteria(info)
-                        if isWeighted then
-                            local pct = (info.totalQuantity == 1000 and info.quantity <= 100) and info.quantity or math_min(100, math_max(0, math_floor((info.quantity / info.totalQuantity) * 100)))
+                        if IsProgressCriteria(info) then
+                            local raw = info.quantityString and info.quantityString:gsub("%%", "") or info.quantity
+                            local cur = tonumber(raw) or 0
+                            local pct = (info.totalQuantity > 0) and math_floor((cur / info.totalQuantity) * 100) or cur
                             nameStr = nameStr .. " " .. string_format("|cff777777(%d%%)|r", pct)
                         else
-                            nameStr = nameStr .. " " .. string_format("|cff777777(%d/%d)|r", info.quantity, info.totalQuantity)
+                            nameStr = nameStr .. " " .. string_format("|cff777777(%s/%s)|r", tostring(info.quantity), tostring(info.totalQuantity))
                         end
                     end
                     r.name:SetText(nameStr)
@@ -2137,12 +2143,13 @@ local function UpdateInstanceState()
 
                             local nameStr = CleanObjectiveName(bDesc)
                             if not isComplete and bInfo.quantity and bInfo.totalQuantity and bInfo.totalQuantity > 1 then
-                                local isWeighted = IsProgressCriteria(bInfo)
-                                if isWeighted then
-                                    local pct = (bInfo.totalQuantity == 1000 and bInfo.quantity <= 100) and bInfo.quantity or math_min(100, math_max(0, math_floor((bInfo.quantity / bInfo.totalQuantity) * 100)))
+                                if IsProgressCriteria(bInfo) then
+                                    local raw = bInfo.quantityString and bInfo.quantityString:gsub("%%", "") or bInfo.quantity
+                                    local cur = tonumber(raw) or 0
+                                    local pct = (bInfo.totalQuantity > 0) and math_floor((cur / bInfo.totalQuantity) * 100) or cur
                                     nameStr = nameStr .. " " .. string_format("|cff777777(%d%%)|r", pct)
                                 else
-                                    nameStr = nameStr .. " " .. string_format("|cff777777(%d/%d)|r", bInfo.quantity, bInfo.totalQuantity)
+                                    nameStr = nameStr .. " " .. string_format("|cff777777(%s/%s)|r", tostring(bInfo.quantity), tostring(bInfo.totalQuantity))
                                 end
                             end
                             r.name:SetText(nameStr)
@@ -2229,58 +2236,16 @@ local function UpdateInstanceState()
 
     HideExtraBossRows(bossCount)
 
-    -- Forces bar — info already in hand from the backward scan above.
+    -- Forces bar (Direct API info forwarding matching MPlusTimer)
     if forcesInfo then
-        local rawStr = forcesInfo.quantityString or ""
-        local current = forcesInfo.quantity or 0
         local total = forcesInfo.totalQuantity or 100
-        local pct = 0
+        local rawCurrent = forcesInfo.quantityString and forcesInfo.quantityString:gsub("%%", "") or forcesInfo.quantity
+        local current = tonumber(rawCurrent) or 0
+        local percent = (total and total > 0) and (current / total) * 100 or current
 
-        -- 1. Check if quantityString is fractional count: e.g. "186/301"
-        local curMatch, totMatch = rawStr:match("(%d+)/(%d+)")
-        if curMatch and totMatch then
-            current = tonumber(curMatch) or current
-            total   = tonumber(totMatch) or total
-            if total > 0 then
-                pct = (current / total) * 100
-            end
-        else
-            -- 2. Direct 0-100 percentage integer on criteria.quantity (standard for weighted progress criteria)
-            if forcesInfo.isWeightedProgress or forcesInfo.criteriaType == 8 or total == 100 or total == 1000 then
-                if total == 1000 then
-                    if current <= 100 and current >= 0 then
-                        pct = current
-                    else
-                        pct = (current / 1000) * 100
-                    end
-                elseif total == 100 then
-                    pct = current
-                elseif total > 0 then
-                    pct = (current / total) * 100
-                else
-                    pct = current
-                end
-            else
-                -- 3. Check if rawStr is formatted as a percentage: e.g. "97%", "97.45%"
-                local pctMatch = rawStr:match("(%d+%.?%d*)%s*%%")
-                if pctMatch then
-                    local pVal = tonumber(pctMatch) or 0
-                    if pVal <= 100 then
-                        pct = pVal
-                    elseif total > 0 then
-                        pct = (pVal / total) * 100
-                    end
-                elseif total > 0 and current > 0 then
-                    pct = (current / total) * 100
-                end
-            end
-        end
-
-        pct = math_min(100, math_max(0, pct))
-
-        local isCompleted = (forcesInfo.completed == true) or (pct >= 100)
-        MF.forcesBar:SetMinMaxValues(0, 100)
-        MF.forcesBar:SetValue(isCompleted and 100 or pct)
+        local isCompleted = (forcesInfo.completed == true) or (percent >= 100)
+        MF.forcesBar:SetMinMaxValues(0, total)
+        MF.forcesBar:SetValue(isCompleted and total or current)
 
         if isCompleted then
             MF.forcesBar:SetStatusBarColor(0.20, 1.00, 0.40, 0.90)
@@ -2290,8 +2255,8 @@ local function UpdateInstanceState()
             if isMythic and isCompleted and not _forcesSplitTime then
                 local currentRunElapsed = 0
                 if _timerID then
-                    local okE, _, curRunElapsed = pcall(GetWorldElapsedTime, _timerID)
-                    if okE and curRunElapsed and curRunElapsed > 0 then
+                    local _, curRunElapsed = GetWorldElapsedTime(_timerID)
+                    if curRunElapsed and curRunElapsed > 0 then
                         currentRunElapsed = curRunElapsed
                     end
                 end
@@ -2321,8 +2286,12 @@ local function UpdateInstanceState()
             MF.forcesCountText:SetText("")
         else
             MF.forcesBar:SetStatusBarColor(0.40, 0.00, 1.00, 0.85)
-            MF.forcesText:SetText(string_format("%.2f%% / 100%%", pct))
-            MF.forcesCountText:SetText("")
+            MF.forcesText:SetText(string_format("%.2f%% / 100%%", percent))
+            if total > 100 then
+                MF.forcesCountText:SetText(string_format("%s/%s", current, total))
+            else
+                MF.forcesCountText:SetText("")
+            end
         end
     else
         MF.forcesText:SetText("—")
@@ -2942,22 +2911,28 @@ local function RequestStateUpdate(delay)
     C_Timer.After(delay or 0.4, _OnStateUpdateTimer)
 end
 
--- ─── Event Frame ──────────────────────────────────────────
-local ev = CreateFrame("Frame")
-
-ev:SetScript("OnEvent", function(self, event, ...)
+-- ─────────────────────────────────────────────────────────
+--  EVENTS (Central Dispatcher)
+-- ─────────────────────────────────────────────────────────
+local function on_mythic_event(event, ...)
     if event == "CHALLENGE_MODE_START" then
         _mode = "mythic"
         _runCompleted = false
         wipe(_playerDeaths)
         CacheGroupMembers()
         SyncBlizzardRunHistory()
+        -- Register UNIT_DIED dynamically: only needed during an active M+ run
+        -- to count player deaths per name. Avoids open-world / raid / Delve
+        -- UNIT_DIED traffic being dispatched outside active runs.
+        sfui.events.RegisterEvent("UNIT_DIED", on_mythic_event)
         if sfui.questlog and sfui.questlog.on_mythic_start then
             sfui.questlog.on_mythic_start()
         end
         ShowHUD()
     elseif event == "CHALLENGE_MODE_COMPLETED" then
         StopTicker()
+        -- UNIT_DIED no longer needed once the run ends.
+        sfui.events.UnregisterEvent("UNIT_DIED", on_mythic_event)
         if _mode == "mythic" then
             _runCompleted = true
             UpdateTimer()
@@ -2968,13 +2943,15 @@ ev:SetScript("OnEvent", function(self, event, ...)
     elseif event == "CHALLENGE_MODE_RESET" then
         _runCompleted = false
         _mode = nil
+        -- Unregister UNIT_DIED: no active run to track deaths for.
+        sfui.events.UnregisterEvent("UNIT_DIED", on_mythic_event)
         HideHUD()
         if sfui.questlog and sfui.questlog.on_mythic_end then
             sfui.questlog.on_mythic_end()
         end
     elseif event == "SCENARIO_CRITERIA_UPDATE" or event == "SCENARIO_UPDATE" or
-        event == "ACTIVE_DELVE_DATA_UPDATE" or event == "UPDATE_UI_WIDGET" or
-        event == "SCENARIO_COMPLETED" or event == "SCENARIO_POIS_UPDATED" or
+        event == "ACTIVE_DELVE_DATA_UPDATE" or
+        event == "SCENARIO_COMPLETED" or
         event == "SCENARIO_SPELL_UPDATE" then
         if sfui.SuppressBlizzardTracker then
             sfui.SuppressBlizzardTracker()
@@ -3027,28 +3004,43 @@ ev:SetScript("OnEvent", function(self, event, ...)
     elseif event == "WORLD_STATE_TIMER_START" or event == "WORLD_STATE_TIMER_STOP" then
         if _mode == "mythic" then ReinitTimer() end
     end
-end)
+end
 
-local function Reg(e) pcall(ev.RegisterEvent, ev, e) end
+local function Reg(e) sfui.events.RegisterEvent(e, on_mythic_event) end
 Reg("CHALLENGE_MODE_START")
 Reg("CHALLENGE_MODE_COMPLETED")
 Reg("CHALLENGE_MODE_RESET")
 Reg("CHALLENGE_MODE_DEATH_COUNT_UPDATED")
 Reg("CHALLENGE_MODE_KEYSTONE_RECEPTABLE_OPEN")
-Reg("UNIT_DIED")
+-- UNIT_DIED is registered dynamically inside CHALLENGE_MODE_START and unregistered on COMPLETED/RESET.
 Reg("GROUP_ROSTER_UPDATE")
 Reg("SCENARIO_UPDATE")
 Reg("SCENARIO_CRITERIA_UPDATE")
 Reg("SCENARIO_COMPLETED")
-Reg("SCENARIO_POIS_UPDATED")
 Reg("SCENARIO_SPELL_UPDATE")
 Reg("ACTIVE_DELVE_DATA_UPDATE")
-Reg("UPDATE_UI_WIDGET")
 Reg("UPDATE_FACTION")
 Reg("PLAYER_ENTERING_WORLD")
 Reg("ZONE_CHANGED_NEW_AREA")
 Reg("WORLD_STATE_TIMER_START")
 Reg("WORLD_STATE_TIMER_STOP")
+
+-- UPDATE_UI_WIDGET: throttled at 0.2s via the central dispatcher.
+-- Replaces Reg("UPDATE_UI_WIDGET") which would fire 10-20x/sec in city hubs.
+do
+    local function _on_widget_update()
+        if sfui.SuppressBlizzardTracker then
+            sfui.SuppressBlizzardTracker()
+        end
+        if _mode == nil then
+            local okInst, inInst = pcall(_G.IsInInstance)
+            if not (okInst and inInst) then return end
+            CheckScenarioState()
+        end
+        RequestStateUpdate(0.4)
+    end
+    sfui.events.RegisterThrottledEvent("UPDATE_UI_WIDGET", 0.2, _on_widget_update)
+end
 
 function sfui.mythic_debug_info()
     local deathCount = 0

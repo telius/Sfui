@@ -6,4 +6,7 @@
     <Binding name="SFUI_PORTALS" category="SFUI">
         if sfui and sfui.portals and sfui.portals.Toggle then sfui.portals.Toggle() end
     </Binding>
+    <Binding name="SFUI_ALTS" category="SFUI">
+        if sfui and sfui.alts and sfui.alts.Toggle then sfui.alts.Toggle() end
+    </Binding>
 </Bindings>

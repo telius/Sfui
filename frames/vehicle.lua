@@ -560,12 +560,10 @@ local function UpdateBar()
             btn:SetAlpha(0)
         end
 
-        -- Keybind label
-        local key = GetBindingKey(BINDING_NAMES[i])
-        if key then
-            key = key:gsub("SHIFT%-","S-"):gsub("CTRL%-","C-"):gsub("ALT%-","A-"):gsub("NUMPAD","N")
-        end
-        btn.kb:SetText(key or "")
+        -- Keybind label (centralized formatter)
+        local keyText = sfui.keybinds and sfui.keybinds.get_action_key and sfui.keybinds.get_action_key(BINDING_NAMES[i])
+            or (GetBindingKey and GetBindingKey(BINDING_NAMES[i])) or ""
+        btn.kb:SetText(keyText)
 
         -- Masque re-sync
         common.sync_masque(btn, btn.masqueSubElements)

@@ -20,15 +20,6 @@ local C_UI = C_UI
 local C_AddOns = C_AddOns
 local LibStub = LibStub
 
-BINDING_HEADER_SFUI = "SFUI"
-_G["BINDING_NAME_CLICK SfuiHammerPopup:LeftButton"] = "master's hammer repair"
-_G["BINDING_NAME_SFUI_MATCHMOUNT"] = "match target mount"
-_G["BINDING_NAME_SFUI_PORTALS"] = "portals"
-
-
-SLASH_SFUI1 = "/sfui"
-SLASH_RL1 = "/rl"
-
 local function update_pixel_scale()
     local resolution = GetCVar("gxWindowedResolution")
     if resolution then
@@ -41,83 +32,6 @@ sfui.update_pixel_scale = update_pixel_scale
 -- Scale updates via central dispatcher
 sfui.events.RegisterEvent("UI_SCALE_CHANGED", update_pixel_scale)
 
-
-function sfui.slash_command_handler(msg)
-    if msg == "" then
-        if sfui.toggle_options_panel then sfui.toggle_options_panel() else sfui.common.print(
-            "sfui: options panel not available.") end
-    elseif msg == "research" then
-        if sfui.research and sfui.research.toggle_selection then
-            sfui.research.toggle_selection()
-        else
-            sfui.common.print("sfui: research viewer not available.")
-        end
-    elseif msg == "cv" then
-        if sfui.trackedoptions and sfui.trackedoptions.toggle_viewer then
-            sfui.trackedoptions.toggle_viewer()
-        else
-            sfui.common.print("sfui: cooldown viewer not available.")
-        end
-    elseif msg == "ql" or msg == "quests" or msg == "questlog" then
-        if sfui.questlog and sfui.questlog.toggle then
-            sfui.questlog.toggle()
-        else
-            sfui.common.print("sfui: quest log not available.")
-        end
-    elseif msg == "alts" then
-        if sfui.alts and sfui.alts.Toggle then
-            sfui.alts.Toggle()
-        else
-            sfui.common.print("sfui: alts viewer not available.")
-        end
-    elseif msg == "portals" or msg == "portal" then
-        if sfui.portals and sfui.portals.toggle_menu then
-            sfui.portals.toggle_menu()
-        else
-            sfui.common.print("sfui: portals menu not available.")
-        end
-    elseif msg == "gear" then
-        if sfui.gear and sfui.gear.toggle then
-            sfui.gear.toggle()
-        else
-            sfui.common.print("sfui: gear manager not available.")
-        end
-    elseif msg == "highest" then
-        if sfui.highest and sfui.highest.toggle then
-            sfui.highest.toggle()
-        else
-            sfui.common.print("sfui: highest ilvl viewer not available.")
-        end
-    elseif msg == "lootspec" or msg == "spec" then
-        if sfui.lootspec and sfui.lootspec.toggle then
-            sfui.lootspec.toggle()
-        else
-            sfui.common.print("sfui: loot spec manager not available.")
-        end
-    elseif msg == "mythic" or msg == "m+" or msg == "dungeon" or msg == "delve" then
-        if sfui.mythic and sfui.mythic.ShowPreview and sfui.mythic.HidePreview then
-            if sfui.mythic.previewActive then
-                sfui.mythic.HidePreview()
-            else
-                sfui.mythic.ShowPreview()
-            end
-        else
-            sfui.common.print("sfui: mythic/delve tracker not available.")
-        end
-    elseif msg:match("^mem") or msg:match("^memory") or msg == "gc" then
-        local sub = msg:match("^mem%s*(.*)$") or msg:match("^memory%s*(.*)$") or msg
-        if SlashCmdList["SFMEM"] then
-            SlashCmdList["SFMEM"](sub)
-        end
-    end
-end
-
-function sfui.reload_ui_handler(msg)
-    C_UI.Reload()
-end
-
-SlashCmdList["SFUI"] = sfui.slash_command_handler
-SlashCmdList["RL"] = sfui.reload_ui_handler
 sfui.events.RegisterEvent("ADDON_LOADED", function(_, name)
     if string_lower(name or "") == "sfui" then
         local LSM = LibStub("LibSharedMedia-3.0", true)
@@ -215,6 +129,15 @@ sfui.events.RegisterEvent("PLAYER_LOGIN", function(event)
         if sfui.bars and sfui.bars.on_state_changed then
             sfui.bars:on_state_changed()
         end
+        if sfui.castbar and sfui.castbar.initialize then
+            sfui.castbar.initialize()
+        end
+        if sfui.compare and sfui.compare.init then
+            sfui.compare.init()
+        end
+        if sfui.gear and sfui.gear.initialize then
+            sfui.gear.initialize()
+        end
         if sfui.research and sfui.research.initialize then
             sfui.research.initialize()
         end
@@ -306,9 +229,7 @@ sfui.events.RegisterEvent("PLAYER_LOGIN", function(event)
                 end
             end, -155)
 
-            SfuiMinimapMenu.throttle = 0
-            SfuiMinimapMenu.hideTimer = 0
-            SfuiMinimapMenu:SetScript("OnUpdate", function(self, elapsed)
+            local function on_menu_update(self, elapsed)
                 self.throttle = self.throttle + elapsed
                 if self.throttle < 0.5 then return end
                 self.throttle = 0
@@ -321,6 +242,15 @@ sfui.events.RegisterEvent("PLAYER_LOGIN", function(event)
                         self:Hide()
                     end
                 end
+            end
+
+            SfuiMinimapMenu:SetScript("OnShow", function(self)
+                self.throttle = 0
+                self.hideTimer = 0
+                self:SetScript("OnUpdate", on_menu_update)
+            end)
+            SfuiMinimapMenu:SetScript("OnHide", function(self)
+                self:SetScript("OnUpdate", nil)
             end)
             SfuiMinimapMenu:Hide()
         end

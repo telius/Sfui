@@ -237,6 +237,9 @@ do
         if not resource then return end
         local max, current = UnitPowerMax("player", resource), UnitPower("player", resource)
         if not max or max <= 0 then return end
+        -- Note: UnitPower/UnitPowerMax return secret values in vehicle/M+ contexts.
+        -- Comparing them with == taints execution. SetValue handles secret values
+        -- internally in the C engine, so we always pass them through unconditionally.
         bar:SetMinMaxValues(0, max)
         bar:SetValue(current)
         local color = common.get_class_or_spec_color()
@@ -516,6 +519,8 @@ do
             return
         end
 
+        -- Note: secondary resource values (e.g. Fury, Stagger) may also be
+        -- secret in some contexts. Always pass through to SetValue unconditionally.
         local bar = get_bar1()
         bar.TextValue:SetText(current)
         bar:SetMinMaxValues(0, max)
@@ -627,6 +632,7 @@ do
         bar.TextValue:SetShadowOffset(1, -1)
         bar.TextValue:SetPoint("CENTER")
         bar.lastSpeed = 0 -- Cache for change detection
+        bar:SetMinMaxValues(0, 1200)
 
         -- Speed requires polling as there is no gliding speed event.
         -- OnUpdate is installed/removed dynamically by update_mount_speed_bar_internal
@@ -665,16 +671,20 @@ do
 
         local _, _, forwardSpeed = C_PlayerInfo.GetGlidingInfo()
         if not forwardSpeed then return end
-        local speed = forwardSpeed * 14.286
-        local maxSpeed = 1200
-        bar:SetMinMaxValues(0, maxSpeed)
+
+        local ok, speed = pcall(function() return forwardSpeed * 14.286 end)
+        if not ok or not speed then return end
+
+        -- SetValue accepts secret values directly in C++
         bar:SetValue(speed)
 
-        -- Only update text if speed changed significantly (>5 units)
-        if math.abs(speed - bar.lastSpeed) > 5 then
-            bar.TextValue:SetFormattedText("%d", speed)
-            bar.lastSpeed = speed
-        end
+        -- Text update guarded in pcall against secret comparison restrictions during combat
+        pcall(function()
+            if math.abs(speed - (bar.lastSpeed or 0)) > 5 then
+                bar.TextValue:SetFormattedText("%d", speed)
+                bar.lastSpeed = speed
+            end
+        end)
 
         local aura = C_UnitAuras.GetPlayerAuraBySpellID(377234)
         if aura then

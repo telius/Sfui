@@ -132,39 +132,38 @@ function ButtonManager:is_button(frame)
     if frame.IsForbidden and frame:IsForbidden() then return false end
     if frame.IsProtected and frame:IsProtected() then return false end
 
-    if not name then
-        -- Check if it's a generic child we should ignore
-        if frame.IsObjectType and frame:IsObjectType("Button") then
-            -- POI and World Quest buttons often have no name in Dragonflight/TWW
-            return false
-        end
+    -- NEVER touch Blizzard MapCanvas, MapDataProvider, MapPins, POIs, Vignettes, or AreaPOI frames
+    if frame.dataProvider or frame.owningMap or frame.pinTemplate or frame.GetMap or
+       frame.pinFrameLevelType or frame.normalizedX or frame.poiInfo or frame.isPin or
+       frame.superTracked or frame.textureKit or frame.GetElementData or frame.nudgeTargetFactor then
+        if name then ignoreNameCache[name] = true end
+        return false
+    end
+
+    -- Addon minimap buttons must be named frames
+    if not name or type(name) ~= "string" or name == "" then
         return false
     end
 
     if ignoreNameCache[name] then return false end
     if validNameCache[name] then return true end
 
-    -- Filter out Blizzard internal/protected buttons with surgical patterns
-    -- We use specific prefixes instead of broad substrings like "poi" or "quest"
-    -- to avoid clobbering addons like "MyusKnowledgePointsTracker".
+    -- Filter out Blizzard internal/protected buttons and all map pin/POI variations
     local lowerName = name:lower()
-    if lowerName:find("^minimap") or lowerName:find("^areapoi") or lowerName:find("^minimappoi") then
-        ignoreNameCache[name] = true; return false
-    end
-    if lowerName:find("^worldquest") or lowerName:find("^warband") or lowerName:find("^scenario") then
-        ignoreNameCache[name] = true; return false
-    end
-    if lowerName:find("cluster") or lowerName:find("gametime") or lowerName:find("micro") or lowerName:find("timemanager") or lowerName:find("clock") then
-        ignoreNameCache[name] = true; return false
-    end
-    if lowerName:find("flight") or lowerName:find("garrison") then
-        ignoreNameCache[name] = true; return false
-    end
-    if lowerName:find("actionbar") or lowerName:find("petbattle") then
-        ignoreNameCache[name] = true; return false
-    end
-    if lowerName:find("^blizzard_") or lowerName:find("^blizzard") then
-        ignoreNameCache[name] = true; return false
+    if lowerName:find("poi") or lowerName:find("pin") or lowerName:find("canvas") or
+       lowerName:find("vignette") or lowerName:find("worldquest") or lowerName:find("bonus") or
+       lowerName:find("dungeon") or lowerName:find("delve") or lowerName:find("scenario") or
+       lowerName:find("minimap") or lowerName:find("worldmap") or lowerName:find("cluster") or
+       lowerName:find("tracking") or lowerName:find("blizzard") or lowerName:find("indicator") or
+       lowerName:find("crafting") or lowerName:find("gathering") or lowerName:find("gametime") or
+       lowerName:find("clock") or lowerName:find("flight") or lowerName:find("garrison") or
+       lowerName:find("actionbar") or lowerName:find("petbattle") or lowerName:find("expansion") or
+       lowerName:find("eye") or lowerName:find("queue") or lowerName:find("compass") or
+       lowerName:find("overlay") or lowerName:find("micro") or lowerName:find("timemanager") or
+       lowerName:find("warband") or lowerName:find("instance") or lowerName:find("anchor") or
+       lowerName:find("header") or lowerName:find("zone") then
+        ignoreNameCache[name] = true
+        return false
     end
 
     if type(frame.IsObjectType) ~= "function" then return false end

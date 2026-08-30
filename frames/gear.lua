@@ -159,11 +159,10 @@ local function TryEquipSet(setName)
         local name, icon, _, isEquipped = C_EquipmentSet.GetEquipmentSetInfo(setID)
         if isEquipped then return false end
         if InCombatLockdown() then
-            if not gearEquipQueue then
-                -- We only register this transiently when an equip is queued
-                sfui.events.RegisterEvent("PLAYER_REGEN_ENABLED", sfui.gear.handle_player_regen)
-            end
             gearEquipQueue = setID
+            if common and common.run_after_combat then
+                common.run_after_combat(sfui.gear.handle_player_regen)
+            end
             return false
         end
         if UnitCastingInfo("player") or UnitChannelInfo("player") then
@@ -625,7 +624,6 @@ function sfui.gear.handle_player_regen()
             end
             gearEquipQueue = nil
             regenRetries = 0
-            sfui.events.UnregisterEvent("PLAYER_REGEN_ENABLED", sfui.gear.handle_player_regen)
         elseif regenRetries < 5 then
             -- Still casting post-combat: retry up to 5 times (10 s total) then give up
             regenRetries = regenRetries + 1
@@ -634,7 +632,6 @@ function sfui.gear.handle_player_regen()
             -- Give up: discard the queued set equip
             gearEquipQueue = nil
             regenRetries = 0
-            sfui.events.UnregisterEvent("PLAYER_REGEN_ENABLED", sfui.gear.handle_player_regen)
         end
     end
 end
@@ -1530,7 +1527,7 @@ local function InitPaperDollLockHook()
     end
 end
 
-sfui.events.RegisterEvent("PLAYER_LOGIN", function()
+function sfui.gear.initialize()
     -- Global single-pass legacy DB migration
     if SfuiDB and SfuiDB.gear then
         for specID, db in pairs(SfuiDB.gear) do
@@ -1568,7 +1565,7 @@ sfui.events.RegisterEvent("PLAYER_LOGIN", function()
             lastEquippedItems[slotID] = link and GetItemInfoInstant(link)
         end
     end
-end)
+end
 
 function sfui.gear_debug_info()
     local eqCount = 0

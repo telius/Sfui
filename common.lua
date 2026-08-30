@@ -73,17 +73,64 @@ function sfui.common.IsNumericAndPositive(value)
     return ok and result
 end
 
--- Reusable buffer for string.format
-local fmt_cache = "%.0f"
-local function pcall_format(val, decimals)
-    local fmt = (decimals == 0) and "%.0f" or ("%." .. (decimals or 0) .. "f")
-    return string.format(fmt, val)
+-- ────────────────────────────────────────────────────────────────────────────
+-- Pre-computed String Lookup Tables (Zero-Allocation Hot Path)
+-- ────────────────────────────────────────────────────────────────────────────
+local INT_STR_LUT = {}
+for i = 0, 200 do
+    INT_STR_LUT[i] = tostring(i)
 end
 
--- Safe duration formatting
+local DEC_STR_LUT = {}
+for i = 1, 50 do
+    DEC_STR_LUT[i] = string.format("%.1f", i / 10)
+end
+
+local FMT_PATTERNS = {
+    [0] = "%.0f",
+    [1] = "%.1f",
+    [2] = "%.2f",
+}
+
+--- Fast zero-allocation integer-to-string lookup for numbers 0-200.
+--- Falls back to tostring for larger values and handles secret values safely.
+function sfui.common.get_cached_int_string(val)
+    if val == nil then return "" end
+    local t = type(val)
+    if t == "number" then
+        local floorVal = math.floor(val)
+        return INT_STR_LUT[floorVal] or tostring(floorVal)
+    elseif t == "string" then
+        return val
+    end
+    local ok, str = pcall(tostring, val)
+    return ok and str or ""
+end
+
+--- Safe zero-allocation duration formatting.
+--- Utilizes pre-computed LUT for integer seconds (0-200s) and fast sub-5s decimals (0.1-5.0s).
 function sfui.common.SafeFormatDuration(value, decimals)
     if value == nil then return "" end
-    local ok, formatted = pcall(pcall_format, tonumber(value), decimals or 0)
+    if issecretvalue(value) then return value end
+
+    local num = tonumber(value)
+    if not num then return tostring(value) end
+
+    decimals = decimals or 0
+    if decimals == 0 then
+        local intVal = math.floor(num + 0.5)
+        if intVal >= 0 and intVal <= 200 then
+            return INT_STR_LUT[intVal]
+        end
+    elseif decimals == 1 and num >= 0.1 and num <= 5.0 then
+        local decKey = math.floor(num * 10 + 0.5)
+        if decKey >= 1 and decKey <= 50 then
+            return DEC_STR_LUT[decKey]
+        end
+    end
+
+    local fmt = FMT_PATTERNS[decimals] or ("%." .. decimals .. "f")
+    local ok, formatted = pcall(string.format, fmt, num)
     return ok and formatted or tostring(value)
 end
 
@@ -948,6 +995,57 @@ function sfui.common.get_current_spec_id()
     if cachedSpecID == 0 then update_cached_spec_id() end
     return cachedSpecID
 end
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- Central Out-of-Combat Action Queue
+-- ────────────────────────────────────────────────────────────────────────────
+local _oocQueue = {}
+local _oocProcessing = false
+
+--- Enqueue a callback to be executed when the player is out of combat lockdown.
+--- If not currently in combat lockdown, the callback executes immediately.
+--- Callbacks are executed inside pcall to prevent errors from breaking the queue.
+--- @param callback function
+function sfui.common.run_after_combat(callback)
+    if type(callback) ~= "function" then return end
+    if not InCombatLockdown() then
+        local ok, err = pcall(callback)
+        if not ok then
+            print("|cff6600ffsfui|r run_after_combat error: " .. tostring(err))
+        end
+    else
+        _oocQueue[#_oocQueue + 1] = callback
+    end
+end
+
+local function flush_ooc_queue()
+    if _oocProcessing or #_oocQueue == 0 then return end
+    _oocProcessing = true
+    local count = #_oocQueue
+    for i = 1, count do
+        local fn = _oocQueue[i]
+        _oocQueue[i] = nil
+        if fn then
+            local ok, err = pcall(fn)
+            if not ok then
+                print("|cff6600ffsfui|r ooc callback error: " .. tostring(err))
+            end
+        end
+    end
+    -- Compact any items enqueued during callback execution
+    local remaining = #_oocQueue
+    if remaining > 0 then
+        local writeIdx = 1
+        for i = count + 1, remaining do
+            _oocQueue[writeIdx] = _oocQueue[i]
+            _oocQueue[i] = nil
+            writeIdx = writeIdx + 1
+        end
+    end
+    _oocProcessing = false
+end
+
+sfui.events.RegisterEvent("PLAYER_REGEN_ENABLED", flush_ooc_queue)
 
 -- ------------------------------------------------------------
 -- Central Vehicle and Dragonflying / Skyriding State Cache

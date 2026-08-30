@@ -30,6 +30,3 @@ function sfui.compare.init()
     sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", update_cvar)
     sfui.events.RegisterEvent("PLAYER_EQUIPMENT_CHANGED", update_cvar)
 end
-
--- Initialize on load
-sfui.events.RegisterEvent("PLAYER_LOGIN", sfui.compare.init)
