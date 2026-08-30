@@ -31,19 +31,6 @@ jobs:
           # 1. Reading .pkgmeta
           # 2. Downloading externals (Libs)
           # 3. Zipping the addon
-          # 4. Creating a GitHub Release
+          # 4. Creating a GitHub Release with release.json for WowUp
           # 5. Uploading to CF/Wago if tokens are present
-
-      - name: Prune Previous GitHub Releases
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          CURRENT_TAG="${{ github.ref_name }}"
-          echo "Pruning older releases (keeping $CURRENT_TAG)..."
-          gh release list --limit 1000 --json tagName --jq ".[] | select(.tagName != \"$CURRENT_TAG\") | .tagName" | while read -r tag; do
-            if [ -n "$tag" ]; then
-              echo "Deleting old release $tag..."
-              gh release delete "$tag" -y || true
-            fi
-          done
 
