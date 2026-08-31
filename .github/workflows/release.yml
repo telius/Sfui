@@ -25,12 +25,10 @@ jobs:
 
       - name: Package and Release
         uses: BigWigsMods/packager@v2
-        with:
-          args: -n sfui
-          # The packager automatically handles:
-          # 1. Reading .pkgmeta
-          # 2. Downloading externals (Libs)
-          # 3. Zipping the addon
-          # 4. Creating a GitHub Release with release.json for WowUp
-          # 5. Uploading to CF/Wago if tokens are present
+        # The packager automatically handles:
+        # 1. Reading .pkgmeta (package-as: sfui)
+        # 2. Downloading externals (Libs)
+        # 3. Generating standard {package-name}-{version}.zip for WowUp
+        # 4. Creating GitHub Release with release.json for WowUp
+        # 5. Uploading to CF/Wago if tokens are present
 

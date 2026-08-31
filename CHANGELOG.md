@@ -4,6 +4,16 @@
 
 ---
 
+## v12.1.0-18 (2026-08-31)
+
+### CI & Distribution
+- **Fixed WowUp Release Asset Matching (`.github/workflows/release.yml`)**:
+  - Removed `-n sfui` zip name override from BigWigs Packager.
+  - Releases now generate standard `{package-name}-{version}.zip` (e.g. `sfui-v12.1.0-18.zip`), allowing WowUp's GitHub provider to correctly extract and match the version string instead of displaying `sfui.zip`.
+  - Addon contents remain properly encapsulated in the `sfui/` folder via `package-as: sfui` in `.pkgmeta`.
+
+---
+
 ## v12.1.0-17 (2026-08-31)
 
 ### Major Improvements & Taint Elimination
