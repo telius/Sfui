@@ -128,14 +128,9 @@ local function SpecIcon(specID)
 end
 
 local function GetSpecColor(specID)
-    if not specID or specID == 0 then return 0.35, 0.35, 0.35, 1 end
-    local specColor = sfui.config and sfui.config.spec_colors and sfui.config.spec_colors[specID]
-    if specColor then
-        return specColor[1], specColor[2], specColor[3], 1
+    if sfui.common and sfui.common.get_spec_color then
+        return sfui.common.get_spec_color(specID)
     end
-    local _, _, _, _, _, classFile = GetSpecializationInfoByID(specID)
-    local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-    if cc then return cc.r, cc.g, cc.b, 1 end
     return 0.0, 0.8, 1.0, 1
 end
 
@@ -642,6 +637,9 @@ local function AcquireRow(parent)
                     else db[self.storageKey][self.keyID] = CycleSpec(cur) end
                 end
                 self:Refresh()
+                if sfui.portals and sfui.portals.RebuildBadges then
+                    sfui.portals.RebuildBadges()
+                end
             end)
             b:SetScript("OnEnter", function(self)
                 if not self.keyID then return end

@@ -198,8 +198,10 @@ local currentHoverFrame = nil
 local function arm_spell(spellID, portalID, frame)
     if InCombatLockdown() then return end
     currentHoverFrame = frame
-    actionBtn:SetAttribute("type", "spell")
-    actionBtn:SetAttribute("spell", spellID)
+    actionBtn:SetAttribute("type", nil)
+    actionBtn:SetAttribute("spell", nil)
+    actionBtn:SetAttribute("type1", "spell")
+    actionBtn:SetAttribute("spell1", spellID)
     if portalID and player_has_spell(portalID) then
         actionBtn:SetAttribute("type2", "spell")
         actionBtn:SetAttribute("spell2", portalID)
@@ -216,8 +218,11 @@ end
 local function arm_toy(toyID, frame)
     if InCombatLockdown() then return end
     currentHoverFrame = frame
-    actionBtn:SetAttribute("type", "toy")
-    actionBtn:SetAttribute("toy", toyID)
+    actionBtn:SetAttribute("type", nil)
+    actionBtn:SetAttribute("spell", nil)
+    actionBtn:SetAttribute("toy", nil)
+    actionBtn:SetAttribute("type1", "toy")
+    actionBtn:SetAttribute("toy1", toyID)
     actionBtn:SetAttribute("type2", nil)
     actionBtn:SetAttribute("spell2", nil)
     actionBtn:SetParent(frame)
@@ -235,7 +240,41 @@ local function disarm()
         actionBtn:Hide()
         actionBtn:SetParent(UIParent)
         actionBtn:ClearAllPoints()
+        actionBtn:SetAttribute("type1", nil)
+        actionBtn:SetAttribute("spell1", nil)
+        actionBtn:SetAttribute("type2", nil)
+        actionBtn:SetAttribute("spell2", nil)
+        actionBtn:SetAttribute("type", nil)
+        actionBtn:SetAttribute("spell", nil)
     end
+end
+
+local function get_spec_color(specID)
+    if sfui.common and sfui.common.get_spec_color then
+        return sfui.common.get_spec_color(specID)
+    end
+    return 0.0, 0.8, 1.0, 1
+end
+
+local function get_dungeon_spec(dungeonName)
+    if not (SfuiDB and SfuiDB.lootspec) then return nil end
+    local _, englishClass = UnitClass("player")
+    local db = SfuiDB.lootspec.classes and SfuiDB.lootspec.classes[englishClass]
+    if not db or not db.dungeons then return nil end
+
+    local maps = C_ChallengeMode and C_ChallengeMode.GetMapTable and C_ChallengeMode.GetMapTable()
+    if maps then
+        for _, cmMapID in ipairs(maps) do
+            local name = C_ChallengeMode.GetMapUIInfo(cmMapID)
+            if name and dungeonName and (name == dungeonName or string.find(name:lower(), dungeonName:lower(), 1, true) or string.find(dungeonName:lower(), name:lower(), 1, true)) then
+                local specID = db.dungeons[cmMapID]
+                if specID and specID ~= 0 then
+                    return specID, cmMapID
+                end
+            end
+        end
+    end
+    return nil
 end
 
 local function show_tooltip(owner, spellID, toyID, label, portalID, cdRem)
@@ -261,6 +300,12 @@ local function show_tooltip(owner, spellID, toyID, label, portalID, cdRem)
     end
     if label then
         GameTooltip:AddLine(label, 0.6, 0.6, 0.6)
+        local specID = get_dungeon_spec(label)
+        if specID and specID ~= 0 then
+            local _, specName = GetSpecializationInfoByID(specID)
+            local r, g, b = get_spec_color(specID)
+            GameTooltip:AddDoubleLine("Loot Spec:", specName or ("Spec " .. specID), 0.7, 0.7, 0.7, r, g, b)
+        end
     end
     GameTooltip:Show()
 end
@@ -271,9 +316,16 @@ local function hide_tooltip()
     end
 end
 
+-- Forward right-click to hovered frame if not using secondary spell
+actionBtn:SetScript("OnMouseUp", function(self, button)
+    if button == "RightButton" and currentHoverFrame and currentHoverFrame.OnRightClick then
+        currentHoverFrame:OnRightClick()
+    end
+end)
+
 -- Close portal frame after a cast
 actionBtn:HookScript("PostClick", function(self, button)
-    if button == "LeftButton" or button == "RightButton" then
+    if button == "LeftButton" or (button == "RightButton" and self:GetAttribute("type2") == "spell") then
         _G.C_Timer.After(0.05, function()
             disarm()
             hide_tooltip()
@@ -337,6 +389,21 @@ local function make_spell_icon(parent, spellID, label, x, y)
     grey:SetColorTexture(0, 0, 0, 0.5)
     grey:Hide()
 
+    -- Configured Loot Spec badge in bottom-right corner (16x16)
+    local specBadge = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+    specBadge:SetSize(16, 16)
+    specBadge:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 2, -2)
+    specBadge:SetBackdrop({
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    specBadge:SetFrameLevel(frame:GetFrameLevel() + 5)
+    local specIcon = specBadge:CreateTexture(nil, "ARTWORK")
+    specIcon:SetAllPoints()
+    specIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    specBadge:Hide()
+    frame.specBadge = specBadge
+
     local shortStr = sfui.common.get_short_string(label)
     if shortStr and shortStr ~= "" then
         local text = frame:CreateFontString(nil, "OVERLAY")
@@ -361,6 +428,21 @@ local function make_spell_icon(parent, spellID, label, x, y)
             cd:Clear()
             grey:Hide()
             frame:SetBackdropBorderColor(unpack(cfg.colors.black))
+        end
+
+        local specID = get_dungeon_spec(label)
+        if specID and specID ~= 0 then
+            local _, _, _, icon = GetSpecializationInfoByID(specID)
+            if icon then
+                specIcon:SetTexture(icon)
+                local r, g, b = get_spec_color(specID)
+                specBadge:SetBackdropBorderColor(r, g, b, 1)
+                specBadge:Show()
+            else
+                specBadge:Hide()
+            end
+        else
+            specBadge:Hide()
         end
     end
     frame.refresh = refresh
@@ -809,6 +891,100 @@ function sfui.portals.Toggle()
         portalFrame:Hide()
     else
         portalFrame:Show()
+    end
+end
+
+local function portal_entry_matches(e, targetName, identifier)
+    if not e then return false end
+    if identifier and (e.spell == identifier or (e.instance and e.instance == identifier)) then
+        return true
+    end
+    if targetName and e.name then
+        if e.name == targetName or string.find(targetName:lower(), e.name:lower(), 1, true) or string.find(e.name:lower(), targetName:lower(), 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+function sfui.portals.GetDungeonPortal(identifier)
+    if not identifier then return nil, nil, false end
+    local targetName = nil
+
+    if type(identifier) == "number" then
+        if identifier >= 1 and identifier <= 8 then
+            local maps = C_ChallengeMode and C_ChallengeMode.GetMapTable and C_ChallengeMode.GetMapTable()
+            if maps and maps[identifier] then
+                targetName = C_ChallengeMode.GetMapUIInfo(maps[identifier])
+            end
+        else
+            targetName = C_ChallengeMode and C_ChallengeMode.GetMapUIInfo and C_ChallengeMode.GetMapUIInfo(identifier)
+        end
+    elseif type(identifier) == "string" then
+        targetName = identifier
+    end
+
+    local db = sfui.portals_db
+    if not db then return nil, targetName, false end
+
+    -- 1. Check SEASON_PORTALS
+    if db.SEASON_PORTALS then
+        for _, e in ipairs(db.SEASON_PORTALS) do
+            if portal_entry_matches(e, targetName, identifier) then
+                return e.spell, e.name, player_has_spell(e.spell)
+            end
+        end
+    end
+
+    -- 2. Check MIDNIGHT_PORTALS
+    if db.MIDNIGHT_PORTALS then
+        for _, e in ipairs(db.MIDNIGHT_PORTALS) do
+            if portal_entry_matches(e, targetName, identifier) then
+                return e.spell, e.name, player_has_spell(e.spell)
+            end
+        end
+    end
+
+    -- 3. Check LEGACY_GROUPS
+    if db.LEGACY_GROUPS then
+        for _, g in ipairs(db.LEGACY_GROUPS) do
+            for _, e in ipairs(g.portals or {}) do
+                if portal_entry_matches(e, targetName, identifier) then
+                    return e.spell, e.name, player_has_spell(e.spell)
+                end
+            end
+        end
+    end
+
+    return nil, targetName, false
+end
+
+function sfui.portals.ArmDungeon(identifier, frame)
+    local spellID, _, isKnown = sfui.portals.GetDungeonPortal(identifier)
+    if spellID and isKnown and frame then
+        arm_spell(spellID, nil, frame)
+        return true, spellID
+    end
+    return false, nil
+end
+
+function sfui.portals.ArmSpell(spellID, frame, portalID)
+    if spellID and frame then
+        arm_spell(spellID, portalID, frame)
+        return true
+    end
+    return false
+end
+
+function sfui.portals.Disarm()
+    disarm()
+end
+
+function sfui.portals.RebuildBadges()
+    if portalFrame and portalFrame:IsShown() and portalFrame.refreshable then
+        for _, btn in ipairs(portalFrame.refreshable) do
+            if btn.refresh then btn.refresh() end
+        end
     end
 end
 

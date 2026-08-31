@@ -1332,8 +1332,40 @@ function sfui.alts.UpdateUI(force)
                 text:SetFontObject("GameFontHighlightSmall")
                 text:SetTextColor(unpack(sfui.config.colors.white))
                 text:SetText(cat.label)
-                row:EnableMouse(false)
-                row:SetScript("OnMouseUp", nil)
+                if cat.type == "dungeon" then
+                    row:EnableMouse(true)
+                    local mapID = cat.mapID
+                    local portalSpell, portalName, isKnown = nil, nil, false
+                    if sfui.portals and sfui.portals.GetDungeonPortal then
+                        portalSpell, portalName, isKnown = sfui.portals.GetDungeonPortal(mapID)
+                    end
+                    if isKnown and not InCombatLockdown() then
+                        row:SetScript("OnEnter", function(self)
+                            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                            GameTooltip:SetText(cat.label or "Dungeon")
+                            GameTooltip:AddLine("<Left-Click to Cast Dungeon Teleport>", 0.2, 1.0, 0.4)
+                            GameTooltip:Show()
+                            if sfui.portals and sfui.portals.ArmDungeon then
+                                sfui.portals.ArmDungeon(mapID, self)
+                            end
+                        end)
+                        row:SetScript("OnLeave", function()
+                            if sfui.portals and sfui.portals.Disarm then
+                                sfui.portals.Disarm()
+                            end
+                            GameTooltip:Hide()
+                        end)
+                    else
+                        row:SetScript("OnEnter", nil)
+                        row:SetScript("OnLeave", nil)
+                    end
+                    row:SetScript("OnMouseUp", nil)
+                else
+                    row:EnableMouse(false)
+                    row:SetScript("OnMouseUp", nil)
+                    row:SetScript("OnEnter", nil)
+                    row:SetScript("OnLeave", nil)
+                end
             end
             visY = visY + cfg.rowHeight
         end
@@ -1564,6 +1596,21 @@ function sfui.alts.UpdateUI(force)
                     cell.diamondIcon:Show()
                 end
 
+                local mapID = cat.mapID
+                local altSnap = alt
+                local portalSpell, portalName, isKnown = nil, nil, false
+                if sfui.portals and sfui.portals.GetDungeonPortal then
+                    portalSpell, portalName, isKnown = sfui.portals.GetDungeonPortal(mapID)
+                end
+
+                cell.OnRightClick = function(self)
+                    altSnap.data.voidcoreTargets = altSnap.data.voidcoreTargets or {}
+                    altSnap.data.voidcoreTargets[mapID] = not altSnap.data.voidcoreTargets[mapID]
+                    sfui.alts.UpdateUI(true)
+                    -- Sync lootspec panel if visible
+                    if sfui.lootspec and sfui.lootspec.Rebuild then sfui.lootspec.Rebuild() end
+                end
+
                 if best and best.level > 0 then
                     local timed = best.timed or 0
                     local overall = best.level
@@ -1586,17 +1633,10 @@ function sfui.alts.UpdateUI(force)
                         end
                     end
 
-                    -- Tooltip with timed vs overall breakdown
-                    local mapID = cat.mapID
-                    local altSnap = alt
                     cell:EnableMouse(true)
                     cell:SetScript("OnMouseUp", function(self, button)
-                        if button == "LeftButton" then
-                            altSnap.data.voidcoreTargets = altSnap.data.voidcoreTargets or {}
-                            altSnap.data.voidcoreTargets[mapID] = not altSnap.data.voidcoreTargets[mapID]
-                            sfui.alts.UpdateUI(true)
-                            -- Sync lootspec panel if visible
-                            if sfui.lootspec and sfui.lootspec.Rebuild then sfui.lootspec.Rebuild() end
+                        if button == "RightButton" or (button == "LeftButton" and not isKnown) then
+                            if self.OnRightClick then self:OnRightClick() end
                         end
                     end)
                     cell:SetScript("OnEnter", function(self)
@@ -1617,27 +1657,35 @@ function sfui.alts.UpdateUI(force)
                             GameTooltip:AddDoubleLine("Best (depleted):", "+" .. overall, 1, 1, 1, 0.5, 0.5, 0.5)
                         end
                         GameTooltip:AddLine(" ")
-                        GameTooltip:AddLine("<Left-Click to toggle Bonus Roll Target>", GREEN_FONT_COLOR.r,
-                            GREEN_FONT_COLOR.g, GREEN_FONT_COLOR.b)
+                        if isKnown and not InCombatLockdown() then
+                            GameTooltip:AddLine("<Left-Click to Cast Dungeon Teleport>", 0.2, 1.0, 0.4)
+                            GameTooltip:AddLine("<Right-Click to Toggle Bonus Roll Target>", 0.8, 0.4, 0.8)
+                            if sfui.portals and sfui.portals.ArmDungeon then
+                                sfui.portals.ArmDungeon(mapID, self)
+                            end
+                        else
+                            GameTooltip:AddLine("<Left-Click or Right-Click to Toggle Bonus Roll Target>", GREEN_FONT_COLOR.r,
+                                GREEN_FONT_COLOR.g, GREEN_FONT_COLOR.b)
+                        end
                         if isTargeted then
                             GameTooltip:AddLine("Targeted for Bonus Roll", 0.8, 0.4, 0.8)
                         end
                         GameTooltip:Show()
                     end)
-                    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                    cell:SetScript("OnLeave", function()
+                        if sfui.portals and sfui.portals.Disarm then
+                            sfui.portals.Disarm()
+                        end
+                        GameTooltip:Hide()
+                    end)
                 else
                     text:SetText("-")
                     text:SetTextColor(0.5, 0.5, 0.5)
-                    local mapID = cat.mapID
-                    local altSnap = alt
+
                     cell:EnableMouse(true)
                     cell:SetScript("OnMouseUp", function(self, button)
-                        if button == "LeftButton" then
-                            altSnap.data.voidcoreTargets = altSnap.data.voidcoreTargets or {}
-                            altSnap.data.voidcoreTargets[mapID] = not altSnap.data.voidcoreTargets[mapID]
-                            sfui.alts.UpdateUI(true)
-                            -- Sync lootspec panel if visible
-                            if sfui.lootspec and sfui.lootspec.Rebuild then sfui.lootspec.Rebuild() end
+                        if button == "RightButton" or (button == "LeftButton" and not isKnown) then
+                            if self.OnRightClick then self:OnRightClick() end
                         end
                     end)
                     cell:SetScript("OnEnter", function(self)
@@ -1646,14 +1694,27 @@ function sfui.alts.UpdateUI(force)
                         GameTooltip:SetText(fullName or "Dungeon")
                         GameTooltip:AddLine("Not yet completed.", 0.5, 0.5, 0.5)
                         GameTooltip:AddLine(" ")
-                        GameTooltip:AddLine("<Left-Click to toggle Bonus Roll Target>", GREEN_FONT_COLOR.r,
-                            GREEN_FONT_COLOR.g, GREEN_FONT_COLOR.b)
+                        if isKnown and not InCombatLockdown() then
+                            GameTooltip:AddLine("<Left-Click to Cast Dungeon Teleport>", 0.2, 1.0, 0.4)
+                            GameTooltip:AddLine("<Right-Click to Toggle Bonus Roll Target>", 0.8, 0.4, 0.8)
+                            if sfui.portals and sfui.portals.ArmDungeon then
+                                sfui.portals.ArmDungeon(mapID, self)
+                            end
+                        else
+                            GameTooltip:AddLine("<Left-Click or Right-Click to Toggle Bonus Roll Target>", GREEN_FONT_COLOR.r,
+                                GREEN_FONT_COLOR.g, GREEN_FONT_COLOR.b)
+                        end
                         if isTargeted then
                             GameTooltip:AddLine("Targeted for Bonus Roll", 0.8, 0.4, 0.8)
                         end
                         GameTooltip:Show()
                     end)
-                    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                    cell:SetScript("OnLeave", function()
+                        if sfui.portals and sfui.portals.Disarm then
+                            sfui.portals.Disarm()
+                        end
+                        GameTooltip:Hide()
+                    end)
                 end
             elseif cat.type == "currency" or cat.type == "currency_group" then
                 local isGroup = (cat.type == "currency_group")

@@ -2686,6 +2686,8 @@ function QL:DoRefresh()
 
                     if entry.canFindGroup then
                         row.FindGroupBtn:SetAttribute("questID", entry.questID)
+                        row.FindGroupBtn:ClearAllPoints()
+                        row.FindGroupBtn:SetPoint("RIGHT", row, "RIGHT", -2, 0)
                         row.FindGroupBtn:Show()
                         row.TitleFS:SetPoint("RIGHT", row.FindGroupBtn, "LEFT", -2, 0)
                     else

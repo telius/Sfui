@@ -163,8 +163,76 @@ local function on_active_entry_update()
 end
 
 -- -------------------------------------------------------
+-- Instance & Difficulty Status Badge
+-- -------------------------------------------------------
+local lastInstancePrint = nil
+
+local function print_instance_status()
+    if not is_enabled() then return end
+    local inInstance, instanceType = IsInInstance()
+    if not inInstance or instanceType == "none" then
+        lastInstancePrint = nil
+        return
+    end
+
+    local name, _, difficultyID, difficultyName = GetInstanceInfo()
+    if not name or name == "" then return end
+
+    local now = GetTime()
+    if lastInstancePrint and (now - lastInstancePrint < 3) then return end
+    lastInstancePrint = now
+
+    local diffText = difficultyName or "Normal"
+    local activeKey = C_ChallengeMode and C_ChallengeMode.GetActiveKeystoneInfo and C_ChallengeMode.GetActiveKeystoneInfo()
+    if activeKey and activeKey > 0 then
+        diffText = "Mythic +" .. tostring(activeKey)
+    end
+
+    local specID = GetLootSpecialization and GetLootSpecialization() or 0
+    local isDefault = (specID == 0)
+    if isDefault and GetSpecialization and GetSpecializationInfo then
+        local curIdx = GetSpecialization()
+        if curIdx and curIdx > 0 then
+            specID = GetSpecializationInfo(curIdx) or 0
+        end
+    end
+
+    local specName = "Current Spec"
+    local specColor = cc
+
+    if specID and specID ~= 0 then
+        local _, sName = GetSpecializationInfoByID(specID)
+        if sName then
+            specName = isDefault and (sName .. " (Default)") or sName
+        end
+        local sc = sfui_config.spec_colors and sfui_config.spec_colors[specID]
+        if sc then
+            specColor = string.format("|cff%02x%02x%02x", sc[1] * 255, sc[2] * 255, sc[3] * 255)
+        end
+    end
+
+    sfui_common.print(
+        pc .. name .. reset_c
+        .. " (" .. cc .. diffText .. reset_c .. ")"
+        .. " · loot spec: " .. specColor .. specName .. reset_c
+    )
+end
+
+function sfui.location.PrintInstanceStatus()
+    print_instance_status()
+end
+
+-- -------------------------------------------------------
 -- Event wiring via sfui.events (shared multiplexer)
 -- -------------------------------------------------------
 sfui_events.RegisterEvent("LFG_LIST_APPLICATION_STATUS_UPDATED", on_application_status)
 sfui_events.RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATE", on_active_entry_update)
 sfui_events.RegisterEvent("GROUP_LEFT", on_party_leave)
+sfui_events.RegisterEvent("PLAYER_ENTERING_WORLD", function()
+    C_Timer.After(0.5, print_instance_status)
+end)
+sfui_events.RegisterEvent("ZONE_CHANGED_NEW_AREA", print_instance_status)
+sfui_events.RegisterEvent("CHALLENGE_MODE_START", function()
+    lastInstancePrint = nil
+    C_Timer.After(0.2, print_instance_status)
+end)

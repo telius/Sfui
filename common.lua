@@ -374,6 +374,19 @@ function sfui.common.get_player_class()
     return playerClass, playerClassID
 end
 
+-- Returns RGB(A) color for a specialization ID, falling back to class color or cyan
+function sfui.common.get_spec_color(specID)
+    if not specID or specID == 0 then return 0.35, 0.35, 0.35, 1 end
+    local specColor = sfui.config and sfui.config.spec_colors and sfui.config.spec_colors[specID]
+    if specColor then
+        return specColor[1], specColor[2], specColor[3], 1
+    end
+    local _, _, _, _, _, classFile = GetSpecializationInfoByID(specID)
+    local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+    if cc then return cc.r, cc.g, cc.b, 1 end
+    return 0.0, 0.8, 1.0, 1
+end
+
 -- Helper to safely ensure tracked bar DB structure exists
 -- Returns the tracked bar entry for the given cooldownID, or the trackedBarsBySpec table if no ID provided
 function sfui.common.ensure_tracked_bar_db(cooldownID)

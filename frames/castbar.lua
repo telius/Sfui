@@ -155,12 +155,95 @@ local function UpdateCastBarColor(bar, state)
     bar:SetStatusBarColor(color[1], color[2], color[3])
 end
 
+-- ========================
+-- Interrupt tracking
+-- ========================
+local CLASS_INTERRUPTS = {
+    WARRIOR     = { 6552 },                  -- Pummel
+    ROGUE       = { 1766 },                  -- Kick
+    MAGE        = { 2139 },                  -- Counterspell
+    PRIEST      = { 15487 },                 -- Silence
+    WARLOCK     = { 19647, 119898, 119910 }, -- Spell Lock / Command Demon
+    SHAMAN      = { 57994 },                 -- Wind Shear
+    DRUID       = { 106839, 78675 },         -- Skull Bash / Solar Beam
+    PALADIN     = { 96231 },                 -- Rebuke
+    HUNTER      = { 147362, 187707 },        -- Counter Shot / Muzzle
+    DEATHKNIGHT = { 47528 },                 -- Mind Freeze
+    MONK        = { 116705 },                -- Spear Hand Strike
+    DEMONHUNTER = { 183752 },                -- Disrupt
+    EVOKER      = { 351338 },                -- Quell
+}
+
+local function GetPlayerInterruptStatus()
+    local _, class = UnitClass("player")
+    local list = CLASS_INTERRUPTS[class]
+    if not list then return nil end
+    for _, spellID in ipairs(list) do
+        if IsPlayerSpell(spellID) or (C_SpellBook and C_SpellBook.IsSpellKnownOrInSpellBook and C_SpellBook.IsSpellKnownOrInSpellBook(spellID)) then
+            local isOffCD = true
+            local cdInfo = C_Spell and C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(spellID)
+            if cdInfo then
+                -- In modern WoW (11.0 / 12.x), cdInfo.isActive and cdInfo.isOnGCD are NeverSecret=true
+                -- cdInfo.duration and cdInfo.startTime are SecretWhenCooldownsRestricted and must NOT be compared in Lua
+                if cdInfo.isActive and not cdInfo.isOnGCD then
+                    isOffCD = false
+                elseif cdInfo.isEnabled == false then
+                    isOffCD = false
+                else
+                    isOffCD = true
+                end
+            end
+            local inRange = true
+            if C_Spell and C_Spell.IsSpellInRange then
+                local ok, r = pcall(C_Spell.IsSpellInRange, spellID, "target")
+                if ok and r ~= nil then
+                    inRange = (r == true or r == 1)
+                end
+            end
+            return isOffCD, inRange, spellID
+        end
+    end
+    return nil
+end
+
+local function UpdateTargetInterruptBorder(bar, notInterruptible)
+    if bar.unit ~= "target" or not bar.backdrop then return end
+
+    local targetR, targetG, targetB = 0, 0, 0
+    local isOffCD, inRange = GetPlayerInterruptStatus()
+    if isOffCD == nil then
+        targetR, targetG, targetB = 0, 0, 0
+    elseif isOffCD and inRange then
+        -- Ready & in range: Emerald Green
+        targetR, targetG, targetB = 0.0, 1.0, 0.35
+    elseif isOffCD and not inRange then
+        -- Ready but out of range: Bright Yellow
+        targetR, targetG, targetB = 0.95, 0.75, 0.1
+    else
+        -- On Cooldown: Dim Orange
+        targetR, targetG, targetB = 0.85, 0.35, 0.1
+    end
+
+    if notInterruptible ~= nil and C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean then
+        local r = C_CurveUtil.EvaluateColorValueFromBoolean(notInterruptible, 0.25, targetR)
+        local g = C_CurveUtil.EvaluateColorValueFromBoolean(notInterruptible, 0.25, targetG)
+        local b = C_CurveUtil.EvaluateColorValueFromBoolean(notInterruptible, 0.25, targetB)
+        bar.backdrop:SetBackdropBorderColor(r, g, b, 1)
+    else
+        bar.backdrop:SetBackdropBorderColor(targetR, targetG, targetB, 1)
+    end
+end
+
 local function ResetBar(self)
     self.casting = nil
     self.channeling = nil
     self.empowering = nil
     self.instant = nil -- Reset instant state
-    self.backdrop:Hide()
+    self.notInterruptible = nil
+    if self.backdrop then
+        self.backdrop:SetBackdropBorderColor(0, 0, 0, 1)
+        self.backdrop:Hide()
+    end
 end
 
 local function CreateStageDividers(bar, numStages)
@@ -207,6 +290,9 @@ local function OnUpdate(self, elapsed)
     if self.throttle > throttleValue then
         updateText = true
         self.throttle = 0
+        if self.unit == "target" then
+            UpdateTargetInterruptBorder(self, self.notInterruptible)
+        end
     end
 
     if self.casting then
@@ -359,8 +445,10 @@ local function OnEvent(self, event, ...)
         self.empowering = nil
         self.instant = nil -- Clear instant state
         self.castID = castID
+        self.notInterruptible = notInterruptible
 
         UpdateCastBarColor(self, "CAST")
+        UpdateTargetInterruptBorder(self, notInterruptible)
         self.Spark:Show()
         CreateStageDividers(self, 0)
     elseif event == "UNIT_SPELLCAST_CHANNEL_START" or event == "UNIT_SPELLCAST_EMPOWER_START" then
@@ -372,6 +460,7 @@ local function OnEvent(self, event, ...)
         self.backdrop:SetAlpha(1)
         self.Icon:SetTexture(texture)
         self.Text:SetText(name)
+        self.notInterruptible = notInterruptible
 
         local isEmpowered = numStages and numStages > 0
         if isEmpowered then
@@ -394,6 +483,8 @@ local function OnEvent(self, event, ...)
             self.instant = nil
             UpdateCastBarColor(self, "CHANNEL"); CreateStageDividers(self, 0)
         end
+
+        UpdateTargetInterruptBorder(self, notInterruptible)
 
         self:SetMinMaxValues(0, self.maxValue)
         self:SetValue(self.value)
@@ -522,13 +613,20 @@ local function UpdateTargetCastBarColor(bar, notInterruptible)
     else
         bar:SetStatusBarColor(normal[1], normal[2], normal[3])
     end
+
+    bar.notInterruptible = notInterruptible
+    UpdateTargetInterruptBorder(bar, notInterruptible)
 end
 
 local function Target_StartCast(self, unit)
     local name, text, texture, startTime, endTime, isTradeSkill, castID, notInterruptible = UnitCastingInfo(unit)
 
     if not name then
-        self.backdrop:Hide()
+        self.notInterruptible = nil
+        if self.backdrop then
+            self.backdrop:SetBackdropBorderColor(0, 0, 0, 1)
+            self.backdrop:Hide()
+        end
         return
     end
 
@@ -562,6 +660,11 @@ local function Target_StartChannel(self, unit)
     local name, text, texture, startTime, endTime, isTradeSkill, notInterruptible = UnitChannelInfo(unit)
 
     if not name then
+        self.notInterruptible = nil
+        if self.backdrop then
+            self.backdrop:SetBackdropBorderColor(0, 0, 0, 1)
+            self.backdrop:Hide()
+        end
         return
     end
 
@@ -589,6 +692,15 @@ local function Target_StartChannel(self, unit)
     self.backdrop:Show()
 end
 
+local function Target_OnUpdate(self, elapsed)
+    if not self.casting and not self.channeling then return end
+    self.throttle = (self.throttle or 0) + elapsed
+    if self.throttle >= 0.1 then
+        self.throttle = 0
+        UpdateTargetInterruptBorder(self, self.notInterruptible)
+    end
+end
+
 local function Target_OnEvent(self, event, ...)
     local cfg = sfui.config[self.configName]
     if not cfg or not cfg.enabled then
@@ -607,7 +719,11 @@ local function Target_OnEvent(self, event, ...)
         else
             self.casting = nil
             self.channeling = nil
-            self.backdrop:Hide()
+            self.notInterruptible = nil
+            if self.backdrop then
+                self.backdrop:SetBackdropBorderColor(0, 0, 0, 1)
+                self.backdrop:Hide()
+            end
         end
     elseif event == "UNIT_SPELLCAST_START" then
         Target_StartCast(self, unit)
@@ -618,7 +734,11 @@ local function Target_OnEvent(self, event, ...)
         if event == "UNIT_SPELLCAST_CHANNEL_STOP" then self.channeling = nil end
 
         if not self.casting and not self.channeling then
-            self.backdrop:Hide()
+            self.notInterruptible = nil
+            if self.backdrop then
+                self.backdrop:SetBackdropBorderColor(0, 0, 0, 1)
+                self.backdrop:Hide()
+            end
         end
     elseif event == "UNIT_SPELLCAST_INTERRUPTIBLE" or event == "UNIT_SPELLCAST_NOT_INTERRUPTIBLE" then
         local _, _, _, _, _, _, _, notInterruptible = UnitCastingInfo(unit)
@@ -651,7 +771,7 @@ local function SetupTargetBar(configName, unit)
     bar:RegisterUnitEvent("UNIT_SPELLCAST_NOT_INTERRUPTIBLE", unit)
 
     bar:SetScript("OnEvent", Target_OnEvent)
-    bar:SetScript("OnUpdate", nil)
+    bar:SetScript("OnUpdate", Target_OnUpdate)
     if bar.Spark then bar.Spark:Hide() end
 
     return bar
