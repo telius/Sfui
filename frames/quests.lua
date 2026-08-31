@@ -57,7 +57,6 @@ local tostring, tonumber, pcall = _G.tostring, _G.tonumber, _G.pcall
 local wipe = _G.wipe or function(t) for k in pairs(t) do t[k] = nil end return t end
 local issecretvalue = _G.issecretvalue or function() return false end
 local QuestMapFrame_OpenToQuestDetails = _G.QuestMapFrame_OpenToQuestDetails
-local ShowUIPanel, WorldMapFrame = _G.ShowUIPanel, _G.WorldMapFrame
 local GetTasksTable = _G.GetTasksTable
 local print = _G.print
 local string_format = string.format  -- localize alias (avoids global table lookup on every call)
@@ -204,9 +203,7 @@ end
 
 -- ─── Blizzard Root Tracker Suppression (Strictly Taint-Free) ─────────
 -- Never reparent, never call UnregisterAllEvents(), never overwrite SetScript("OnShow").
--- Suppress cleanly via Alpha, EnableMouse, and non-overwriting HookScript.
-
-local _trackerHookApplied = false
+-- Suppress cleanly via Alpha and EnableMouse without script hooks.
 
 local function ApplyBlizzardTrackerSuppression()
     local root = _G.ObjectiveTrackerFrame
@@ -218,27 +215,7 @@ local function ApplyBlizzardTrackerSuppression()
     end)
 end
 
-local function EnsureBlizzardTrackerHook()
-    local root = _G.ObjectiveTrackerFrame
-    if not root or _trackerHookApplied then return end
-    _trackerHookApplied = true
-
-    pcall(function()
-        root:HookScript("OnShow", function(self)
-            if (sfui.questlog and sfui.questlog.is_enabled and sfui.questlog.is_enabled())
-                or (sfui.mythic and sfui.mythic.IsEnabled and sfui.mythic.IsEnabled()) then
-                if self.SetAlpha then self:SetAlpha(0) end
-                if self.EnableMouse then self:EnableMouse(false) end
-            end
-        end)
-    end)
-end
-
 local function SuppressBlizzardTracker()
-    local root = _G.ObjectiveTrackerFrame
-    if not root then return end
-
-    EnsureBlizzardTrackerHook()
     ApplyBlizzardTrackerSuppression()
 end
 

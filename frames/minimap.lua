@@ -41,8 +41,6 @@ local LibStub = _G.LibStub
 local isInitialized = false
 local collectAttempts = 0
 
-local frame = CreateFrame("Frame", "SfuiMinimapFrame")
-
 local zoom_timer = nil
 local DEFAULT_ZOOM = sfui.config.minimap.defaultZoom or 0
 local button_bar = nil
@@ -118,59 +116,103 @@ end
 local ignoreNameCache = {}
 local validNameCache = {}
 
+local KNOWN_ADDON_BUTTONS = {
+    "BagSync_MinimapButton",
+    "DBMMinimapButton",
+    "WIM3MinimapButton",
+    "HealBot_Button",
+    "RecipeRadarMinimapButton",
+    "AltoholicMinimapButton",
+    "OutfitterMinimapButton",
+    "ItemRack_Minimap",
+    "TomTomMinimapButton",
+    "ZGVMarker",
+    "HandyNotes_MinimapButton",
+    "RaiderIO_MinimapButton",
+    "DetailsMinimapButton",
+    "BigWigsMinimapButton",
+    "WeakAurasMinimapButton",
+    "PlaterMinimapButton",
+    "BugSack",
+    "BugGrabber",
+    "PasteMinimapButton",
+    "SimcMinimapButton",
+    "PawnMinimapButton",
+    "ArchyMinimapButton",
+    "RareScannerMinimapIcon",
+    "SilverDragonMinimapIcon",
+    "QuestieFrame",
+    "ZygorGuidesViewerMapIcon",
+}
+
+-- Blizzard Core Frame / Pin Blacklist (Strictly Blizzard frames only)
+local BLIZZARD_IGNORE_PREFIXES = {
+    "minimapcluster",
+    "minimapbackdrop",
+    "minimapcompass",
+    "minimapzoomin",
+    "minimapzoomout",
+    "minimapnorthtag",
+    "timemanager",
+    "gametime",
+    "queuestatus",
+    "garrisonlanding",
+    "expansionlanding",
+    "minimaptracking",
+    "minimapinstancedifficulty",
+    "guildinstancedifficulty",
+    "minimapchallengemode",
+    "minimapworldmap",
+    "blizzard_",
+}
+
 function ButtonManager:is_button(frame)
     if not frame or type(frame) ~= "table" then return false end
 
-    -- Quick cache check first
-    local name = frame.GetName and frame:GetName()
-    if name then
-        if ignoreNameCache[name] then return false end
-        if validNameCache[name] then return true end
-    end
-
-    -- NEVER touch forbidden/protected frames or those with unit attributes (POIs)
+    -- NEVER touch forbidden/protected frames or MapCanvas/AreaPOI pin frames
     if frame.IsForbidden and frame:IsForbidden() then return false end
     if frame.IsProtected and frame:IsProtected() then return false end
-
-    -- NEVER touch Blizzard MapCanvas, MapDataProvider, MapPins, POIs, Vignettes, or AreaPOI frames
     if frame.dataProvider or frame.owningMap or frame.pinTemplate or frame.GetMap or
        frame.pinFrameLevelType or frame.normalizedX or frame.poiInfo or frame.isPin or
-       frame.superTracked or frame.textureKit or frame.GetElementData or frame.nudgeTargetFactor then
-        if name then ignoreNameCache[name] = true end
+       frame.superTracked or frame.textureKit or frame.GetElementData or frame.nudgeTargetFactor or
+       frame.vignetteInfo or frame.areaPoiID or frame.questID then
         return false
     end
 
-    -- Addon minimap buttons must be named frames
+    local name = frame.GetName and frame:GetName()
     if not name or type(name) ~= "string" or name == "" then
         return false
+    end
+
+    -- Fast-track LibDBIcon buttons (always valid addon buttons)
+    if name:find("^LibDBIcon10_") or name:find("^LibDBIcon") then
+        validNameCache[name] = true
+        return true
     end
 
     if ignoreNameCache[name] then return false end
     if validNameCache[name] then return true end
 
-    -- Filter out Blizzard internal/protected buttons and all map pin/POI variations
     local lowerName = name:lower()
+
+    -- Filter out Blizzard internal/protected buttons and all map pin/POI variations
+    for _, prefix in ipairs(BLIZZARD_IGNORE_PREFIXES) do
+        if lowerName:find(prefix, 1, true) then
+            ignoreNameCache[name] = true
+            return false
+        end
+    end
+
     if lowerName:find("poi") or lowerName:find("pin") or lowerName:find("canvas") or
        lowerName:find("vignette") or lowerName:find("worldquest") or lowerName:find("bonus") or
        lowerName:find("dungeon") or lowerName:find("delve") or lowerName:find("scenario") or
-       lowerName:find("minimap") or lowerName:find("worldmap") or lowerName:find("cluster") or
-       lowerName:find("tracking") or lowerName:find("blizzard") or lowerName:find("indicator") or
-       lowerName:find("crafting") or lowerName:find("gathering") or lowerName:find("gametime") or
-       lowerName:find("clock") or lowerName:find("flight") or lowerName:find("garrison") or
-       lowerName:find("actionbar") or lowerName:find("petbattle") or lowerName:find("expansion") or
-       lowerName:find("eye") or lowerName:find("queue") or lowerName:find("compass") or
-       lowerName:find("overlay") or lowerName:find("micro") or lowerName:find("timemanager") or
-       lowerName:find("warband") or lowerName:find("instance") or lowerName:find("anchor") or
-       lowerName:find("header") or lowerName:find("zone") then
+       lowerName:find("worldmap") or lowerName:find("overlay") then
         ignoreNameCache[name] = true
         return false
     end
 
     if type(frame.IsObjectType) ~= "function" then return false end
     if not frame:IsObjectType("Button") and not frame:IsObjectType("CheckButton") then return false end
-    if type(frame.GetScript) ~= "function" or (not frame:GetScript("OnClick") and not frame:GetScript("OnMouseDown") and not frame:GetScript("OnMouseUp")) then
-        return false
-    end
 
     validNameCache[name] = true
     return true
@@ -196,25 +238,33 @@ end
 
 function ButtonManager:collect_buttons()
     local foundNew = false
+
+    -- 1. LibDBIcon-1.0 registered objects (Details, WeakAuras, Raider.IO, BugSack, MRT, etc.)
     local ldbi = LibStub("LibDBIcon-1.0", true)
     if ldbi then
-        for _, buttonName in ipairs(ldbi:GetButtonList()) do
-            local button = _G[buttonName]
-            if button and self:add_button(button) then foundNew = true end
+        if not sfui.minimap._ldbiHooked and ldbi.Register then
+            sfui.minimap._ldbiHooked = true
+            hooksecurefunc(ldbi, "Register", function()
+                C_Timer.After(0.05, function()
+                    ButtonManager:collect_buttons()
+                    ButtonManager:arrange_buttons()
+                end)
+            end)
+        end
+
+        if ldbi.objects then
+            for _, button in pairs(ldbi.objects) do
+                if button and self:add_button(button) then foundNew = true end
+            end
         end
     end
 
-    local minimapChildren = { Minimap:GetChildren() }
-    for _, child in ipairs(minimapChildren) do
-        if self:add_button(child) then foundNew = true end
+    -- 2. Whitelist of known standalone addon buttons
+    for _, buttonName in ipairs(KNOWN_ADDON_BUTTONS) do
+        local button = _G[buttonName]
+        if button and self:add_button(button) then foundNew = true end
     end
 
-    if MinimapCluster then
-        local clusterChildren = { MinimapCluster:GetChildren() }
-        for _, child in ipairs(clusterChildren) do
-            if self:add_button(child) then foundNew = true end
-        end
-    end
     return foundNew
 end
 
@@ -322,62 +372,21 @@ function ButtonManager:skin_button(button)
     end
 
     pushed = isButton and button:GetPushedTexture()
-    if background or pushed or normal or btnHighlight or iconMask then
-        if background then background:Hide() end
-        if pushed then
-            button.SetPushedTexture = function() end
-            pushed:SetAlpha(0)
-            pushed:SetTexture()
-            pushed.SetAlpha = function() end
-            pushed.SetAtlas = function() end
-            pushed.SetTexture = function() end
-        end
-        if normal then
-            if isNormalIcon then
-                button.SetNormalTexture = function(_, value)
-                    if not value then return end
-                    if C_Texture.GetAtlasInfo(value) then
-                        icon:SetAtlas(value)
-                    else
-                        icon:SetTexture(value)
-                    end
-                end
-                button.SetNormalAtlas = function(_, atlas)
-                    if atlas then
-                        icon:SetAtlas(atlas)
-                    end
-                end
-                normal.SetAtlas = function() end
-                normal.SetTexture = function() end
-            else
-                button.SetNormalTexture = function() end
-                button.SetNormalAtlas = function() end
-                normal.SetAtlas = function() end
-                normal.SetTexture = function() end
-            end
-        end
-        if btnHighlight then
-            button:UnlockHighlight()
-            button.LockHighlight = function() end
-            button.SetHighlightLocked = function() end
-            button.SetHighlightTexture = function() end
-            button.SetHighlightAtlas = function() end
-            btnHighlight:SetAlpha(0)
-            btnHighlight:SetTexture()
-            btnHighlight.SetAlpha = function() end
-            btnHighlight.SetAtlas = function() end
-            btnHighlight.SetTexture = function() end
-        end
-        if iconMask then
-            icon:RemoveMaskTexture(iconMask)
-        end
+    if background then background:Hide() end
+    if pushed then pushed:SetAlpha(0) end
+    if iconMask and icon and icon.RemoveMaskTexture then
+        pcall(icon.RemoveMaskTexture, icon, iconMask)
     end
 
     button.sfuiSkinned = true
 end
 
 function ButtonManager:arrange_buttons()
-    if InCombatLockdown() then return end
+    if InCombatLockdown() then
+        self.pendingArrange = true
+        return
+    end
+    self.pendingArrange = false
     if not button_bar then return end
 
     if SfuiDB.minimap_button_order == nil then
@@ -713,6 +722,13 @@ sfui.events.RegisterEvent("MINIMAP_UPDATE_ZOOM", function()
             zoom_timer:Cancel()
         end
         zoom_timer = C_Timer.NewTimer(SfuiDB.minimap_auto_zoom_delay or 5, set_default_zoom)
+    end
+end)
+
+-- Process pending button arranges when dropping combat
+sfui.events.RegisterEvent("PLAYER_REGEN_ENABLED", function()
+    if ButtonManager.pendingArrange then
+        ButtonManager:arrange_buttons()
     end
 end)
 

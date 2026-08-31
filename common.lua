@@ -54,9 +54,10 @@ local function issecretvalue(val)
 end
 sfui.common.issecretvalue = issecretvalue
 
--- Standard Tooltip Reference
-sfui.tooltip = _G.GameTooltip
-sfui.common.tooltip = _G.GameTooltip
+-- Standard Tooltip Reference (Dedicated isolated frame to prevent UIWidgetManager taint on global GameTooltip)
+local sfuiTooltip = CreateFrame("GameTooltip", "SfuiGameTooltip", UIParent, "GameTooltipTemplate")
+sfui.tooltip = sfuiTooltip
+sfui.common.tooltip = sfuiTooltip
 
 -- Robust helper to check if an aura/ID is present, even if it's a secret value
 function sfui.common.HasAuraInstanceID(value)

@@ -4,6 +4,21 @@
 
 ---
 
+## v12.1.0-17 (2026-08-31)
+
+### Major Improvements & Taint Elimination
+- **Blizzard UIWidget Taint & Secret Value Crash Elimination (`common.lua`, `frames/quests.lua`, `frames/minimap.lua`)**:
+  - Replaced shared global `_G.GameTooltip` references across all SFUI modules with dedicated, isolated `SfuiGameTooltip` (`CreateFrame("GameTooltip", "SfuiGameTooltip", UIParent, "GameTooltipTemplate")`), preventing UIWidgetManager execution context taint.
+  - Eliminated `ObjectiveTrackerFrame:HookScript("OnShow")` in favor of pure alpha/mouse suppression.
+  - Eliminated `Minimap:GetChildren()` / `MinimapCluster:GetChildren()` scanning and method monkeypatching in `ButtonManager`, preventing Blizzard `AreaPOIPinTemplate` and Delve map pins from being hooked or modified.
+- **Robust Minimap Button Collection (`frames/minimap.lua`)**:
+  - Added direct `ldbi.objects` enumeration and `LibDBIcon:Register` dynamic hook to reliably collect and arrange LibDataBroker minimap buttons (WeakAuras, Details, Raider.IO, BugSack, MRT, Simulationcraft, etc.).
+  - Added explicit whitelist (`KNOWN_ADDON_BUTTONS`) and refined Blizzard core frame prefix filtering (`BLIZZARD_IGNORE_PREFIXES`).
+  - Added combat lockdown protection (`pendingArrange`) and automatic post-combat layout flushing on `PLAYER_REGEN_ENABLED`.
+  - Removed legacy unused `SfuiMinimapFrame` allocation.
+
+---
+
 ## v12.1.0-16 (2026-08-30)
 
 ### Versioning & Distribution
