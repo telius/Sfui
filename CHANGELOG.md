@@ -4,6 +4,20 @@
 
 ---
 
+## v12.1.0-19 (2026-08-31)
+
+### Quest Log & Group Finder
+- **Native LFG Quest Search Integration (`frames/quests.lua`)**:
+  - Adopted Blizzard's native `QuestObjectiveFindGroupButtonTemplate` and mixin for the tracker's group finder eye button.
+  - Bound `questID` attribute directly to allow native Blizzard mixin execution, enabling instant automated group searching and creation without `ADDON_ACTION_BLOCKED: Search()` errors.
+  - Fully compatible in and out of combat.
+
+- **Map Pin Passthrough Protection (`frames/quests.lua`)**:
+  - Deferred `QuestMapFrame_OpenToQuestDetails`, `OpenWorldMap`, and `ToggleWorldMap` out of the user click stack via `C_Timer.After(0)`.
+  - Prevents Blizzard `MapCanvas` and `QuestDataProvider` from executing inside an insecure addon stack, resolving the `Button:SetPassThroughButtons()` action block.
+
+---
+
 ## v12.1.0-18 (2026-08-31)
 
 ### CI & Distribution

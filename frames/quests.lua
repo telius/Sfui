@@ -959,38 +959,49 @@ local function AcquireRow()
         row.TitleFS = fs
 
         -- Find Group Eye Button (Right edge)
-        local findGroupBtn = CreateFrame("Button", nil, row)
+        local findGroupBtn
+        local ok = pcall(function()
+            findGroupBtn = CreateFrame("Button", nil, row, "QuestObjectiveFindGroupButtonTemplate")
+        end)
+        if not ok or not findGroupBtn then
+            findGroupBtn = CreateFrame("Button", nil, row)
+            local eyeIcon = findGroupBtn:CreateTexture(nil, "ARTWORK")
+            eyeIcon:SetSize(14, 14)
+            eyeIcon:SetPoint("CENTER", findGroupBtn, "CENTER", 0, 0)
+            eyeIcon:SetAtlas("socialqueuing-icon-eye")
+            eyeIcon:SetVertexColor(0.85, 0.85, 0.85, 0.85)
+            findGroupBtn.EyeIcon = eyeIcon
+
+            findGroupBtn:SetScript("OnClick", function(btn)
+                if InCombat() then return end
+                local qID = btn:GetAttribute("questID") or row.questID
+                if qID and _G.LFGListUtil_FindQuestGroup then
+                    C_Timer.After(0, function()
+                        if not InCombat() and _G.LFGListUtil_FindQuestGroup and qID then
+                            pcall(_G.LFGListUtil_FindQuestGroup, qID, true)
+                        end
+                    end)
+                end
+            end)
+        else
+            if findGroupBtn.Icon then
+                findGroupBtn.Icon:SetSize(14, 14)
+                findGroupBtn.Icon:ClearAllPoints()
+                findGroupBtn.Icon:SetPoint("CENTER", findGroupBtn, "CENTER", 0, 0)
+            end
+            if findGroupBtn.GetNormalTexture and findGroupBtn:GetNormalTexture() then
+                findGroupBtn:GetNormalTexture():SetAlpha(0)
+            end
+            if findGroupBtn.GetPushedTexture and findGroupBtn:GetPushedTexture() then
+                findGroupBtn:GetPushedTexture():SetAlpha(0)
+            end
+            if findGroupBtn.GetHighlightTexture and findGroupBtn:GetHighlightTexture() then
+                findGroupBtn:GetHighlightTexture():SetAlpha(0)
+            end
+        end
+
         findGroupBtn:SetSize(18, 18)
         findGroupBtn:SetPoint("RIGHT", row, "RIGHT", -2, 0)
-
-        local eyeIcon = findGroupBtn:CreateTexture(nil, "ARTWORK")
-        eyeIcon:SetSize(16, 16)
-        eyeIcon:SetPoint("CENTER", findGroupBtn, "CENTER", 0, 0)
-        eyeIcon:SetAtlas("socialqueuing-icon-eye")
-        eyeIcon:SetVertexColor(0.85, 0.85, 0.85, 0.85)
-        findGroupBtn.EyeIcon = eyeIcon
-
-        findGroupBtn:SetScript("OnEnter", function(btn)
-            eyeIcon:SetVertexColor(1, 1, 1, 1)
-            SfuiQuestTooltip:SetOwner(btn, "ANCHOR_RIGHT")
-            SfuiQuestTooltip:ClearLines()
-            SfuiQuestTooltip:AddLine(TOOLTIP_TRACKER_FIND_GROUP_BUTTON or "Find Group", 1, 1, 1)
-            if row.questTitle then
-                SfuiQuestTooltip:AddLine(row.questTitle, 0.20, 0.85, 0.95)
-            end
-            SfuiQuestTooltip:AddLine("Click to search for or create a group in Group Finder.", 0.7, 0.7, 0.7, true)
-            SfuiQuestTooltip:Show()
-        end)
-        findGroupBtn:SetScript("OnLeave", function(btn)
-            eyeIcon:SetVertexColor(0.85, 0.85, 0.85, 0.85)
-            SfuiQuestTooltip:Hide()
-        end)
-        findGroupBtn:SetScript("OnClick", function(btn)
-            if InCombat() then return end
-            if row.questID and _G.LFGListUtil_FindQuestGroup then
-                pcall(_G.LFGListUtil_FindQuestGroup, row.questID, true)
-            end
-        end)
         findGroupBtn:Hide()
         row.FindGroupBtn = findGroupBtn
 
@@ -1127,7 +1138,11 @@ local function AcquireRow()
                     Refresh:Request()
                 elseif _G.ToggleWorldMap then
                     if not InCombat() then
-                        pcall(_G.ToggleWorldMap)
+                        C_Timer.After(0, function()
+                            if not InCombat() and _G.ToggleWorldMap then
+                                pcall(_G.ToggleWorldMap)
+                            end
+                        end)
                     end
                 end
                 return
@@ -1261,18 +1276,22 @@ local function AcquireRow()
                 end
             end
 
-            if C_QuestLog.SetSelectedQuest then
-                pcall(C_QuestLog.SetSelectedQuest, s.questID)
-            end
-            if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then
-                pcall(C_SuperTrack.SetSuperTrackedQuestID, s.questID)
-            end
+            local targetQuestID = s.questID
+            C_Timer.After(0, function()
+                if InCombatLockdown and InCombatLockdown() then return end
+                if C_QuestLog and C_QuestLog.SetSelectedQuest and targetQuestID then
+                    pcall(C_QuestLog.SetSelectedQuest, targetQuestID)
+                end
+                if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID and targetQuestID then
+                    pcall(C_SuperTrack.SetSuperTrackedQuestID, targetQuestID)
+                end
 
-            if QuestMapFrame_OpenToQuestDetails and s.questID then
-                pcall(QuestMapFrame_OpenToQuestDetails, s.questID)
-            elseif _G.OpenWorldMap then
-                pcall(_G.OpenWorldMap)
-            end
+                if QuestMapFrame_OpenToQuestDetails and targetQuestID then
+                    pcall(QuestMapFrame_OpenToQuestDetails, targetQuestID)
+                elseif _G.OpenWorldMap then
+                    pcall(_G.OpenWorldMap)
+                end
+            end)
             Refresh:Request()
         end)
     end
@@ -2570,6 +2589,7 @@ function QL:DoRefresh()
                     row.isScenario         = entry.isScenario
 
                     if entry.canFindGroup then
+                        row.FindGroupBtn:SetAttribute("questID", entry.questID)
                         row.FindGroupBtn:Show()
                         row.TitleFS:SetPoint("RIGHT", row.FindGroupBtn, "LEFT", -2, 0)
                     else
