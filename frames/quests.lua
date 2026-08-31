@@ -141,6 +141,80 @@ local function _IsChallengeActive()
         and _G.C_ChallengeMode.IsChallengeModeActive()
 end
 
+local function IsRaidQuest(questID, info)
+    if not questID then return false end
+    if not info and C_QuestLog and C_QuestLog.GetLogIndexForQuestID and C_QuestLog.GetInfo then
+        local lIndex = C_QuestLog.GetLogIndexForQuestID(questID)
+        info = lIndex and C_QuestLog.GetInfo(lIndex)
+    end
+
+    if info and (info.isOnMap or info.hasLocalPOI) then
+        return true
+    end
+
+    if C_QuestLog and C_QuestLog.GetQuestTagInfo then
+        local tagInfo = C_QuestLog.GetQuestTagInfo(questID)
+        if tagInfo then
+            local tID = tagInfo.tagID
+            local wqType = tagInfo.worldQuestType
+            local eq = Enum and Enum.QuestTag
+            local eqt = Enum and Enum.QuestTagType
+            if (eq and (tID == eq.Raid or tID == eq.Raid10 or tID == eq.Raid25))
+                or tID == 89 or tID == 109 or tID == 110
+                or (eqt and wqType == eqt.Raid) then
+                return true
+            end
+        end
+    end
+
+    local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    if mapID then
+        if C_QuestLog and C_QuestLog.GetQuestsOnMap then
+            local qOnMap = C_QuestLog.GetQuestsOnMap(mapID)
+            if qOnMap then
+                for i = 1, #qOnMap do
+                    if qOnMap[i].questID == questID then return true end
+                end
+            end
+        end
+        if C_TaskQuest and C_TaskQuest.GetQuestsOnMap then
+            local tOnMap = C_TaskQuest.GetQuestsOnMap(mapID)
+            if tOnMap then
+                for i = 1, #tOnMap do
+                    if tOnMap[i].questID == questID then return true end
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+local function HasRaidQuest()
+    local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    if mapID then
+        if C_QuestLog and C_QuestLog.GetQuestsOnMap then
+            local qOnMap = C_QuestLog.GetQuestsOnMap(mapID)
+            if qOnMap and #qOnMap > 0 then return true end
+        end
+        if C_TaskQuest and C_TaskQuest.GetQuestsOnMap then
+            local tOnMap = C_TaskQuest.GetQuestsOnMap(mapID)
+            if tOnMap and #tOnMap > 0 then return true end
+        end
+    end
+
+    local numEntries = (C_QuestLog and C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetNumQuestLogEntries()) or 0
+    for i = 1, numEntries do
+        local info = C_QuestLog.GetInfo(i)
+        if info and not info.isHeader and not info.isHidden then
+            if IsRaidQuest(info.questID, info) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 function State:Update()
     -- mythic.lua owns the display whenever it is active in an instance (M+, dungeon, delve).
     -- Check this first so we never race against mythic.lua's event registration order.
@@ -159,6 +233,10 @@ function State:Update()
     if _G.IsInInstance then
         local okInst, inInst, instType = pcall(_G.IsInInstance)
         if okInst and inInst and instType ~= "none" then
+            if instType == "raid" and HasRaidQuest() then
+                self._active = false
+                return
+            end
             self._active = true; return
         end
     end
@@ -2459,13 +2537,21 @@ function QL:DoRefresh()
     end
     wipe(processedQuests)
 
-    -- 0. Active Outdoor World Event / Scenario
-    if sectionLists["scenario"] then
+    local inRaid = false
+    if _G.IsInInstance then
+        local okInst, inInst, instType = pcall(_G.IsInInstance)
+        if okInst and inInst and instType == "raid" then
+            inRaid = true
+        end
+    end
+
+    -- 0. Active Outdoor World Event / Scenario (skipped in raids)
+    if not inRaid and sectionLists["scenario"] then
         ScanWorldEventScenario(sectionLists["scenario"])
     end
 
     -- 1. Active local-area tasks & bonus objectives in player's immediate area (GetTasksTable)
-    if GetTasksTable then
+    if not inRaid and GetTasksTable then
         local ok, tasks = pcall(GetTasksTable)
         if ok and tasks then
             for i = 1, #tasks do
@@ -2474,12 +2560,12 @@ function QL:DoRefresh()
         end
     end
 
-    -- 4. Explicitly watched world quests (always shown)
+    -- 4. Explicitly watched world quests
     if C_QuestLog.GetNumWorldQuestWatches then
         local numW = C_QuestLog.GetNumWorldQuestWatches() or 0
         for w = 1, numW do
             local qID = C_QuestLog.GetQuestIDForWorldQuestWatchIndex(w)
-            if qID and qID > 0 then
+            if qID and qID > 0 and (not inRaid or IsRaidQuest(qID)) then
                 AddWorldQuest(qID, true)
             end
         end
@@ -2490,7 +2576,7 @@ function QL:DoRefresh()
         local numW = C_QuestLog.GetNumQuestWatches() or 0
         for w = 1, numW do
             local qID = C_QuestLog.GetQuestIDForQuestWatchIndex(w)
-            if qID and qID > 0 and not processedQuests[qID] then
+            if qID and qID > 0 and not processedQuests[qID] and (not inRaid or IsRaidQuest(qID)) then
                 if C_QuestLog.GetLogIndexForQuestID and C_QuestLog.GetInfo then
                     local lIndex = C_QuestLog.GetLogIndexForQuestID(qID)
                     local info = lIndex and C_QuestLog.GetInfo(lIndex)
@@ -2505,7 +2591,7 @@ function QL:DoRefresh()
         end
     end
 
-    -- 6. Standard quest log scan — show any quest that is watched or supertracked
+    -- 6. Standard quest log scan — show any quest that is watched, supertracked, or belongs to current raid
     local numEntries = C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetNumQuestLogEntries() or 0
     for i = 1, numEntries do
         if not C_QuestLog.GetInfo then break end
@@ -2515,12 +2601,22 @@ function QL:DoRefresh()
             if questID and questID > 0 and not processedQuests[questID] then
                 local isTask = info.isTask or info.isBounty or IsWorldQuest(questID) or (C_QuestLog.IsQuestTask and C_QuestLog.IsQuestTask(questID))
                 if isTask then
-                    AddWorldQuest(questID, IsQuestWatched(questID))
-                elseif IsQuestWatched(questID) or (superTracked and superTracked == questID) then
-                    processedQuests[questID] = true
-                    local sid = ClassifyQuest(info, questID)
-                    local entry = BuildQuestEntry(questID, sid, info)
-                    table.insert(sectionLists[sid], entry)
+                    if not inRaid or IsRaidQuest(questID, info) then
+                        AddWorldQuest(questID, IsQuestWatched(questID))
+                    end
+                else
+                    local shouldShow = false
+                    if inRaid then
+                        shouldShow = IsRaidQuest(questID, info)
+                    else
+                        shouldShow = IsQuestWatched(questID) or (superTracked and superTracked == questID)
+                    end
+                    if shouldShow then
+                        processedQuests[questID] = true
+                        local sid = ClassifyQuest(info, questID)
+                        local entry = BuildQuestEntry(questID, sid, info)
+                        table.insert(sectionLists[sid], entry)
+                    end
                 end
             end
         end

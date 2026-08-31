@@ -4,6 +4,25 @@
 
 ---
 
+## v12.1.0-20 (2026-08-31)
+
+### Raid Quest Tracking & Objectives
+- **Active Raid Quest Detection (`frames/quests.lua`)**:
+  - Implemented `HasRaidQuest()` and `IsRaidQuest()` detection in `State:Update()`.
+  - SFUI Quest Log now stays visible inside raid instances if the player holds active raid quests (e.g. raid skip quests, story/boss kill quests, raid map objectives), while cleanly hiding when no raid quests are tracked.
+  - Automatically filters out unrelated outdoor world quests and bonus objectives when inside a raid instance.
+
+### Loot Spec Manager Enhancements
+- **Debounced Asynchronous Swaps (`frames/lootspec.lua`)**:
+  - Added `pendingSpec` asynchronous state tracking and `PLAYER_LOOT_SPEC_UPDATED` listener to eliminate duplicate restoration chat messages when leaving instances.
+- **Improved Dungeon & M+ Entry Detection (`frames/lootspec.lua`)**:
+  - Upgraded `GetActiveDungeonSpec()` to cross-reference Challenge Mode season map tables by instance name and map ID, ensuring spec swaps trigger reliably upon entering dungeons as well as when the timer starts.
+- **Core Architecture & UI Integration (`frames/lootspec.lua`, `core.lua`)**:
+  - Initialized `SfuiDB.lootspec` in `core.lua` master load routine.
+  - Deduplicated `GetSpecColor()` helper and bound UI styling to `sfui.config.appearance` tokens and `sfui.pixelScale` responsive height clamping.
+
+---
+
 ## v12.1.0-19 (2026-08-31)
 
 ### Quest Log & Group Finder

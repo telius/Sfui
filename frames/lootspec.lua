@@ -101,15 +101,16 @@ end
 -- ─── Spec helpers ─────────────────────────────────────────────────────────────
 local specsCache = nil
 local function BuildSpecList()
-    if specsCache then return specsCache end
+    if specsCache and #specsCache > 1 then return specsCache end
     -- Flat array of specIDs: [1] = 0 ("off"), [2..n] = actual spec IDs.
-    specsCache = { 0 }
-    local n = GetNumSpecializations()
+    local list = { 0 }
+    local n = GetNumSpecializations() or 0
     for i = 1, n do
         local id = GetSpecializationInfo(i)
-        if id then specsCache[#specsCache + 1] = id end
+        if id then list[#list + 1] = id end
     end
-    return specsCache
+    if #list > 1 then specsCache = list end
+    return list
 end
 
 local function InvalidateSpecCache() specsCache = nil end
@@ -126,6 +127,18 @@ local function SpecIcon(specID)
     return icon
 end
 
+local function GetSpecColor(specID)
+    if not specID or specID == 0 then return 0.35, 0.35, 0.35, 1 end
+    local specColor = sfui.config and sfui.config.spec_colors and sfui.config.spec_colors[specID]
+    if specColor then
+        return specColor[1], specColor[2], specColor[3], 1
+    end
+    local _, _, _, _, _, classFile = GetSpecializationInfoByID(specID)
+    local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+    if cc then return cc.r, cc.g, cc.b, 1 end
+    return 0.0, 0.8, 1.0, 1
+end
+
 local function CycleSpec(currentID)
     local list = BuildSpecList()
     for i, id in ipairs(list) do
@@ -140,10 +153,16 @@ end
 
 local _dungeonToJournalEncounter = {}
 local _journalToDungeonEncounter = {}
+local pendingSpec = nil
 
 local function ApplyLootSpec(specID, reason)
     if specID == nil then return end
-    if GetLootSpecialization() == specID then return end
+    local currentSpec = GetLootSpecialization()
+    if (pendingSpec ~= nil and pendingSpec == specID) or (pendingSpec == nil and currentSpec == specID) then
+        return
+    end
+
+    pendingSpec = specID
     SetLootSpecialization(specID)
     if reason then
         local displayName = (specID == 0) and "Current Spec" or SpecName(specID)
@@ -153,17 +172,43 @@ local function ApplyLootSpec(specID, reason)
 end
 
 local function RestoreDefault(reason)
-    ApplyLootSpec(DB().defaultSpec, reason)
+    local defSpec = DB().defaultSpec or 0
+    ApplyLootSpec(defSpec, reason)
 end
 
--- Returns the configured specID for the current active M+ dungeon, or nil.
-local function GetActiveMPlusSpec()
-    local mapID = C_ChallengeMode.GetActiveChallengeMapID
+-- Returns the configured specID for the current active dungeon / M+ instance, or nil.
+local function GetActiveDungeonSpec()
+    -- 1. Active Challenge Mode key
+    local activeMapID = C_ChallengeMode.GetActiveChallengeMapID
         and C_ChallengeMode.GetActiveChallengeMapID()
-    if mapID and mapID > 0 then
-        local specID = DB().dungeons[mapID]
-        return (specID and specID ~= 0) and specID or nil
+    if activeMapID and activeMapID > 0 then
+        local specID = DB().dungeons[activeMapID]
+        if specID and specID ~= 0 then
+            local mapName = C_ChallengeMode.GetMapUIInfo and C_ChallengeMode.GetMapUIInfo(activeMapID)
+            return specID, mapName or "M+ active"
+        end
     end
+
+    -- 2. Dungeon instance entry (match by instance name or uiMapID)
+    local inInst, instType = IsInInstance()
+    if inInst and (instType == "party" or instType == "scenario") then
+        local instName = GetInstanceInfo()
+        local currentMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+
+        local maps = C_ChallengeMode.GetMapTable and C_ChallengeMode.GetMapTable()
+        if maps then
+            for _, cmMapID in ipairs(maps) do
+                local name, _, _, _, _, uiMapID = C_ChallengeMode.GetMapUIInfo(cmMapID)
+                if (instName and name and instName == name) or (currentMapID and uiMapID and currentMapID == uiMapID) then
+                    local specID = DB().dungeons[cmMapID]
+                    if specID and specID ~= 0 then
+                        return specID, name
+                    end
+                end
+            end
+        end
+    end
+
     return nil
 end
 
@@ -187,13 +232,12 @@ end
 
 -- True when we should hold the applied spec rather than restore on loot/zone.
 -- Raid: hold until next encounter or leaving.
--- M+:  hold until the end-of-run chest is looted or the player leaves.
+-- M+ / Dungeon: hold until leaving or end-of-run.
 -- Delve: hold until leaving the scenario.
 local function IsInManagedInstance()
     local _, t = IsInInstance()
     if t == "raid" then return true end
-    if t == "party" and C_ChallengeMode.GetActiveChallengeMapID
-        and (C_ChallengeMode.GetActiveChallengeMapID() or 0) > 0 then
+    if (t == "party" or t == "scenario") and GetActiveDungeonSpec() ~= nil then
         return true
     end
     if t == "scenario" or GetActiveDelveSpec() ~= nil then return true end
@@ -297,19 +341,23 @@ sfui.events.RegisterEvent("LOOT_CLOSED", function()
     RestoreDefault("loot closed")
 end)
 
+sfui.events.RegisterEvent("PLAYER_LOOT_SPEC_UPDATED", function()
+    pendingSpec = nil
+end)
+
 sfui.events.RegisterEvent("CHALLENGE_MODE_START", function()
     local db = DB()
     if not db.enabled then return end
-    local specID = GetActiveMPlusSpec()
+    local specID, dungeonName = GetActiveDungeonSpec()
     if specID then
         specApplied = true
-        ApplyLootSpec(specID, "M+ start")
+        ApplyLootSpec(specID, dungeonName or "M+ start")
     else
         C_Timer.After(0.2, function()
-            local sID = GetActiveMPlusSpec()
+            local sID, dName = GetActiveDungeonSpec()
             if sID then
                 specApplied = true
-                ApplyLootSpec(sID, "M+ start")
+                ApplyLootSpec(sID, dName or "M+ start")
             end
         end)
     end
@@ -320,10 +368,10 @@ local function CheckZoneLootSpec(reason)
     local db = DB()
     if not db.enabled then return end
 
-    local mplusSpec = GetActiveMPlusSpec()
-    if mplusSpec then
+    local dungeonSpec, dungeonName = GetActiveDungeonSpec()
+    if dungeonSpec then
         specApplied = true
-        ApplyLootSpec(mplusSpec, reason or "entered M+ instance")
+        ApplyLootSpec(dungeonSpec, dungeonName or reason or "entered dungeon")
         return
     end
 
@@ -344,9 +392,6 @@ end
 
 sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", function()
     CheckZoneLootSpec("entered zone")
-    C_Timer.After(0.5, function()
-        CheckZoneLootSpec("entered zone")
-    end)
 end)
 
 sfui.events.RegisterEvent("ZONE_CHANGED_NEW_AREA", function()
@@ -571,15 +616,7 @@ local function AcquireRow(parent)
                     bLbl:SetText("— off —")
                     bLbl:SetTextColor(0.3, 0.3, 0.3, 1)
                 else
-                    local specColor = sfui.config and sfui.config.spec_colors and sfui.config.spec_colors[specID]
-                    if specColor then
-                        bLbl:SetTextColor(specColor[1], specColor[2], specColor[3], 1)
-                    else
-                        local _, _, _, _, _, classFile = GetSpecializationInfoByID(specID)
-                        local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-                        if cc then bLbl:SetTextColor(cc.r, cc.g, cc.b, 1)
-                        else bLbl:SetTextColor(0.0, 0.8, 1.0, 1) end
-                    end
+                    bLbl:SetTextColor(GetSpecColor(specID))
                     bLbl:SetText(SpecName(specID))
                 end
             end
@@ -750,6 +787,7 @@ local function AcquireFontString(pool, parent, layer, fontObj)
     for _, fs in ipairs(pool) do
         if not fs.inUse then
             fs.inUse = true
+            if fontObj then fs:SetFontObject(fontObj) end
             fs:Show()
             return fs
         end
@@ -987,13 +1025,17 @@ function sfui.lootspec.CreateFrame()
     frame:SetScript("OnDragStart", frame.StartMoving)
     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
     frame:SetClampedToScreen(true)
+    local mult = sfui.pixelScale or 1
+    local app = sfui.config and sfui.config.appearance
+    local bgCol = (app and app.backdropColor) or { 0.05, 0.05, 0.05, 0.97 }
+    local gray = (sfui.config and sfui.config.colors and sfui.config.colors.gray) or { 0.2, 0.2, 0.2 }
     frame:SetBackdrop({
         bgFile   = "Interface\\Buttons\\WHITE8x8",
         edgeFile = "Interface\\Buttons\\WHITE8x8",
-        edgeSize = 1,
+        edgeSize = mult,
     })
-    frame:SetBackdropColor(0.05, 0.05, 0.05, 0.97)
-    frame:SetBackdropBorderColor(0.15, 0.15, 0.15, 1)
+    frame:SetBackdropColor(bgCol[1], bgCol[2], bgCol[3], bgCol[4] or 0.97)
+    frame:SetBackdropBorderColor(gray[1], gray[2], gray[3], 1)
 
     local MkBtn = sfui.common.create_flat_button
 
@@ -1040,19 +1082,7 @@ function sfui.lootspec.CreateFrame()
                 defIcon:Show()
             else defIcon:Hide() end
 
-            local specColor = sfui.config and sfui.config.spec_colors and sfui.config.spec_colors[specID]
-            if specColor then
-                defLbl:SetTextColor(specColor[1], specColor[2], specColor[3], 1)
-            else
-                local _, _, _, _, _, classFile = GetSpecializationInfoByID(specID)
-                local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-                if cc then
-                    defLbl:SetTextColor(cc.r, cc.g, cc.b, 1)
-                else
-                    defLbl:SetTextColor(0.0, 0.8, 1.0, 1)
-                end
-            end
-
+            defLbl:SetTextColor(GetSpecColor(specID))
             defLbl:SetText(SpecName(specID))
         end
     end
@@ -1122,7 +1152,9 @@ function sfui.lootspec.CreateFrame()
     local function FitFrame(contentH)
         contentH = math.max(contentH, 1)
         content:SetHeight(contentH)
-        local total = math.max(MIN_FRAME_H, math.min(MAX_FRAME_H, HEADER_H + contentH + FOOTER_H))
+        local screenH = (GetScreenHeight and GetScreenHeight()) or 1080
+        local maxH = math.min(MAX_FRAME_H, screenH * 0.85)
+        local total = math.max(MIN_FRAME_H, math.min(maxH, HEADER_H + contentH + FOOTER_H))
         frame:SetHeight(total)
     end
 
@@ -1131,18 +1163,21 @@ function sfui.lootspec.CreateFrame()
 
     local function SetActiveTab(tab)
         activeTab = tab
+        local purple = (sfui.config and sfui.config.appearance and sfui.config.appearance.highlightColor)
+            or { 0.4, 0.0, 1.0, 1 }
+        local darkGray = (sfui.config and sfui.config.colors and sfui.config.colors.gray) or { 0.15, 0.15, 0.15 }
 
         if tab == "raids" then
             tabRaid:SetBackdropColor(0.14, 0.0, 0.38, 1)
-            tabRaid:SetBackdropBorderColor(0.4, 0.0, 1.0, 1)
+            tabRaid:SetBackdropBorderColor(purple[1], purple[2], purple[3], 1)
             tabDung:SetBackdropColor(0.0, 0.0, 0.0, 1)
-            tabDung:SetBackdropBorderColor(0.15, 0.15, 0.15, 1)
+            tabDung:SetBackdropBorderColor(darkGray[1], darkGray[2], darkGray[3], 1)
             FitFrame(BuildRaidContent(content, FRAME_W - 10))
         else
             tabDung:SetBackdropColor(0.14, 0.0, 0.38, 1)
-            tabDung:SetBackdropBorderColor(0.4, 0.0, 1.0, 1)
+            tabDung:SetBackdropBorderColor(purple[1], purple[2], purple[3], 1)
             tabRaid:SetBackdropColor(0.0, 0.0, 0.0, 1)
-            tabRaid:SetBackdropBorderColor(0.15, 0.15, 0.15, 1)
+            tabRaid:SetBackdropBorderColor(darkGray[1], darkGray[2], darkGray[3], 1)
             FitFrame(BuildDungeonContent(content, FRAME_W - 10))
         end
     end
@@ -1152,12 +1187,18 @@ function sfui.lootspec.CreateFrame()
 
     frame:SetScript("OnShow", function()
         RefreshDefBtn()
+        if enableCB and enableCB.SetChecked then
+            enableCB:SetChecked(DB().enabled)
+        end
         SetActiveTab(activeTab)
     end)
 
     function sfui.lootspec.Rebuild()
         if frame and frame:IsShown() then
             RefreshDefBtn()
+            if enableCB and enableCB.SetChecked then
+                enableCB:SetChecked(DB().enabled)
+            end
             local t = activeTab; activeTab = nil
             SetActiveTab(t)
         end
