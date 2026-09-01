@@ -2,6 +2,16 @@
 
 > **Note**: This changelog documents **releases, architectural milestones, features**.
 
+## v12.1.0-22 (2026-09-01)
+
+### Architecture & Modernization
+- **Dispatcher & Event System Consolidation**:
+  - Migrated modules across the entire addon to native `RegisterEvent`, `RegisterUnitEvent`, and `RegisterThrottledEvent` via `dispatcher.lua`.
+  - Replaced redundant closure generation and pcall layers with clean direct API calls and secret value safety checks.
+  - Hardened dynamic frame pools and table reuse across tracking bars, quests, and class HUDs for zero combat allocation.
+
+---
+
 ## v12.1.0-21 (2026-09-01)
 
 ### Castbars Optimization & Secret Value Hardening
