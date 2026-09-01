@@ -680,8 +680,7 @@ local function _OnPlayerFlagsTimer()
     end
 end
 
-sfui.events.RegisterEvent("PLAYER_FLAGS_CHANGED", function(event, unit)
-    if unit ~= "player" then return end
+sfui.events.RegisterUnitEvent("PLAYER_FLAGS_CHANGED", "player", function(event, unit)
     local delay = (cfg and cfg.gear and cfg.gear.updateDelay) or 3
     C_Timer.After(delay, _OnPlayerFlagsTimer)
 end)

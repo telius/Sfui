@@ -27,8 +27,8 @@ local math_max, math_min, math_floor, math_ceil, math_abs = math.max, math.min, 
 local string_format                                  = string.format
 local table_insert, table_sort, wipe                 = table.insert, table.sort, wipe
 local date                                           = _G.date
-local pcall, ipairs, pairs, type, tonumber, tostring =
-    pcall, ipairs, pairs, type, tonumber, tostring
+local ipairs, pairs, type, tonumber, tostring =
+    ipairs, pairs, type, tonumber, tostring
 
 -- ─── Layout Constants ─────────────────────────────────────
 local HUD_W                                          = mcfg.width or 280
@@ -148,16 +148,16 @@ end
 -- ─── Personal Best (PB) & Target Time Helpers ────────────
 local function GetCurrentSeasonID()
     if C_MythicPlus and C_MythicPlus.GetCurrentSeason then
-        local ok, sID = pcall(C_MythicPlus.GetCurrentSeason)
-        if ok and sID and sID > 0 then return sID end
+        local sID = C_MythicPlus.GetCurrentSeason()
+        if sID and sID > 0 then return sID end
     end
     return 1
 end
 
 local function SyncBlizzardRunHistory()
     if not C_MythicPlus or not C_MythicPlus.GetRunHistory then return end
-    local ok, history = pcall(C_MythicPlus.GetRunHistory, true, true)
-    if not ok or not history or #history == 0 then return end
+    local history = C_MythicPlus.GetRunHistory(true, true)
+    if not history or #history == 0 then return end
 
     local seasonID = GetCurrentSeasonID()
     SfuiDB = SfuiDB or {}
@@ -368,8 +368,8 @@ end
 local function GetSpellTooltipText(spellID)
     if not spellID then return "" end
     if C_TooltipInfo and C_TooltipInfo.GetSpellByID then
-        local ok, data = pcall(C_TooltipInfo.GetSpellByID, spellID)
-        if ok and data and data.lines then
+        local data = C_TooltipInfo.GetSpellByID(spellID)
+        if data and data.lines then
             local textParts = {}
             for _, line in ipairs(data.lines) do
                 if line.leftText and not issecretvalue(line.leftText) and line.leftText ~= "" then
@@ -382,8 +382,8 @@ local function GetSpellTooltipText(spellID)
         end
     end
     if C_Spell and C_Spell.GetSpellDescription then
-        local ok, desc = pcall(C_Spell.GetSpellDescription, spellID)
-        if ok and desc and not issecretvalue(desc) and desc ~= "" then return desc end
+        local desc = C_Spell.GetSpellDescription(spellID)
+        if desc and not issecretvalue(desc) and desc ~= "" then return desc end
     end
     return ""
 end
@@ -391,8 +391,8 @@ end
 local function GetDelveInfo()
     local scenName, scenType = nil, nil
     if C_Scenario and C_Scenario.GetInfo then
-        local ok, n, _, _, _, _, _, _, _, _, t = pcall(C_Scenario.GetInfo)
-        if ok then scenName, scenType = n, t end
+        local n, _, _, _, _, _, _, _, _, t = C_Scenario.GetInfo()
+        scenName, scenType = n, t
     end
 
     local inDelve = (scenType == 8) or (C_DelvesUI and C_DelvesUI.HasActiveDelve and C_DelvesUI.HasActiveDelve())
@@ -413,29 +413,29 @@ local function GetDelveInfo()
 
     wipe(staticWidgetSetIDs)
     if C_Scenario and C_Scenario.GetStepInfo then
-        local ok, _, _, _, _, _, _, _, _, _, _, _, stepWidgetSetID = pcall(C_Scenario.GetStepInfo)
-        if ok and stepWidgetSetID and stepWidgetSetID > 0 then
+        local _, _, _, _, _, _, _, _, _, _, _, stepWidgetSetID = C_Scenario.GetStepInfo()
+        if stepWidgetSetID and stepWidgetSetID > 0 then
             table.insert(staticWidgetSetIDs, stepWidgetSetID)
         end
     end
     table.insert(staticWidgetSetIDs, 252)
     table.insert(staticWidgetSetIDs, 514)
     if C_DelvesUI and C_DelvesUI.GetDelveEntranceBackgroundWidgetSetID then
-        local ok, bgSet = pcall(C_DelvesUI.GetDelveEntranceBackgroundWidgetSetID)
-        if ok and bgSet then table.insert(staticWidgetSetIDs, bgSet) end
+        local bgSet = C_DelvesUI.GetDelveEntranceBackgroundWidgetSetID()
+        if bgSet then table.insert(staticWidgetSetIDs, bgSet) end
     end
     if C_UIWidgetManager then
         if C_UIWidgetManager.GetObjectiveTrackerWidgetSetID then
-            local ok, id = pcall(C_UIWidgetManager.GetObjectiveTrackerWidgetSetID)
-            if ok and id then table.insert(staticWidgetSetIDs, id) end
+            local id = C_UIWidgetManager.GetObjectiveTrackerWidgetSetID()
+            if id then table.insert(staticWidgetSetIDs, id) end
         end
         if C_UIWidgetManager.GetTopCenterWidgetSetID then
-            local ok, id = pcall(C_UIWidgetManager.GetTopCenterWidgetSetID)
-            if ok and id then table.insert(staticWidgetSetIDs, id) end
+            local id = C_UIWidgetManager.GetTopCenterWidgetSetID()
+            if id then table.insert(staticWidgetSetIDs, id) end
         end
         if C_UIWidgetManager.GetBelowMinimapWidgetSetID then
-            local ok, id = pcall(C_UIWidgetManager.GetBelowMinimapWidgetSetID)
-            if ok and id then table.insert(staticWidgetSetIDs, id) end
+            local id = C_UIWidgetManager.GetBelowMinimapWidgetSetID()
+            if id then table.insert(staticWidgetSetIDs, id) end
         end
     end
 
@@ -443,17 +443,18 @@ local function GetDelveInfo()
     local foundWidget = nil
     if C_UIWidgetManager then
         for _, setID in ipairs(staticWidgetSetIDs) do
-            local ok, widgets = pcall(C_UIWidgetManager.GetAllWidgetsBySetID, setID)
-            if ok and widgets then
-                for _, w in ipairs(widgets) do
-                    local wID = (type(w) == "table" and w.widgetID) or w
-                    if wID then
-                        table.insert(staticWidgetIDs, wID)
-                        if not foundWidget and C_UIWidgetManager.GetScenarioHeaderDelvesWidgetVisualizationInfo then
-                            local okVis, vis = pcall(C_UIWidgetManager.GetScenarioHeaderDelvesWidgetVisualizationInfo,
-                                wID)
-                            if okVis and vis and vis.shownState ~= (_G.Enum and _G.Enum.WidgetShownState and _G.Enum.WidgetShownState.Hidden) then
-                                foundWidget = vis
+            if C_UIWidgetManager.GetAllWidgetsBySetID then
+                local widgets = C_UIWidgetManager.GetAllWidgetsBySetID(setID)
+                if widgets then
+                    for _, w in ipairs(widgets) do
+                        local wID = (type(w) == "table" and w.widgetID) or w
+                        if wID then
+                            table.insert(staticWidgetIDs, wID)
+                            if not foundWidget and C_UIWidgetManager.GetScenarioHeaderDelvesWidgetVisualizationInfo then
+                                local vis = C_UIWidgetManager.GetScenarioHeaderDelvesWidgetVisualizationInfo(wID)
+                                if vis and vis.shownState ~= (_G.Enum and _G.Enum.WidgetShownState and _G.Enum.WidgetShownState.Hidden) then
+                                    foundWidget = vis
+                                end
                             end
                         end
                     end
@@ -530,14 +531,14 @@ local function GetDelveInfo()
     -- Fallbacks for Tier
     if not delveInfo.tierText and C_DelvesUI then
         if C_DelvesUI.GetActiveDelveTier then
-            local ok, tierInfo = pcall(C_DelvesUI.GetActiveDelveTier)
-            if ok and tierInfo and tierInfo.tier then
+            local tierInfo = C_DelvesUI.GetActiveDelveTier()
+            if tierInfo and tierInfo.tier then
                 delveInfo.tierText = tostring(tierInfo.tier)
             end
         end
         if not delveInfo.tierText and C_DelvesUI.GetWorldTierDifficultyForActivePlayer then
-            local ok, tier = pcall(C_DelvesUI.GetWorldTierDifficultyForActivePlayer)
-            if ok and tier and tier > 0 then
+            local tier = C_DelvesUI.GetWorldTierDifficultyForActivePlayer()
+            if tier and tier > 0 then
                 delveInfo.tierText = tostring(tier)
             end
         end
@@ -545,8 +546,8 @@ local function GetDelveInfo()
 
     -- Fallback active spells
     if #delveInfo.spells == 0 and C_ScenarioInfo and C_ScenarioInfo.GetTieredEntranceActiveSpells then
-        local ok, activeSpells = pcall(C_ScenarioInfo.GetTieredEntranceActiveSpells)
-        if ok and activeSpells then
+        local activeSpells = C_ScenarioInfo.GetTieredEntranceActiveSpells()
+        if activeSpells then
             for _, sID in ipairs(activeSpells) do
                 local spObj = table.remove(spellPool) or {}
                 spObj.spellID = sID
@@ -580,14 +581,14 @@ local function GetDelveCompanionInfo()
 
     -- 1. Primary: Delves Season Faction -> playerCompanionID -> GetFactionForCompanion
     if C_DelvesUI and C_DelvesUI.GetDelvesFactionForSeason and C_MajorFactions and C_MajorFactions.GetMajorFactionData then
-        local okS, seasonFactionID = pcall(C_DelvesUI.GetDelvesFactionForSeason)
-        if okS and seasonFactionID and seasonFactionID > 0 then
-            local okD, mData = pcall(C_MajorFactions.GetMajorFactionData, seasonFactionID)
-            if okD and mData and mData.playerCompanionID and mData.playerCompanionID > 0 then
+        local seasonFactionID = C_DelvesUI.GetDelvesFactionForSeason()
+        if seasonFactionID and seasonFactionID > 0 then
+            local mData = C_MajorFactions.GetMajorFactionData(seasonFactionID)
+            if mData and mData.playerCompanionID and mData.playerCompanionID > 0 then
                 companionID = mData.playerCompanionID
                 if C_DelvesUI.GetFactionForCompanion then
-                    local okF, fID = pcall(C_DelvesUI.GetFactionForCompanion, companionID)
-                    if okF and fID and fID > 0 then
+                    local fID = C_DelvesUI.GetFactionForCompanion(companionID)
+                    if fID and fID > 0 then
                         companionFactionID = fID
                     end
                 end
@@ -597,17 +598,17 @@ local function GetDelveCompanionInfo()
 
     -- 2. Secondary: Scan MajorFactions with active Journey Tracks
     if not companionFactionID and C_MajorFactions and C_MajorFactions.GetMajorFactionIDs then
-        local ok, fIDs = pcall(C_MajorFactions.GetMajorFactionIDs)
-        if ok and fIDs then
+        local fIDs = C_MajorFactions.GetMajorFactionIDs()
+        if fIDs then
             for _, mfID in ipairs(fIDs) do
                 local isJourney = C_MajorFactions.ShouldUseJourneyRewardTrack and C_MajorFactions.ShouldUseJourneyRewardTrack(mfID)
                 if isJourney then
-                    local okD, data = pcall(C_MajorFactions.GetMajorFactionData, mfID)
-                    if okD and data and data.playerCompanionID and data.playerCompanionID > 0 then
+                    local data = C_MajorFactions.GetMajorFactionData(mfID)
+                    if data and data.playerCompanionID and data.playerCompanionID > 0 then
                         companionID = data.playerCompanionID
                         if C_DelvesUI and C_DelvesUI.GetFactionForCompanion then
-                            local okF, fID = pcall(C_DelvesUI.GetFactionForCompanion, companionID)
-                            if okF and fID and fID > 0 then
+                            local fID = C_DelvesUI.GetFactionForCompanion(companionID)
+                            if fID and fID > 0 then
                                 companionFactionID = fID
                                 break
                             end
@@ -620,20 +621,20 @@ local function GetDelveCompanionInfo()
 
     -- 3. Tertiary: C_DelvesUI.GetCompanionInfoForActivePlayer
     if not companionFactionID and C_DelvesUI and C_DelvesUI.GetCompanionInfoForActivePlayer then
-        local ok, cID = pcall(C_DelvesUI.GetCompanionInfoForActivePlayer)
-        if ok and cID and cID > 0 then
+        local cID = C_DelvesUI.GetCompanionInfoForActivePlayer()
+        if cID and cID > 0 then
             companionID = cID
             if C_DelvesUI.GetFactionForCompanion then
-                local okF, fID = pcall(C_DelvesUI.GetFactionForCompanion, cID)
-                if okF and fID and fID > 0 then companionFactionID = fID end
+                local fID = C_DelvesUI.GetFactionForCompanion(cID)
+                if fID and fID > 0 then companionFactionID = fID end
             end
         end
     end
 
     -- 4. Quaternary: Call GetFactionForCompanion with nil (engine defaults to active season companion)
     if not companionFactionID and C_DelvesUI and C_DelvesUI.GetFactionForCompanion then
-        local okF, fID = pcall(C_DelvesUI.GetFactionForCompanion)
-        if okF and fID and fID > 0 then
+        local fID = C_DelvesUI.GetFactionForCompanion()
+        if fID and fID > 0 then
             companionFactionID = fID
         end
     end
@@ -764,16 +765,15 @@ local function GetNemesisInfo(delveInfo)
 
     -- 1. Check Scenario criteria
     if C_Scenario and C_Scenario.GetStepInfo and C_ScenarioInfo then
-        local ok, _, _, numCriteria, _, _, _, _, _, _, stepID = pcall(C_Scenario.GetStepInfo)
-        if (not ok or not numCriteria or numCriteria == 0) and C_ScenarioInfo.GetScenarioStepInfo then
-            local okStep, sInfo = pcall(C_ScenarioInfo.GetScenarioStepInfo)
-            if okStep and sInfo and sInfo.numCriteria and sInfo.numCriteria > 0 then
+        local _, _, numCriteria, _, _, _, _, _, _, _, stepID = C_Scenario.GetStepInfo()
+        if (not numCriteria or numCriteria == 0) and C_ScenarioInfo.GetScenarioStepInfo then
+            local sInfo = C_ScenarioInfo.GetScenarioStepInfo()
+            if sInfo and sInfo.numCriteria and sInfo.numCriteria > 0 then
                 numCriteria = sInfo.numCriteria
                 stepID = stepID or sInfo.stepID
-                ok = true
             end
         end
-        if ok and numCriteria and numCriteria > 0 then
+        if numCriteria and numCriteria > 0 then
             for i = 1, numCriteria do
                 local info = GetCriteriaInfoSafe(i, stepID)
                 local descText = (info and info.description and not issecretvalue(info.description) and info.description ~= "") and info.description or nil
@@ -898,8 +898,8 @@ local function GetNemesisInfo(delveInfo)
 
                 -- Check player aura stack count if still nil
                 if not nemesis.current and s.spellID and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
-                    local okA, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, s.spellID)
-                    if okA and aura then
+                    local aura = C_UnitAuras.GetPlayerAuraBySpellID(s.spellID)
+                    if aura then
                         if aura.applications and aura.applications > 0 then
                             nemesis.current = aura.applications
                         elseif aura.points and aura.points[1] and aura.points[1] > 0 then
@@ -942,8 +942,8 @@ local function GetNemesisInfo(delveInfo)
     if not nemesis.current and C_UIWidgetManager then
         for _, wID in ipairs(staticWidgetIDs) do
             if C_UIWidgetManager.GetIconAndTextWidgetVisualizationInfo then
-                local okVis, vis = pcall(C_UIWidgetManager.GetIconAndTextWidgetVisualizationInfo, wID)
-                if okVis and vis and vis.shownState ~= (_G.Enum and _G.Enum.WidgetShownState and _G.Enum.WidgetShownState.Hidden) then
+                local vis = C_UIWidgetManager.GetIconAndTextWidgetVisualizationInfo(wID)
+                if vis and vis.shownState ~= (_G.Enum and _G.Enum.WidgetShownState and _G.Enum.WidgetShownState.Hidden) then
                     local vTooltip = (vis.tooltip and not issecretvalue(vis.tooltip)) and vis.tooltip or ""
                     local vText = (vis.text and not issecretvalue(vis.text)) and vis.text or ""
                     local tt = vTooltip:lower()
@@ -963,8 +963,8 @@ local function GetNemesisInfo(delveInfo)
                 end
             end
             if not nemesis.current and C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo then
-                local okVis, vis = pcall(C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo, wID)
-                if okVis and vis and vis.shownState ~= (_G.Enum and _G.Enum.WidgetShownState and _G.Enum.WidgetShownState.Hidden) then
+                local vis = C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo(wID)
+                if vis and vis.shownState ~= (_G.Enum and _G.Enum.WidgetShownState and _G.Enum.WidgetShownState.Hidden) then
                     local vTooltip = (vis.tooltip and not issecretvalue(vis.tooltip)) and vis.tooltip or ""
                     local vText = (vis.text and not issecretvalue(vis.text)) and vis.text or ""
                     local tt = vTooltip:lower()
@@ -972,7 +972,6 @@ local function GetNemesisInfo(delveInfo)
                     if tt:find("nemesis") or tt:find("zekvir") or tt:find("influence") or txt:find("nemesis") or txt:find("zekvir") then
                         nemesis.hasNemesis = true
                         nemesis.tooltip = vTooltip ~= "" and vTooltip or nemesis.tooltip
-                        local cW, tW = vText:match("(%d+)%s*/%s*(%d+)")
                         if cW and tW then
                             nemesis.current = tonumber(cW)
                             nemesis.total   = tonumber(tW)
@@ -1180,8 +1179,11 @@ local function BuildHUDFrame()
     MF.deathText:SetText("")
 
     deathFrame:SetScript("OnEnter", function(self)
-        local okd, deaths, timeLostSec = pcall(C_ChallengeMode.GetDeathCount)
-        if okd and deaths and deaths > 0 then
+        local deaths, timeLostSec
+        if C_ChallengeMode and C_ChallengeMode.GetDeathCount then
+            deaths, timeLostSec = C_ChallengeMode.GetDeathCount()
+        end
+        if deaths and deaths > 0 then
             local tl = timeLostSec or (deaths * 5)
             if GameTooltip then
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -1508,10 +1510,13 @@ local function BuildAffixRow(affixes)
         af.frame:SetPoint("LEFT", MF.affixRow, "LEFT", xOff, 0)
         af.frame:Show()
 
-        local ok, name, desc, fileDataID = pcall(C_ChallengeMode.GetAffixInfo, affixID)
-        af.icon:SetTexture(ok and fileDataID or nil)
-        af.frame.affixName = ok and name or nil
-        af.frame.affixDesc = ok and desc or nil
+        local name, desc, fileDataID
+        if C_ChallengeMode and C_ChallengeMode.GetAffixInfo then
+            name, desc, fileDataID = C_ChallengeMode.GetAffixInfo(affixID)
+        end
+        af.icon:SetTexture(fileDataID or nil)
+        af.frame.affixName = name or nil
+        af.frame.affixDesc = desc or nil
 
         xOff = xOff + size + gap
     end
@@ -1685,17 +1690,19 @@ end
 -- ─── Core Update: merged boss + forces in one GetStepInfo call ───
 local function UpdateInstanceState()
     if not (C_Scenario and C_ScenarioInfo) then return end
-    local ok, stepName, stepDesc, numCriteria, _, _, _, _, _, _, stepID, stepWidgetSetID, _, isWorldEvent = pcall(C_Scenario.GetStepInfo)
-    if (not ok or not numCriteria or numCriteria == 0) and C_ScenarioInfo.GetScenarioStepInfo then
-        local okStep, sInfo = pcall(C_ScenarioInfo.GetScenarioStepInfo)
-        if okStep and sInfo then
+    local stepName, stepDesc, numCriteria, stepID, stepWidgetSetID, isWorldEvent
+    if C_Scenario.GetStepInfo then
+        stepName, stepDesc, numCriteria, _, _, _, _, _, _, _, stepID, stepWidgetSetID, _, isWorldEvent = C_Scenario.GetStepInfo()
+    end
+    if (not numCriteria or numCriteria == 0) and C_ScenarioInfo.GetScenarioStepInfo then
+        local sInfo = C_ScenarioInfo.GetScenarioStepInfo()
+        if sInfo then
             numCriteria = (sInfo.numCriteria and sInfo.numCriteria > 0) and sInfo.numCriteria or (numCriteria or 0)
             stepID = stepID or sInfo.stepID
             stepName = stepName or sInfo.title
             stepDesc = stepDesc or sInfo.description
             stepWidgetSetID = stepWidgetSetID or sInfo.stepWidgetSetID
             if sInfo.isWorldEvent ~= nil then isWorldEvent = sInfo.isWorldEvent end
-            ok = true
         end
     end
     numCriteria = numCriteria or 0
@@ -1837,8 +1844,8 @@ local function UpdateInstanceState()
                 end
 
                 if not displayNum and s.spellID and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
-                    local okA, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, s.spellID)
-                    if okA and aura then
+                    local aura = C_UnitAuras.GetPlayerAuraBySpellID(s.spellID)
+                    if aura then
                         if aura.applications and not issecretvalue(aura.applications) and aura.applications > 0 then
                             displayNum = tostring(aura.applications)
                         elseif aura.points and aura.points[1] and not issecretvalue(aura.points[1]) and aura.points[1] > 0 then
@@ -1929,8 +1936,8 @@ local function UpdateInstanceState()
 
         -- For non-delve scenarios and world events, update stage progression if multi-stage
         if _mode == "dungeon" and C_Scenario and C_Scenario.GetInfo then
-            local okScen, sName, curStage, numStages = pcall(C_Scenario.GetInfo)
-            if okScen and sName and sName ~= "" then
+            local sName, curStage, numStages = C_Scenario.GetInfo()
+            if sName and sName ~= "" then
                 MF.dungeonText:SetText(sName)
                 if numStages and numStages > 1 and curStage and curStage > 0 then
                     MF.levelText:SetText(string_format("|cff00ffccStage %d/%d|r", curStage, numStages))
@@ -1986,8 +1993,8 @@ local function UpdateInstanceState()
     end
     -- Fallback 2: scenario step level weightedProgress (some Delves / instanced scenarios attach progress to the step)
     if not forcesInfo and C_ScenarioInfo and C_ScenarioInfo.GetScenarioStepInfo then
-        local okStep, sInfo = pcall(C_ScenarioInfo.GetScenarioStepInfo)
-        if okStep and sInfo and sInfo.weightedProgress and sInfo.weightedProgress > 0 then
+        local sInfo = C_ScenarioInfo.GetScenarioStepInfo()
+        if sInfo and sInfo.weightedProgress and sInfo.weightedProgress > 0 then
             wipe(staticForcesInfo)
             staticForcesInfo.quantity = sInfo.weightedProgress
             staticForcesInfo.totalQuantity = 100
@@ -2030,14 +2037,14 @@ local function UpdateInstanceState()
                         if isComplete then
                             if not _bossSplits[bossCount] then
                                 local currentRunElapsed = 0
-                                if _timerID then
-                                    local okEl, _, el = pcall(GetWorldElapsedTime, _timerID)
-                                    if okEl and el and el > 0 then currentRunElapsed = el end
+                                if _timerID and GetWorldElapsedTime then
+                                    local _, el = GetWorldElapsedTime(_timerID)
+                                    if el and el > 0 then currentRunElapsed = el end
                                 end
-                                if currentRunElapsed == 0 then
+                                if currentRunElapsed == 0 and GetWorldElapsedTime then
                                     for t = 1, 5 do
-                                        local okEl, _, el = pcall(GetWorldElapsedTime, t)
-                                        if okEl and el and el > 0 then
+                                        local _, el = GetWorldElapsedTime(t)
+                                        if el and el > 0 then
                                             currentRunElapsed = el
                                             break
                                         end
@@ -2114,11 +2121,11 @@ local function UpdateInstanceState()
 
     -- Check Bonus Steps for additional scenario / world event objectives
     if C_Scenario and C_Scenario.GetBonusSteps then
-        local okB, bonusSteps = pcall(C_Scenario.GetBonusSteps)
-        if okB and bonusSteps and #bonusSteps > 0 then
+        local bonusSteps = C_Scenario.GetBonusSteps()
+        if bonusSteps and #bonusSteps > 0 then
             for _, bStepID in ipairs(bonusSteps) do
-                local okBS, _, _, bNum = pcall(C_Scenario.GetStepInfo, bStepID)
-                if okBS and bNum and bNum > 0 then
+                local _, _, bNum = C_Scenario.GetStepInfo(bStepID)
+                if bNum and bNum > 0 then
                     for bi = 1, bNum do
                         local bInfo = GetCriteriaInfoSafe(bi, bStepID)
                         local bDesc = bInfo and (bInfo.description or bInfo.criteriaString or bInfo.string)
@@ -2186,46 +2193,48 @@ local function UpdateInstanceState()
             table.insert(staticWidgetSetIDs, stepWidgetSetID)
         end
         if C_UIWidgetManager.GetObjectiveTrackerWidgetSetID then
-            local okId, id = pcall(C_UIWidgetManager.GetObjectiveTrackerWidgetSetID)
-            if okId and id and id > 0 then table.insert(staticWidgetSetIDs, id) end
+            local id = C_UIWidgetManager.GetObjectiveTrackerWidgetSetID()
+            if id and id > 0 then table.insert(staticWidgetSetIDs, id) end
         end
 
         for _, setID in ipairs(staticWidgetSetIDs) do
-            local okW, widgets = pcall(C_UIWidgetManager.GetAllWidgetsBySetID, setID)
-            if okW and widgets then
-                for _, w in ipairs(widgets) do
-                    local wID = (type(w) == "table" and w.widgetID) or w
-                    if wID then
-                        -- TextWithState
-                        if C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo then
-                            local okVis, vis = pcall(C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo, wID)
-                            if okVis and vis and vis.shownState ~= 0 and vis.text and vis.text ~= "" and not issecretvalue(vis.text) then
-                                bossCount = bossCount + 1
-                                local r = GetOrCreateBossRow(bossCount)
-                                r.check:Hide()
-                                r.icon:Show()
-                                r.name:SetTextColor(CLR_WHITE_R, CLR_WHITE_G, CLR_WHITE_B)
-                                r.split:SetText("")
-                                r.split:Hide()
-                                r.name:ClearAllPoints()
-                                r.name:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 4, 0)
-                                r.name:SetPoint("RIGHT", r.row, "RIGHT", 0, 0)
-                                r.name:SetText(vis.text)
-                                local textH = r.name:GetStringHeight() or 14
-                                r.row:SetHeight(math_max(16, math_ceil(textH + 2)))
+            if C_UIWidgetManager.GetAllWidgetsBySetID then
+                local widgets = C_UIWidgetManager.GetAllWidgetsBySetID(setID)
+                if widgets then
+                    for _, w in ipairs(widgets) do
+                        local wID = (type(w) == "table" and w.widgetID) or w
+                        if wID then
+                            -- TextWithState
+                            if C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo then
+                                local vis = C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo(wID)
+                                if vis and vis.shownState ~= 0 and vis.text and vis.text ~= "" and not issecretvalue(vis.text) then
+                                    bossCount = bossCount + 1
+                                    local r = GetOrCreateBossRow(bossCount)
+                                    r.check:Hide()
+                                    r.icon:Show()
+                                    r.name:SetTextColor(CLR_WHITE_R, CLR_WHITE_G, CLR_WHITE_B)
+                                    r.split:SetText("")
+                                    r.split:Hide()
+                                    r.name:ClearAllPoints()
+                                    r.name:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 4, 0)
+                                    r.name:SetPoint("RIGHT", r.row, "RIGHT", 0, 0)
+                                    r.name:SetText(vis.text)
+                                    local textH = r.name:GetStringHeight() or 14
+                                    r.row:SetHeight(math_max(16, math_ceil(textH + 2)))
+                                end
                             end
-                        end
-                        -- StatusBar
-                        if not forcesInfo and C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo then
-                            local okBar, bar = pcall(C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo, wID)
-                            if okBar and bar and bar.shownState ~= 0 and bar.barValue and not issecretvalue(bar.barValue) then
-                                wipe(staticForcesInfo)
-                                staticForcesInfo.quantity = bar.barValue
-                                staticForcesInfo.totalQuantity = (bar.barMax and bar.barMax > 0) and bar.barMax or 100
-                                staticForcesInfo.quantityString = bar.overrideBarText or string_format("%d%%", bar.barValue)
-                                staticForcesInfo.completed = false
-                                staticForcesInfo.isWeightedProgress = true
-                                forcesInfo = staticForcesInfo
+                            -- StatusBar
+                            if not forcesInfo and C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo then
+                                local bar = C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo(wID)
+                                if bar and bar.shownState ~= 0 and bar.barValue and not issecretvalue(bar.barValue) then
+                                    wipe(staticForcesInfo)
+                                    staticForcesInfo.quantity = bar.barValue
+                                    staticForcesInfo.totalQuantity = (bar.barMax and bar.barMax > 0) and bar.barMax or 100
+                                    staticForcesInfo.quantityString = bar.overrideBarText or string_format("%d%%", bar.barValue)
+                                    staticForcesInfo.completed = false
+                                    staticForcesInfo.isWeightedProgress = true
+                                    forcesInfo = staticForcesInfo
+                                end
                             end
                         end
                     end
@@ -2320,14 +2329,14 @@ end
 -- ─── Timer Update (10 Hz ticker — optimized) ──────────────
 local function UpdateTimer()
     local elapsed = 0
-    if _timerID then
-        local ok, _, el = pcall(GetWorldElapsedTime, _timerID)
-        if ok and el and el > 0 then elapsed = el end
+    if _timerID and GetWorldElapsedTime then
+        local _, el = GetWorldElapsedTime(_timerID)
+        if el and el > 0 then elapsed = el end
     end
-    if elapsed == 0 then
+    if elapsed == 0 and GetWorldElapsedTime then
         for i = 1, 5 do
-            local ok, _, el = pcall(GetWorldElapsedTime, i)
-            if ok and el and el > 0 then
+            local _, el = GetWorldElapsedTime(i)
+            if el and el > 0 then
                 _timerID = i
                 elapsed = el
                 break
@@ -2335,11 +2344,11 @@ local function UpdateTimer()
         end
     end
 
-    if _timeLimit <= 0 then
-        local ok1, mapID = pcall(C_ChallengeMode.GetActiveChallengeMapID)
-        if ok1 and mapID and mapID > 0 then
-            local ok2, name, _, timeLimit = pcall(C_ChallengeMode.GetMapUIInfo, mapID)
-            if ok2 and timeLimit and timeLimit > 0 then
+    if _timeLimit <= 0 and C_ChallengeMode then
+        local mapID = C_ChallengeMode.GetActiveChallengeMapID and C_ChallengeMode.GetActiveChallengeMapID()
+        if mapID and mapID > 0 and C_ChallengeMode.GetMapUIInfo then
+            local name, _, timeLimit = C_ChallengeMode.GetMapUIInfo(mapID)
+            if timeLimit and timeLimit > 0 then
                 _timeLimit = timeLimit
                 MF.dungeonText:SetText(name or "Mythic+")
                 MF.timerBar:SetMinMaxValues(0, _timeLimit)
@@ -2426,8 +2435,11 @@ local function UpdateTimer()
     end
 
     -- Death counter (only format and resize when count or time lost changes)
-    local okd, deaths, timeLost = pcall(C_ChallengeMode.GetDeathCount)
-    if okd and deaths and deaths > 0 then
+    local deaths, timeLost
+    if C_ChallengeMode and C_ChallengeMode.GetDeathCount then
+        deaths, timeLost = C_ChallengeMode.GetDeathCount()
+    end
+    if deaths and deaths > 0 then
         local tl = timeLost or (deaths * 5)
         if deaths ~= _lastDeaths or tl ~= _lastTimeLost then
             _lastDeaths = deaths
@@ -2459,12 +2471,14 @@ end
 -- ─── ReinitTimer ──────────────────────────────────────────
 local function ReinitTimer()
     _timerID = nil
-    for i = 1, 10 do
-        local okT, _, _, timerType = pcall(GetWorldElapsedTime, i)
-        if okT and timerType == (_G.Enum and _G.Enum.WorldElapsedTimerTypes
-                and _G.Enum.WorldElapsedTimerTypes.ChallengeMode) then
-            _timerID = i
-            break
+    if GetWorldElapsedTime then
+        for i = 1, 10 do
+            local _, _, timerType = GetWorldElapsedTime(i)
+            if timerType == (_G.Enum and _G.Enum.WorldElapsedTimerTypes
+                    and _G.Enum.WorldElapsedTimerTypes.ChallengeMode) then
+                _timerID = i
+                break
+            end
         end
     end
     if not _timerID then _timerID = 1 end
@@ -2484,20 +2498,23 @@ local function InitRun()
     _lastTimeLost   = -1
     CacheGroupMembers()
 
-    local ok1, mapID          = pcall(C_ChallengeMode.GetActiveChallengeMapID)
-    local ok2, level, affixes = pcall(C_ChallengeMode.GetActiveKeystoneInfo)
+    local mapID = C_ChallengeMode and C_ChallengeMode.GetActiveChallengeMapID and C_ChallengeMode.GetActiveChallengeMapID()
+    local level, affixes
+    if C_ChallengeMode and C_ChallengeMode.GetActiveKeystoneInfo then
+        level, affixes = C_ChallengeMode.GetActiveKeystoneInfo()
+    end
 
-    if ok1 and mapID and mapID > 0 then
-        local ok3, name, _, timeLimit = pcall(C_ChallengeMode.GetMapUIInfo, mapID)
-        MF.dungeonText:SetText((ok3 and name) or "Mythic+")
-        _timeLimit = (ok3 and timeLimit) or 0
+    if mapID and mapID > 0 and C_ChallengeMode and C_ChallengeMode.GetMapUIInfo then
+        local name, _, timeLimit = C_ChallengeMode.GetMapUIInfo(mapID)
+        MF.dungeonText:SetText(name or "Mythic+")
+        _timeLimit = timeLimit or 0
     else
         MF.dungeonText:SetText("Mythic+")
         _timeLimit = 0
     end
 
     MF.levelText:SetTextColor(1, 0.82, 0, 1)
-    if ok2 and level and level > 0 then
+    if level and level > 0 then
         MF.levelText:SetText(string_format("+%d", level))
         BuildAffixRow(affixes or EMPTY_TABLE)
     else
@@ -2507,8 +2524,8 @@ local function InitRun()
 
     _forcesSplitTime = nil
     _runCompleted    = false
-    _currentMapID = (ok1 and mapID and mapID > 0) and mapID or nil
-    _currentLevel = (ok2 and level and level > 0) and level or nil
+    _currentMapID = (mapID and mapID > 0) and mapID or nil
+    _currentLevel = (level and level > 0) and level or nil
     _currentBestRun = GetBestRun(_currentMapID, _currentLevel)
 
     if _currentBestRun and _currentBestRun.duration and _currentBestRun.duration > 0 then
@@ -2528,12 +2545,14 @@ local function InitRun()
 
     -- Detect active timer ID
     _timerID = nil
-    for i = 1, 10 do
-        local okT, _, _, timerType = pcall(GetWorldElapsedTime, i)
-        if okT and timerType == (_G.Enum and _G.Enum.WorldElapsedTimerTypes
-                and _G.Enum.WorldElapsedTimerTypes.ChallengeMode) then
-            _timerID = i
-            break
+    if GetWorldElapsedTime then
+        for i = 1, 10 do
+            local _, _, timerType = GetWorldElapsedTime(i)
+            if timerType == (_G.Enum and _G.Enum.WorldElapsedTimerTypes
+                    and _G.Enum.WorldElapsedTimerTypes.ChallengeMode) then
+                _timerID = i
+                break
+            end
         end
     end
     if not _timerID then _timerID = 1 end
@@ -2576,8 +2595,8 @@ local function InitDungeon()
     -- Scenario info (overrides raw instance name if available)
     local scenName, scenType
     if C_Scenario and C_Scenario.GetInfo then
-        local ok, n, _, _, _, _, _, _, _, _, t = pcall(C_Scenario.GetInfo)
-        if ok then scenName, scenType = n, t end
+        local n, _, _, _, _, _, _, _, _, t = C_Scenario.GetInfo()
+        scenName, scenType = n, t
     end
 
     local displayName = scenName or instName or "Dungeon"
@@ -2648,8 +2667,9 @@ local function ShowHUD(forceDungeon)
     MF:EnableMouse(not isLocked)
 
     local isMPlus = false
-    local okM, isActive = pcall(C_ChallengeMode.IsChallengeModeActive)
-    if okM and isActive then isMPlus = true end
+    if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive then
+        isMPlus = C_ChallengeMode.IsChallengeModeActive()
+    end
 
     if isMPlus and not forceDungeon then
         _mode = "mythic"
@@ -2711,13 +2731,13 @@ end
 local function CheckScenarioState()
     if _isPreview then return end
     local isMPlus = false
-    local okM, isActive = pcall(C_ChallengeMode.IsChallengeModeActive)
-    if okM and isActive then isMPlus = true end
+    if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive then
+        isMPlus = C_ChallengeMode.IsChallengeModeActive()
+    end
 
     local inInst = false
     if _G.IsInInstance then
-        local okI, inI = pcall(_G.IsInInstance)
-        if okI and inI then inInst = true end
+        inInst = _G.IsInInstance()
     end
 
     if isMPlus or (_runCompleted and _mode == "mythic" and inInst) then
@@ -2751,16 +2771,14 @@ local function CheckScenarioState()
     local inScenario = false
     if inInst then
         if C_Scenario and C_Scenario.IsInScenario then
-            local ok, inScen = pcall(C_Scenario.IsInScenario)
-            if ok and inScen then inScenario = true end
+            inScenario = C_Scenario.IsInScenario()
         end
         if not inScenario and C_DelvesUI and C_DelvesUI.HasActiveDelve then
-            local ok, hasDelve = pcall(C_DelvesUI.HasActiveDelve)
-            if ok and hasDelve then inScenario = true end
+            inScenario = C_DelvesUI.HasActiveDelve()
         end
         if not inScenario and _G.IsInInstance then
-            local ok, _, instType = pcall(_G.IsInInstance)
-            if ok and instType == "scenario" then inScenario = true end
+            local _, instType = _G.IsInInstance()
+            if instType == "scenario" then inScenario = true end
         end
     end
 
@@ -2957,8 +2975,8 @@ local function on_mythic_event(event, ...)
             sfui.SuppressBlizzardTracker()
         end
         if _mode == nil then
-            local okInst, inInst = pcall(_G.IsInInstance)
-            if not (okInst and inInst) then return end
+            local inInst = _G.IsInInstance and _G.IsInInstance()
+            if not inInst then return end
             CheckScenarioState()
         end
         RequestStateUpdate(0.4)
@@ -2998,7 +3016,10 @@ local function on_mythic_event(event, ...)
         CheckScenarioState()
         RequestStateUpdate(0.6)
     elseif event == "ZONE_CHANGED_NEW_AREA" then
-        RequestStateUpdate(0.4)
+        local inInst = _G.IsInInstance and _G.IsInInstance()
+        if inInst or _mode ~= nil then
+            RequestStateUpdate(0.4)
+        end
     elseif event == "UPDATE_FACTION" then
         if _mode == "dungeon" then RequestStateUpdate(0.2) end
     elseif event == "WORLD_STATE_TIMER_START" or event == "WORLD_STATE_TIMER_STOP" then
@@ -3033,8 +3054,8 @@ do
             sfui.SuppressBlizzardTracker()
         end
         if _mode == nil then
-            local okInst, inInst = pcall(_G.IsInInstance)
-            if not (okInst and inInst) then return end
+            local inInst = _G.IsInInstance and _G.IsInInstance()
+            if not inInst then return end
             CheckScenarioState()
         end
         RequestStateUpdate(0.4)

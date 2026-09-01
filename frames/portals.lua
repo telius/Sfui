@@ -421,7 +421,11 @@ local function make_spell_icon(parent, spellID, label, x, y)
         local rem = spell_cd_remaining(spellID)
         if rem > 0 then
             local cdInfo = C_Spell.GetSpellCooldown(spellID)
-            if cdInfo then cd:SetCooldown(cdInfo.startTime, cdInfo.duration) end
+            if cdInfo and not (issecretvalue and (issecretvalue(cdInfo.startTime) or issecretvalue(cdInfo.duration))) then
+                cd:SetCooldown(cdInfo.startTime, cdInfo.duration)
+            else
+                cd:Clear()
+            end
             grey:Show()
             frame:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
         else

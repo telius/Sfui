@@ -211,12 +211,11 @@ local function GetActiveDelveSpec()
     local isInst, t = IsInInstance()
     local isDelve = (t == "scenario")
     if not isDelve and C_Scenario and C_Scenario.GetInfo then
-        local ok, _, _, _, _, _, _, _, _, _, scenType = pcall(C_Scenario.GetInfo)
-        if ok and scenType == 8 then isDelve = true end
+        local _, _, _, _, _, _, _, _, _, _, scenType = C_Scenario.GetInfo()
+        if scenType == 8 then isDelve = true end
     end
     if not isDelve and C_DelvesUI and C_DelvesUI.HasActiveDelve then
-        local ok, hasDelve = pcall(C_DelvesUI.HasActiveDelve)
-        if ok and hasDelve then isDelve = true end
+        if C_DelvesUI.HasActiveDelve() then isDelve = true end
     end
     if isDelve then
         local specID = DB().dungeons["delves"]
@@ -266,11 +265,11 @@ sfui.events.RegisterEvent("ENCOUNTER_START", function(_, encounterID, encounterN
             entry = db.bosses[_dungeonToJournalEncounter[encounterID]]
         end
         -- 3. Dynamic lookup from EncounterJournal if mapping cache is cold
-        if not entry then
+        if not entry and EJ_GetEncounterInfo then
             for keyID, bEntry in pairs(db.bosses) do
                 if type(keyID) == "number" then
-                    local ok, _, _, _, _, _, _, dID = pcall(EJ_GetEncounterInfo, keyID)
-                    if ok and dID and dID == encounterID then
+                    local _, _, _, _, _, _, _, dID = EJ_GetEncounterInfo(keyID)
+                    if dID and dID == encounterID then
                         entry = bEntry
                         _dungeonToJournalEncounter[encounterID] = keyID
                         _journalToDungeonEncounter[keyID] = encounterID
@@ -302,11 +301,11 @@ sfui.events.RegisterEvent("ENCOUNTER_END", function(_, encounterID, encounterNam
     if not entry and _dungeonToJournalEncounter[encounterID] then
         entry = db.bosses[_dungeonToJournalEncounter[encounterID]]
     end
-    if not entry then
+    if not entry and EJ_GetEncounterInfo then
         for keyID, bEntry in pairs(db.bosses) do
             if type(keyID) == "number" then
-                local ok, _, _, _, _, _, _, dID = pcall(EJ_GetEncounterInfo, keyID)
-                if ok and dID and dID == encounterID then
+                local _, _, _, _, _, _, _, dID = EJ_GetEncounterInfo(keyID)
+                if dID and dID == encounterID then
                     entry = bEntry
                     break
                 end
@@ -645,13 +644,11 @@ local function AcquireRow(parent)
                 if not self.keyID then return end
                 if GameTooltip then
                     local specID = GetSpecID(self)
-                    pcall(function()
-                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                        GameTooltip:SetText(specID == 0 and "no swap configured" or SpecName(specID))
-                        GameTooltip:AddLine("|cffaaaaaaleft-click|r to cycle spec", 1, 1, 1)
-                        GameTooltip:AddLine("|cffaaaaaaright-click|r to clear", 1, 1, 1)
-                        GameTooltip:Show()
-                    end)
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetText(specID == 0 and "no swap configured" or SpecName(specID))
+                    GameTooltip:AddLine("|cffaaaaaaleft-click|r to cycle spec", 1, 1, 1)
+                    GameTooltip:AddLine("|cffaaaaaaright-click|r to clear", 1, 1, 1)
+                    GameTooltip:Show()
                 end
             end)
             b:SetScript("OnLeave", function()
@@ -728,17 +725,15 @@ local function AcquireRow(parent)
         w:SetScript("OnEnter", function(self)
             if not self.keyID then return end
             if GameTooltip then
-                pcall(function()
-                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                    if IsWarned(self) then
-                        GameTooltip:SetText("bonus roll reminder |cff00ff00enabled|r")
-                        GameTooltip:AddLine("|cffaaaaaaleft-click|r to disable", 1, 1, 1)
-                    else
-                        GameTooltip:SetText("bonus roll reminder |cffff0000disabled|r")
-                        GameTooltip:AddLine("|cffaaaaaaleft-click|r to enable", 1, 1, 1)
-                    end
-                    GameTooltip:Show()
-                end)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                if IsWarned(self) then
+                    GameTooltip:SetText("bonus roll reminder |cff00ff00enabled|r")
+                    GameTooltip:AddLine("|cffaaaaaaleft-click|r to disable", 1, 1, 1)
+                else
+                    GameTooltip:SetText("bonus roll reminder |cffff0000disabled|r")
+                    GameTooltip:AddLine("|cffaaaaaaleft-click|r to enable", 1, 1, 1)
+                end
+                GameTooltip:Show()
             end
         end)
         w:SetScript("OnLeave", function()
@@ -1092,13 +1087,11 @@ function sfui.lootspec.CreateFrame()
     end)
     defBtn:SetScript("OnEnter", function(self)
         if GameTooltip then
-            pcall(function()
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:SetText("spec restored after boss loot")
-                GameTooltip:AddLine("|cffaaaaaaleft-click|r to cycle", 1, 1, 1)
-                GameTooltip:AddLine("|cffaaaaaaright-click|r to reset", 1, 1, 1)
-                GameTooltip:Show()
-            end)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("spec restored after boss loot")
+            GameTooltip:AddLine("|cffaaaaaaleft-click|r to cycle", 1, 1, 1)
+            GameTooltip:AddLine("|cffaaaaaaright-click|r to reset", 1, 1, 1)
+            GameTooltip:Show()
         end
     end)
     defBtn:SetScript("OnLeave", function()

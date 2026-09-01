@@ -156,7 +156,7 @@ function sfui.glows.start_glow(icon, config)
         if glow then
             HookGlowAlpha(glow, icon)
             if config.glowScale and config.glowScale ~= 1.0 then
-                pcall(glow.SetScale, glow, config.glowScale)
+                glow:SetScale(config.glowScale)
             end
         else
             sfui.common.print("|cff6600ffsfui|r: PixelGlow started but frame not found")
@@ -202,7 +202,7 @@ function sfui.glows.start_glow(icon, config)
         if glow then
             HookGlowAlpha(glow, icon)
             if config.glowScale and config.glowScale ~= 1.0 then
-                pcall(glow.SetScale, glow, config.glowScale)
+                glow:SetScale(config.glowScale)
             end
             -- Fix initial state
             if glow.ProcStart then glow.ProcStart:Hide() end
@@ -225,7 +225,7 @@ function sfui.glows.start_glow(icon, config)
         if glow then
             HookGlowAlpha(glow, icon)
             if config.glowScale and config.glowScale ~= 1.0 then
-                pcall(glow.SetScale, glow, config.glowScale)
+                glow:SetScale(config.glowScale)
             end
         else
             sfui.common.print("|cff6600ffsfui|r: ButtonGlow started but frame not found")

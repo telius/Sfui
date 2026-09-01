@@ -2,6 +2,7 @@ local addonName, addon = ...
 ---@diagnostic disable: undefined-global
 -- frames/merchant.lua
 local common = sfui.common
+local issecretvalue = common.issecretvalue or _G.issecretvalue
 -- Custom 4x7 grid merchant frame for sfui
 
 sfui = sfui or {}
@@ -339,19 +340,21 @@ function sfui.merchant.create_item_button(id, parent)
     btn:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
 
     btn:SetScript("OnEnter", function(self)
-        securecall(pcall, GameTooltip.SetOwner, GameTooltip, self, "ANCHOR_RIGHT")
+        local tip = sfui.tooltip or GameTooltip
+        tip:SetOwner(self, "ANCHOR_RIGHT")
         if self.link then
-            securecall(pcall, GameTooltip.SetHyperlink, GameTooltip, self.link)
+            tip:SetHyperlink(self.link)
         elseif self.hasItem then
-            securecall(pcall, GameTooltip.SetMerchantItem, GameTooltip, self:GetID())
+            tip:SetMerchantItem(self:GetID())
         end
-        GameTooltip:Show()
+        tip:Show()
         if self.hasItem then
             frame.itemHover = self:GetID()
         end
     end)
     btn:SetScript("OnLeave", function(self)
-        GameTooltip_Hide()
+        local tip = sfui.tooltip or GameTooltip
+        tip:Hide()
         ResetCursor()
         frame.itemHover = nil
     end)
@@ -490,20 +493,24 @@ function sfui.merchant.update_currency_display(frame)
 
             display:EnableMouse(true)
             display:SetScript("OnEnter", function(self)
-                securecall(pcall, GameTooltip.SetOwner, GameTooltip, self, "ANCHOR_RIGHT")
+                local tip = sfui.tooltip or GameTooltip
+                tip:SetOwner(self, "ANCHOR_RIGHT")
                 if self.type == "item" then
-                    securecall(pcall, GameTooltip.SetItemByID, GameTooltip, self.currencyID)
+                    tip:SetItemByID(self.currencyID)
                 elseif self.currencyID then
-                    securecall(pcall, GameTooltip.SetCurrencyByID, GameTooltip, self.currencyID)
+                    tip:SetCurrencyByID(self.currencyID)
                 elseif self.currencyName == "Gold" then
-                    GameTooltip:SetText("Gold")
-                    GameTooltip:AddLine("Total money on character", 1, 1, 1)
+                    tip:SetText("Gold")
+                    tip:AddLine("Total money on character", 1, 1, 1)
                 else
-                    GameTooltip:SetText(self.currencyName or "Currency")
+                    tip:SetText(self.currencyName or "Currency")
                 end
-                GameTooltip:Show()
+                tip:Show()
             end)
-            display:SetScript("OnLeave", GameTooltip_Hide)
+            display:SetScript("OnLeave", function()
+                local tip = sfui.tooltip or GameTooltip
+                tip:Hide()
+            end)
 
             displays[idx] = display
         end
@@ -642,11 +649,12 @@ grIcon:SetAllPoints()
 grIcon:SetTexture("Interface\\Icons\\INV_Misc_Coin_02") -- Coin icon
 grIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 guildRepairBtn:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    local tip = sfui.tooltip or GameTooltip
+    tip:SetOwner(self, "ANCHOR_RIGHT")
     local repairAllCost, canRepair = GetRepairAllCost()
 
     if canRepair and (common.issecretvalue(repairAllCost) or common.SafeGT(repairAllCost, 0)) then
-        common.SafeSetTooltipMoney(GameTooltip, repairAllCost, "Guild Repair")
+        common.SafeSetTooltipMoney(tip, repairAllCost, "Guild Repair")
 
         local amount = GetGuildBankMoney()
         local withdrawLimit = GetGuildBankWithdrawMoney()
@@ -656,13 +664,16 @@ guildRepairBtn:SetScript("OnEnter", function(self)
             amount = math.min(amount, withdrawLimit)
         end
 
-        common.SafeAddMoneyLine(GameTooltip, "Guild Funds: ", amount)
+        common.SafeAddMoneyLine(tip, "Guild Funds: ", amount)
     else
-        GameTooltip:SetText("No Repair Needed")
+        tip:SetText("No Repair Needed")
     end
-    securecall(pcall, GameTooltip.Show, GameTooltip)
+    tip:Show()
 end)
-guildRepairBtn:SetScript("OnLeave", GameTooltip_Hide)
+guildRepairBtn:SetScript("OnLeave", function()
+    local tip = sfui.tooltip or GameTooltip
+    tip:Hide()
+end)
 guildRepairBtn:SetScript("OnClick", function()
     if CanMerchantRepair() and CanGuildBankRepair() then
         RepairAllItems(true)
@@ -677,18 +688,22 @@ rIcon:SetAllPoints()
 rIcon:SetTexture("Interface\\Icons\\Trade_BlackSmithing") -- Anvil/Hammer
 rIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 repairBtn:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    local tip = sfui.tooltip or GameTooltip
+    tip:SetOwner(self, "ANCHOR_RIGHT")
     local repairAllCost, canRepair = GetRepairAllCost()
     local isSecret = common.issecretvalue(repairAllCost)
 
     if canRepair and (isSecret or common.SafeGT(repairAllCost, 0)) then
-        common.SafeSetTooltipMoney(GameTooltip, repairAllCost, "Repair All")
+        common.SafeSetTooltipMoney(tip, repairAllCost, "Repair All")
     else
-        GameTooltip:SetText("No Repair Needed")
+        tip:SetText("No Repair Needed")
     end
-    securecall(pcall, GameTooltip.Show, GameTooltip)
+    tip:Show()
 end)
-repairBtn:SetScript("OnLeave", GameTooltip_Hide)
+repairBtn:SetScript("OnLeave", function()
+    local tip = sfui.tooltip or GameTooltip
+    tip:Hide()
+end)
 repairBtn:SetScript("OnClick", function()
     if CanMerchantRepair() then
         RepairAllItems(false)
@@ -1104,19 +1119,14 @@ local function update_header()
     local data = C_TooltipInfo.GetUnit(unit)
     if data and data.lines then
         local line2 = data.lines[2] and data.lines[2].leftText
-        if line2 then
-            local ok, txt = pcall(function() return string.find(line2, "Level") and "" or line2 end)
-            if ok and txt == "" then
-                -- It had "Level", so check line 3
+        if line2 and not issecretvalue(line2) and type(line2) == "string" then
+            if not string.find(line2, "Level") then
+                titleText = line2
+            else
                 local line3 = data.lines[3] and data.lines[3].leftText
-                if line3 then
-                    local ok3, txt3 = pcall(function() return tostring(line3) end)
-                    if ok3 and type(txt3) == "string" then
-                        titleText = txt3
-                    end
+                if line3 and not issecretvalue(line3) and type(line3) == "string" then
+                    titleText = line3
                 end
-            elseif ok and type(txt) == "string" then
-                titleText = txt
             end
         end
     end

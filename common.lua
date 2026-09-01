@@ -10,46 +10,17 @@ function sfui.common.print(msg, ...)
     end
 end
 
--- Static pcall targets (Performance optimization: no closures in hot paths)
-local function pcall_issecret(val)
-    if type(val) == "number" then
-        return val + 0 == val
-    end
-    return val == val
-end
-local function pcall_num_pos(val) return type(val) == "number" and val > 0 end
-local function pcall_gt(v1, v2) return v1 > (v2 or 0) end
-local function pcall_identity(val) return val end
-
-local function pcall_math_probe(val)
-    -- This operation will explicitly crash if 'val' is a Mythic+ Private Aura 'Secret Value' (userdata)
-    return val + 0
-end
+local _issecretvalue = _G.issecretvalue
+local C_Secrets      = _G.C_Secrets
 
 local function issecretvalue(val)
     if val == nil then return false end
-
-    if _G.issecretvalue and _G.issecretvalue(val) then return true end
-
-    -- Fast early exit: if the engine reports no secret restrictions are active at all
-    -- (12.0.5+ C_Secrets API), there's no need to run the expensive arithmetic probe.
-    -- HasSecretRestrictions() covers cooldown/aura secrets; ShouldUnitStatsBeSecret()
-    -- (new in 12.0.5) covers stat/power queries (e.g. UnitPower in PvP/M+).
-    local C_Secrets = _G.C_Secrets
-    if C_Secrets then
-        local noAuraSecrets = C_Secrets.HasSecretRestrictions and not C_Secrets.HasSecretRestrictions()
-        local noStatSecrets = C_Secrets.ShouldUnitStatsBeSecret == nil
-                           or not C_Secrets.ShouldUnitStatsBeSecret()
-        if noAuraSecrets and noStatSecrets then
-            return false
-        end
+    if _issecretvalue then
+        return _issecretvalue(val)
     end
-
-    -- Deeper check: force an arithmetic mutation safely inside a protected call.
-    -- If 'val' is a secure userdata (Secret Value), this math evaluation throws a C++ exception internally
-    local success = pcall(pcall_math_probe, val)
-    if not success then return true end
-
+    if C_Secrets and C_Secrets.HasSecretRestrictions and not C_Secrets.HasSecretRestrictions() then
+        return false
+    end
     return false
 end
 sfui.common.issecretvalue = issecretvalue
@@ -70,8 +41,7 @@ end
 -- Safe numeric comparison
 function sfui.common.IsNumericAndPositive(value)
     if value == nil then return false end
-    local ok, result = pcall(pcall_num_pos, value)
-    return ok and result
+    return type(value) == "number" and value > 0
 end
 
 -- ────────────────────────────────────────────────────────────────────────────
@@ -104,8 +74,8 @@ function sfui.common.get_cached_int_string(val)
     elseif t == "string" then
         return val
     end
-    local ok, str = pcall(tostring, val)
-    return ok and str or ""
+    if issecretvalue(val) then return val end
+    return tostring(val)
 end
 
 --- Safe zero-allocation duration formatting.
@@ -131,8 +101,7 @@ function sfui.common.SafeFormatDuration(value, decimals)
     end
 
     local fmt = FMT_PATTERNS[decimals] or ("%." .. decimals .. "f")
-    local ok, formatted = pcall(string.format, fmt, num)
-    return ok and formatted or tostring(value)
+    return string.format(fmt, num)
 end
 
 -- Helper: Check if Mounted OR in Druid Travel Form (Spell 783)
@@ -155,86 +124,52 @@ function sfui.common.IsDragonriding()
     end
 
     -- Fallback: Check for Gliding Info
-    local isDragonriding = false
-    pcall(function()
-        if C_PlayerInfo and C_PlayerInfo.GetGlidingInfo then
-            local _, canGlide = C_PlayerInfo.GetGlidingInfo()
-            if canGlide then isDragonriding = true end
-        end
-    end)
-    return isDragonriding
+    if C_PlayerInfo and C_PlayerInfo.GetGlidingInfo then
+        local _, canGlide = C_PlayerInfo.GetGlidingInfo()
+        if canGlide then return true end
+    end
+    return false
 end
 
 -- Safe helper to check if player is on GCD and get the duration
 function sfui.common.GetGCDInfo()
-    local ok, ci = pcall(C_Spell.GetSpellCooldown, 61304)
-    if ok and ci and ci.duration and ci.duration > 0 then
-        return true, ci.duration
+    if C_Spell and C_Spell.GetSpellCooldown then
+        local ci = C_Spell.GetSpellCooldown(61304)
+        if ci and ci.duration and ci.duration > 0 then
+            return true, ci.duration
+        end
     end
     return false, 0
 end
 
--- Reusable cooldown lookups
-local function pcall_charge_dur(id) return C_Spell.GetSpellChargeDuration(id) end
-local function pcall_spell_dur(id) return C_Spell.GetSpellCooldownDuration(id) end
-
 -- Safe helper to get a duration object for a spell (nil check is non-secret)
 function sfui.common.GetCooldownDurationObj(spellID)
     if not spellID then return nil end
-    local ok, obj
-    if C_Spell.GetSpellChargeDuration then
-        ok, obj = pcall(pcall_charge_dur, spellID)
+    local obj
+    if C_Spell and C_Spell.GetSpellChargeDuration then
+        obj = C_Spell.GetSpellChargeDuration(spellID)
     end
-    if not ok or not obj then
-        if C_Spell.GetSpellCooldownDuration then
-            ok, obj = pcall(pcall_spell_dur, spellID)
-        end
+    if not obj and C_Spell and C_Spell.GetSpellCooldownDuration then
+        obj = C_Spell.GetSpellCooldownDuration(spellID)
     end
-    -- Return object as-is, let caller handle GCD
     return obj
 end
 
-local function _get_cooldown_duration(frame)
-    return frame:GetCooldownDuration()
-end
-
-local function _gt(v1, v2)
-    return v1 > v2
-end
-
-local function _lt(v1, v2)
-    return v1 < v2
-end
-
-local function _arithmetic(op, v1, v2)
-    if op == "+" then return v1 + v2 end
-    if op == "-" then return v1 - v2 end
-    if op == "*" then return v1 * v2 end
-    if op == "/" then return (v2 ~= 0) and (v1 / v2) or 0 end
-end
-
 -- Check if a cooldown frame is showing an active cooldown
--- Uses frame methods that work with secret values
 function sfui.common.IsCooldownFrameActive(cooldownFrame)
-    if not cooldownFrame then return false end
+    if not cooldownFrame or not cooldownFrame.GetCooldownDuration then return false end
 
-    -- GetCooldownDuration returns duration in milliseconds
-    -- Can be secret, but we can pass it to comparison via pcall
-    local ok, duration = pcall(_get_cooldown_duration, cooldownFrame)
-
-    if not ok then return false end
+    local duration = cooldownFrame:GetCooldownDuration()
+    if not duration then return false end
 
     -- If duration is secret, check if it's just GCD
     if issecretvalue(duration) then
-        local onGCD, gcdDur = sfui.common.GetGCDInfo()
-        -- If player is on GCD, assume this is GCD and not a real cooldown
+        local onGCD = sfui.common.GetGCDInfo()
         if onGCD then return false end
-        -- Otherwise assume it's a real cooldown (secret in M+)
         return true
     end
 
-    -- Non-secret: check if > 1510ms (exclude GCD + small buffer)
-    if not duration or duration == 0 then
+    if duration == 0 then
         return false
     end
 
@@ -243,35 +178,45 @@ function sfui.common.IsCooldownFrameActive(cooldownFrame)
         return false
     end
 
-    return duration > (sfui.config.castBar.gcdThreshold or 1510)
+    local threshold = (sfui.config and sfui.config.castBar and sfui.config.castBar.gcdThreshold) or 1510
+    return duration > threshold
 end
 
 -- Safe comparison helpers (Crash-proof against Secret Values in M+)
 function sfui.common.SafeGT(val, target)
     if val == nil or target == nil then return false end
-    local ok, result = pcall(_gt, val, target)
-    return ok and result or false
+    if issecretvalue(val) or issecretvalue(target) then return false end
+    if type(val) == "number" and type(target) == "number" then
+        return val > target
+    end
+    return false
 end
 
 -- Safe comparison helpers (Crash-proof against Secret Values in M+)
 function sfui.common.SafeLT(val, target)
     if val == nil or target == nil then return false end
-    local ok, result = pcall(_lt, val, target)
-    return ok and result or false
+    if issecretvalue(val) or issecretvalue(target) then return false end
+    if type(val) == "number" and type(target) == "number" then
+        return val < target
+    end
+    return false
 end
 
 -- Safe arithmetic to bypass "arithmetic on secret number" errors when tainted.
 function sfui.common.SafeArithmetic(op, v1, v2)
     if v1 == nil or v2 == nil then return 0 end
-    local ok, res = pcall(_arithmetic, op, v1, v2)
-    return ok and res or 0
+    if issecretvalue(v1) or issecretvalue(v2) then return 0 end
+    if op == "+" then return v1 + v2 end
+    if op == "-" then return v1 - v2 end
+    if op == "*" then return v1 * v2 end
+    if op == "/" then return (v2 ~= 0) and (v1 / v2) or 0 end
+    return 0
 end
 
 function sfui.common.SafeValue(val, fallback)
     if val == nil then return fallback end
     if issecretvalue(val) then return val end
-    local ok, result = pcall(pcall_identity, val)
-    if ok then return result else return fallback end
+    return val
 end
 
 function sfui.common.SafeNotFalse(val)
@@ -301,9 +246,6 @@ end
 function sfui.common.SafeSetTooltipMoney(tooltip, amount, label)
     if not tooltip or amount == nil then return end
 
-    -- Use securecall to get a safe coin string.
-    -- Constructing the tooltip line manually with strings avoids triggering
-    -- arithmetic in the MoneyFrame widget during GameTooltip:Show().
     local coinStr = sfui.common.SafeGetCoinTextureString(amount)
 
     if label then
@@ -313,42 +255,48 @@ function sfui.common.SafeSetTooltipMoney(tooltip, amount, label)
     end
 end
 
--- Safely add a money line using GetCoinTextureString via securecall
+-- Safely add a money line using GetCoinTextureString
 function sfui.common.SafeAddMoneyLine(tooltip, label, amount)
     if not tooltip or amount == nil then return end
 
-    local ok, coinStr = securecall(pcall, GetCoinTextureString, amount)
-    if ok and coinStr then
-        tooltip:AddLine((label or "") .. coinStr)
-    else
+    if issecretvalue(amount) then
         tooltip:AddLine((label or "") .. "|cff00ffff[Protected Data]|r")
+        return
     end
+
+    if type(amount) == "number" and GetCoinTextureString then
+        local coinStr = GetCoinTextureString(amount)
+        if coinStr then
+            tooltip:AddLine((label or "") .. coinStr)
+            return
+        end
+    end
+    tooltip:AddLine((label or "") .. "|cff00ffff[Protected Data]|r")
 end
 
--- Safely get a coin texture string using securecall
+-- Safely get a coin texture string
 function sfui.common.SafeGetCoinTextureString(amount)
     if amount == nil then return "" end
-    local ok, coinStr = securecall(pcall, GetCoinTextureString, amount)
-    if ok and coinStr then
-        return coinStr
-    else
-        return "|cff00ffff[Protected]|r"
+    if issecretvalue(amount) then return "|cff00ffff[Protected]|r" end
+    if type(amount) == "number" and GetCoinTextureString then
+        return GetCoinTextureString(amount) or ""
     end
+    return "|cff00ffff[Protected]|r"
 end
 
 -- Safely compare units (UnitIsUnit crashes on secret values if execution is tainted)
 function sfui.common.SafeUnitIsUnit(unit1, unit2)
     if not unit1 or not unit2 then return false end
     if issecretvalue(unit1) or issecretvalue(unit2) then
-        -- In secret context, we can't safely use UnitIsUnit.
-        -- We fall back to direct string comparison if they are strings.
         if type(unit1) == "string" and type(unit2) == "string" then
             return unit1 == unit2
         end
         return false
     end
-    local success, result = pcall(UnitIsUnit, unit1, unit2)
-    return success and result
+    if UnitIsUnit then
+        return UnitIsUnit(unit1, unit2) or false
+    end
+    return false
 end
 
 function sfui.common.copy(t)
@@ -1074,11 +1022,11 @@ end
 
 function sfui.common.is_dragonflying()
     if _dragonflyingCache ~= nil then return _dragonflyingCache end
-    local ok, isFlying, canGlide = pcall(C_PlayerInfo.GetGlidingInfo)
-    if not ok then
+    if not (C_PlayerInfo and C_PlayerInfo.GetGlidingInfo) then
         _dragonflyingCache = false
         return false
     end
+    local isFlying, canGlide = C_PlayerInfo.GetGlidingInfo()
     local hasSkyridingBar = _getBonusIdx and _getBonusOff and
         (_getBonusIdx() == 11 and _getBonusOff() == 5) or false
     _dragonflyingCache = (isFlying or (canGlide and hasSkyridingBar)) and true or false
@@ -1448,11 +1396,9 @@ function sfui.common.create_checkbox(parent, label, dbKeyOrGetter, onClickFunc, 
         cb:SetScript("OnEnter", function(self)
             local tip = sfui.tooltip or _G.GameTooltip
             if tip then
-                pcall(function()
-                    tip:SetOwner(self, "ANCHOR_RIGHT")
-                    tip:SetText(tooltip)
-                    tip:Show()
-                end)
+                tip:SetOwner(self, "ANCHOR_RIGHT")
+                tip:SetText(tooltip)
+                tip:Show()
             end
         end)
         cb:SetScript("OnLeave", function(self)
@@ -1565,11 +1511,9 @@ function sfui.common.create_slider_input(parent, label, dbKeyOrGetter, minVal, m
         container:SetScript("OnEnter", function(self)
             local tip = sfui.tooltip or _G.GameTooltip
             if tip then
-                pcall(function()
-                    tip:SetOwner(self, "ANCHOR_RIGHT")
-                    tip:SetText(tooltip)
-                    tip:Show()
-                end)
+                tip:SetOwner(self, "ANCHOR_RIGHT")
+                tip:SetText(tooltip)
+                tip:Show()
             end
         end)
         container:SetScript("OnLeave", function(self)
@@ -1697,11 +1641,9 @@ function sfui.common.create_input_field(parent, label, dbKeyOrGetter, width, onV
         container:SetScript("OnEnter", function(self)
             local tip = sfui.tooltip or _G.GameTooltip
             if tip then
-                pcall(function()
-                    tip:SetOwner(self, "ANCHOR_RIGHT")
-                    tip:SetText(tooltip)
-                    tip:Show()
-                end)
+                tip:SetOwner(self, "ANCHOR_RIGHT")
+                tip:SetText(tooltip)
+                tip:Show()
             end
         end)
         container:SetScript("OnLeave", function(self)

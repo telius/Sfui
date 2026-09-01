@@ -5,7 +5,7 @@ sfui.automation = {}
 local function on_role_check_show()
     if not SfuiDB.auto_role_check then return end
     if CompleteLFGRoleCheck then
-        pcall(CompleteLFGRoleCheck, true)
+        CompleteLFGRoleCheck(true)
     end
 end
 
@@ -521,16 +521,16 @@ local function on_hammer_cast_interrupted(event, unit, _, spellID)
 end
 
 function sfui.automation.register_transient_listeners()
-    sfui.events.RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", on_hammer_cast_finished)
-    sfui.events.RegisterEvent("UNIT_SPELLCAST_INTERRUPTED", on_hammer_cast_interrupted)
+    sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player", on_hammer_cast_finished)
+    sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", "player", on_hammer_cast_interrupted)
 
     -- Auto-cleanup after 5 seconds if for some reason we don't catch the event
     C_Timer.After(5, sfui.automation.unregister_transient_listeners)
 end
 
 function sfui.automation.unregister_transient_listeners()
-    sfui.events.UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED", on_hammer_cast_finished)
-    sfui.events.UnregisterEvent("UNIT_SPELLCAST_INTERRUPTED", on_hammer_cast_interrupted)
+    sfui.events.UnregisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player", on_hammer_cast_finished)
+    sfui.events.UnregisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", "player", on_hammer_cast_interrupted)
 end
 
 local function refreshHammer()

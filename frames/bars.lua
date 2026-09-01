@@ -3,6 +3,7 @@ sfui = sfui or {}
 sfui.bars = {}
 local cfg = sfui.config
 local common = sfui.common
+local issecretvalue = common.issecretvalue or _G.issecretvalue
 
 do
     local bar_minus_1
@@ -607,8 +608,10 @@ do
         bar.whirlingSurgeIcon.countText:SetText("")
 
         local wsInfo = C_Spell.GetSpellCooldown(surgeSpellID)
-        if wsInfo then
+        if wsInfo and not (issecretvalue and (issecretvalue(wsInfo.startTime) or issecretvalue(wsInfo.duration))) then
             bar.whirlingSurgeIcon.cooldown:SetCooldown(wsInfo.startTime, wsInfo.duration)
+        else
+            bar.whirlingSurgeIcon.cooldown:Clear()
         end
 
         local scAura = C_UnitAuras.GetPlayerAuraBySpellID(418590)
@@ -620,7 +623,11 @@ do
 
         local swInfo = C_Spell.GetSpellCooldown(425782)
         local swCharges = C_Spell.GetSpellCharges(425782)
-        if swInfo then bar.secondWindIcon.cooldown:SetCooldown(swInfo.startTime, swInfo.duration) end
+        if swInfo and not (issecretvalue and (issecretvalue(swInfo.startTime) or issecretvalue(swInfo.duration))) then
+            bar.secondWindIcon.cooldown:SetCooldown(swInfo.startTime, swInfo.duration)
+        else
+            bar.secondWindIcon.cooldown:Clear()
+        end
         bar.secondWindIcon.countText:SetText(swCharges and swCharges.currentCharges or "")
     end
 
@@ -672,19 +679,18 @@ do
         local _, _, forwardSpeed = C_PlayerInfo.GetGlidingInfo()
         if not forwardSpeed then return end
 
-        local ok, speed = pcall(function() return forwardSpeed * 14.286 end)
-        if not ok or not speed then return end
+        if issecretvalue(forwardSpeed) then
+            bar:SetValue(forwardSpeed)
+            return
+        end
 
-        -- SetValue accepts secret values directly in C++
+        local speed = forwardSpeed * 14.286
         bar:SetValue(speed)
 
-        -- Text update guarded in pcall against secret comparison restrictions during combat
-        pcall(function()
-            if math.abs(speed - (bar.lastSpeed or 0)) > 5 then
-                bar.TextValue:SetFormattedText("%d", speed)
-                bar.lastSpeed = speed
-            end
-        end)
+        if math.abs(speed - (bar.lastSpeed or 0)) > 5 then
+            bar.TextValue:SetFormattedText("%d", speed)
+            bar.lastSpeed = speed
+        end
 
         local aura = C_UnitAuras.GetPlayerAuraBySpellID(377234)
         if aura then
@@ -783,8 +789,7 @@ do
     sfui.events.RegisterEvent("RUNE_POWER_UPDATE", on_event)
     sfui.events.RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED", on_event)
     sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", on_event)
-    sfui.events.RegisterEvent("UNIT_ENTERED_VEHICLE", on_event)
-    sfui.events.RegisterEvent("UNIT_EXITED_VEHICLE", on_event)
+    sfui.events.RegisterUnitEvents({"UNIT_ENTERED_VEHICLE", "UNIT_EXITED_VEHICLE"}, "player", on_event)
     sfui.events.RegisterEvent("VEHICLE_UPDATE", on_event)
     sfui.events.RegisterEvent("UPDATE_VEHICLE_ACTIONBAR", on_event)
     sfui.events.RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR", on_event)

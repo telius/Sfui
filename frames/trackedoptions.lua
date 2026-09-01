@@ -1633,18 +1633,16 @@ function sfui.trackedoptions.RenderPanelSettings(parent, panel, xOffset, yOffset
 
                 btn:SetScript("OnEnter", function(self)
                     if GameTooltip then
-                        pcall(function()
-                            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                            local tInfo = configID and C_Traits and C_Traits.GetSubTreeInfo and
-                                C_Traits.GetSubTreeInfo(configID, heroInfo)
-                            GameTooltip:SetText(tInfo and tInfo.name or "Unknown Spec")
-                            if whitelist[heroInfo] then
-                                GameTooltip:AddLine("Filter: ENABLED (Only show in this spec)", 0, 1, 0)
-                            else
-                                GameTooltip:AddLine("Filter: DISABLED (Always show)", 0.6, 0.6, 0.6)
-                            end
-                            GameTooltip:Show()
-                        end)
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        local tInfo = configID and C_Traits and C_Traits.GetSubTreeInfo and
+                            C_Traits.GetSubTreeInfo(configID, heroInfo)
+                        GameTooltip:SetText(tInfo and tInfo.name or "Unknown Spec")
+                        if whitelist[heroInfo] then
+                            GameTooltip:AddLine("Filter: ENABLED (Only show in this spec)", 0, 1, 0)
+                        else
+                            GameTooltip:AddLine("Filter: DISABLED (Always show)", 0.6, 0.6, 0.6)
+                        end
+                        GameTooltip:Show()
                     end
                 end)
                 btn:SetScript("OnLeave", function()

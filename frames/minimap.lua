@@ -375,7 +375,7 @@ function ButtonManager:skin_button(button)
     if background then background:Hide() end
     if pushed then pushed:SetAlpha(0) end
     if iconMask and icon and icon.RemoveMaskTexture then
-        pcall(icon.RemoveMaskTexture, icon, iconMask)
+        icon:RemoveMaskTexture(iconMask)
     end
 
     button.sfuiSkinned = true
@@ -543,7 +543,7 @@ function sfui.minimap.enable_button_manager(enabled)
                             sfui.minimap.ldbi = LibStub("LibDBIcon-1.0", true)
                         end
                         if sfui.minimap.ldbi and sfui.minimap.ldbi.OnMinimapEnter then
-                            pcall(sfui.minimap.ldbi.OnMinimapEnter)
+                            sfui.minimap.ldbi:OnMinimapEnter()
                         end
                     else
                         button_bar:SetAlpha(0)
@@ -551,7 +551,7 @@ function sfui.minimap.enable_button_manager(enabled)
                             sfui.minimap.ldbi = LibStub("LibDBIcon-1.0", true)
                         end
                         if sfui.minimap.ldbi and sfui.minimap.ldbi.OnMinimapLeave then
-                            pcall(sfui.minimap.ldbi.OnMinimapLeave)
+                            sfui.minimap.ldbi:OnMinimapLeave()
                         end
                     end
                 else
@@ -596,9 +596,9 @@ function sfui.minimap.update_clock_position()
     local clock = _G.TimeManagerClockButton
     if not clock then
         if C_AddOns and C_AddOns.LoadAddOn then
-            pcall(C_AddOns.LoadAddOn, "Blizzard_TimeManager")
+            C_AddOns.LoadAddOn("Blizzard_TimeManager")
         elseif _G.UIParentLoadAddOn then
-            pcall(_G.UIParentLoadAddOn, "Blizzard_TimeManager")
+            _G.UIParentLoadAddOn("Blizzard_TimeManager")
         end
         clock = _G.TimeManagerClockButton
     end
@@ -607,8 +607,8 @@ function sfui.minimap.update_clock_position()
 
     local isClockEnabled = true
     if _G.GetCVarBool then
-        local ok, show = pcall(_G.GetCVarBool, "showClock")
-        if ok and show ~= nil then isClockEnabled = show end
+        local show = _G.GetCVarBool("showClock")
+        if show ~= nil then isClockEnabled = show end
     end
 
     if not isClockEnabled then

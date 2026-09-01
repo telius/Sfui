@@ -215,6 +215,7 @@ local function ResetBar(self)
         self.backdrop:SetBackdropBorderColor(0, 0, 0, 1)
         self.backdrop:Hide()
     end
+    self:SetScript("OnUpdate", nil)
 end
 
 local function CreateStageDividers(bar, numStages)
@@ -257,6 +258,7 @@ local function Player_OnUpdate(self, elapsed)
             self.backdrop:Hide()
             self.backdrop:SetAlpha(1)
         end
+        self:SetScript("OnUpdate", nil)
         return
     end
 
@@ -406,6 +408,7 @@ local function Player_OnEvent(event, unit, ...)
             UpdateCastBarColor(bar, "INSTANT")
             bar.Spark:Show()
             CreateStageDividers(bar, 0)
+            bar:SetScript("OnUpdate", Player_OnUpdate)
         end
         return
     end
@@ -436,6 +439,7 @@ local function Player_OnEvent(event, unit, ...)
         UpdateCastBarColor(bar, "CAST")
         bar.Spark:Show()
         CreateStageDividers(bar, 0)
+        bar:SetScript("OnUpdate", Player_OnUpdate)
     elseif event == "UNIT_SPELLCAST_CHANNEL_START" or event == "UNIT_SPELLCAST_EMPOWER_START" then
         local name, text, texture, startTime, endTime, isTradeSkill, notInterruptible, spellID, _, numStages = UnitChannelInfo(unit)
         if not name or not startTime or not endTime or not spellID then return end
@@ -477,6 +481,7 @@ local function Player_OnEvent(event, unit, ...)
         bar:SetMinMaxValues(0, bar.maxValue)
         bar:SetValue(bar.value)
         bar.Spark:Show()
+        bar:SetScript("OnUpdate", Player_OnUpdate)
     elseif event == "UNIT_SPELLCAST_CHANNEL_UPDATE" or event == "UNIT_SPELLCAST_EMPOWER_UPDATE" then
         local name, text, texture, startTime, endTime, isTradeSkill, notInterruptible, spellID, _, numStages = UnitChannelInfo(unit)
         if not name or not startTime or not endTime then return end
@@ -696,7 +701,6 @@ local function SetupBar(configName, unit)
     sfui.castbar.bars = sfui.castbar.bars or {}
     sfui.castbar.bars[unit] = bar
     bar.resetTimerCallback = function() on_reset_timer(bar) end
-    bar:SetScript("OnUpdate", Player_OnUpdate)
     return bar
 end
 

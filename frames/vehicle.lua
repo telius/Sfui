@@ -28,7 +28,7 @@ local UIParent            = _G.UIParent
 local InCombatLockdown    = _G.InCombatLockdown
 local RegisterStateDriver = _G.RegisterStateDriver
 local GetTime             = _G.GetTime
-local pcall               = _G.pcall
+local tonumber            = _G.tonumber
 local type                = _G.type
 local tostring            = _G.tostring
 local math_min            = _G.math.min
@@ -189,11 +189,9 @@ for i = 1, MAX_BUTTONS do
     btn:SetScript("OnEnter", function(self)
         local action = self:GetAttribute("action")
         if GameTooltip and action and HasAction(action) then
-            pcall(function()
-                GameTooltip:SetOwner(self, "ANCHOR_TOP")
-                GameTooltip:SetAction(action)
-                GameTooltip:Show()
-            end)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetAction(action)
+            GameTooltip:Show()
         end
     end)
     btn:SetScript("OnLeave", function()
@@ -270,13 +268,13 @@ local function UpdateVehicleHealth(force)
     healthStatusBar:SetValue(cur)
 
     local fgColor = SfuiDB and SfuiDB.healthBarColor or (sfui.config and sfui.config.healthBar and sfui.config.healthBar.color) or { 0, 0.8, 0.067, 1 }
-    if SfuiDB and SfuiDB.useSpecColor and common.get_spec_color then
-        fgColor = common.get_spec_color() or fgColor
+    if SfuiDB and SfuiDB.useSpecColor and common.get_class_or_spec_color then
+        fgColor = common.get_class_or_spec_color() or fgColor
     end
-    healthStatusBar:SetStatusBarColor(fgColor[1], fgColor[2], fgColor[3], fgColor[4] or 1)
+    healthStatusBar:SetStatusBarColor(common.unpack_color(fgColor, 0, 0.8, 0.067, 1))
 
     local bgColor = SfuiDB and SfuiDB.healthBarBackdropColor or (sfui.config and sfui.config.healthBar and sfui.config.healthBar.backdrop and sfui.config.healthBar.backdrop.color) or { 0, 0, 0, 0.7 }
-    healthBackdrop:SetBackdropColor(bgColor[1], bgColor[2], bgColor[3], bgColor[4] or 0.7)
+    healthBackdrop:SetBackdropColor(common.unpack_color(bgColor, 0, 0, 0, 0.7))
 end
 
 -- ─── Vehicle Power Bar ───────────────────────────────────────────────────────
@@ -593,24 +591,9 @@ local function UpdateCooldowns()
                 local cd = btn.cooldown
                 if cd then
                     _start, _duration, _enable = GetActionCooldown(actionID)
-                    local isSecret = issecretvalue(_start) or issecretvalue(_duration)
+                    local isSecret = issecretvalue and (issecretvalue(_start) or issecretvalue(_duration) or issecretvalue(_enable))
                     if isSecret then
-                        local ok = pcall(cd.SetCooldown, cd, _start, _duration)
-                        if not ok then
-                            local atype, spellID = GetActionInfo(actionID)
-                            if atype == "spell" and spellID
-                                and cd.SetCooldownFromDurationObject
-                                and C_Spell and C_Spell.GetSpellCooldownDuration then
-                                local ok2, obj = pcall(C_Spell.GetSpellCooldownDuration, spellID, true)
-                                if ok2 and obj then
-                                    cd:SetCooldownFromDurationObject(obj)
-                                else
-                                    cd:Clear()
-                                end
-                            else
-                                cd:Clear()
-                            end
-                        end
+                        cd:Clear()
                     else
                         if not _enable or _enable == 0 or not _duration or _duration == 0 then
                             cd:Clear()

@@ -109,7 +109,7 @@ ev_frame:SetScript("OnEvent", function(_, event, ...)
     end
 end)
 
-ev_frame:SetScript("OnUpdate", function(_, elapsed)
+local function _OnDispatcherUpdate(_, elapsed)
     if _memActive then
         for i = 1, #updateCallbacks do
             local d = updateCallbacks[i]
@@ -134,7 +134,7 @@ ev_frame:SetScript("OnUpdate", function(_, elapsed)
             end
         end
     end
-end)
+end
 
 -- ─── Unit event frames (per-unit isolation) ─────────────────────────────────
 -- Each unit token (e.g. "player", "vehicle") gets its own dedicated Frame.
@@ -292,6 +292,23 @@ function sfui.events.RegisterUpdate(arg1, arg2, arg3)
         elapsed  = 0,
         callback = callback,
     }
+    if #updateCallbacks == 1 then
+        ev_frame:SetScript("OnUpdate", _OnDispatcherUpdate)
+    end
+end
+
+--- Unregister an OnUpdate callback by name or function reference.
+function sfui.events.UnregisterUpdate(target)
+    if not target then return end
+    for i = #updateCallbacks, 1, -1 do
+        local d = updateCallbacks[i]
+        if d.name == target or d.callback == target then
+            table.remove(updateCallbacks, i)
+        end
+    end
+    if #updateCallbacks == 0 then
+        ev_frame:SetScript("OnUpdate", nil)
+    end
 end
 
 --- Register an event callback that fires at most once every `interval` seconds.

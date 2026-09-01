@@ -166,69 +166,67 @@ end
 local function OnZoneIconEnter(self)
     local tip = sfui.tooltip
     if not tip or not self.id then return end
-    pcall(function()
-        tip:SetOwner(self, "ANCHOR_RIGHT")
-        if self.info then
-            if self.info.spellID then
-                tip:SetSpellByID(self.info.spellID)
-            elseif self.info.itemID then
-                tip:SetItemByID(self.info.itemID)
-            else
-                tip:SetText(self.info.name or "Unknown")
-            end
+    tip:SetOwner(self, "ANCHOR_RIGHT")
+    if self.info then
+        if self.info.spellID then
+            tip:SetSpellByID(self.info.spellID)
+        elseif self.info.itemID then
+            tip:SetItemByID(self.info.itemID)
+        else
+            tip:SetText(self.info.name or "Unknown")
+        end
 
-            tip:AddLine(" ")
-            if self.cooldownID then
-                tip:AddDoubleLine("Cooldown ID:", "|cffffffff" .. self.cooldownID .. "|r")
-            end
-            if self.info.spellID then
-                tip:AddDoubleLine("Spell ID:", "|cffffffff" .. self.info.spellID .. "|r")
-            end
-            if self.info.itemID then
-                tip:AddDoubleLine("Item ID:", "|cffffffff" .. self.info.itemID .. "|r")
-            end
-        elseif self.isRightSidePool then
-            local cdInfo = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo(self.id)
-            if cdInfo and cdInfo.spellID then
-                tip:SetSpellByID(cdInfo.spellID)
-            elseif cdInfo and cdInfo.itemID then
-                tip:SetItemByID(cdInfo.itemID)
+        tip:AddLine(" ")
+        if self.cooldownID then
+            tip:AddDoubleLine("Cooldown ID:", "|cffffffff" .. self.cooldownID .. "|r")
+        end
+        if self.info.spellID then
+            tip:AddDoubleLine("Spell ID:", "|cffffffff" .. self.info.spellID .. "|r")
+        end
+        if self.info.itemID then
+            tip:AddDoubleLine("Item ID:", "|cffffffff" .. self.info.itemID .. "|r")
+        end
+    elseif self.isRightSidePool then
+        local cdInfo = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo(self.id)
+        if cdInfo and cdInfo.spellID then
+            tip:SetSpellByID(cdInfo.spellID)
+        elseif cdInfo and cdInfo.itemID then
+            tip:SetItemByID(cdInfo.itemID)
+        else
+            tip:SetText("Cooldown " .. self.id)
+        end
+        tip:AddLine(" ")
+        tip:AddDoubleLine("Cooldown ID:", "|cffffffff" .. self.id .. "|r")
+        if cdInfo and cdInfo.spellID then
+            tip:AddDoubleLine("Spell ID:", "|cffffffff" .. cdInfo.spellID .. "|r")
+        elseif cdInfo and cdInfo.itemID then
+            tip:AddDoubleLine("Item ID:", "|cffffffff" .. cdInfo.itemID .. "|r")
+        end
+    else
+        if self.isTrackedBars then
+            local info = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo(self.id)
+            if info and info.itemID then
+                tip:SetItemByID(info.itemID)
+            elseif info and info.spellID then
+                tip:SetSpellByID(info.spellID)
             else
-                tip:SetText("Cooldown " .. self.id)
-            end
-            tip:AddLine(" ")
-            tip:AddDoubleLine("Cooldown ID:", "|cffffffff" .. self.id .. "|r")
-            if cdInfo and cdInfo.spellID then
-                tip:AddDoubleLine("Spell ID:", "|cffffffff" .. cdInfo.spellID .. "|r")
-            elseif cdInfo and cdInfo.itemID then
-                tip:AddDoubleLine("Item ID:", "|cffffffff" .. cdInfo.itemID .. "|r")
+                tip:SetSpellByID(self.id)
             end
         else
-            if self.isTrackedBars then
-                local info = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo(self.id)
-                if info and info.itemID then
-                    tip:SetItemByID(info.itemID)
-                elseif info and info.spellID then
-                    tip:SetSpellByID(info.spellID)
-                else
-                    tip:SetSpellByID(self.id)
-                end
+            local entryType = self.type or "spell"
+            if entryType == "item" then
+                tip:SetItemByID(self.id)
             else
-                local entryType = self.type or "spell"
-                if entryType == "item" then
-                    tip:SetItemByID(self.id)
-                else
-                    tip:SetSpellByID(self.id)
-                end
+                tip:SetSpellByID(self.id)
             end
         end
+    end
 
-        if not self.isRightSidePool then
-            tip:AddLine(" ")
-            tip:AddLine("|cffff4444Right-Click to remove from panel|r")
-        end
-        tip:Show()
-    end)
+    if not self.isRightSidePool then
+        tip:AddLine(" ")
+        tip:AddLine("|cffff4444Right-Click to remove from panel|r")
+    end
+    tip:Show()
 end
 
 local function OnZoneIconLeave()
@@ -475,11 +473,13 @@ local function RenderTrackedBarsRightSide(parent, width)
         end
         for _, cat in ipairs(cats) do
             -- Pass true to allowUnlearned to include unavailable spells gracefully
-            local ok, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, true)
-            if ok and ids then
-                for _, id in ipairs(ids) do
-                    if not common.issecretvalue(id) and IsValidID(id) then
-                        table.insert(list, id)
+            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
+                local ids = C_CooldownViewer.GetCooldownViewerCategorySet(cat, true)
+                if ids then
+                    for _, id in ipairs(ids) do
+                        if not common.issecretvalue(id) and IsValidID(id) then
+                            table.insert(list, id)
+                        end
                     end
                 end
             end
@@ -796,8 +796,8 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
         }
         local importBtn = common.create_dropdown(zone, 80, options, function(gId)
             if not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCategorySet then return end
-            local ok, list = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, gId, true)
-            if not ok or not list then return end
+            local list = C_CooldownViewer.GetCooldownViewerCategorySet(gId, true)
+            if not list then return end
 
             local isList = (type(list) == "table")
             local entries = zone.isTrackedBars and common.get_tracked_bars() or
@@ -1133,14 +1133,16 @@ local function RenderAssignmentsIconPool(parent, width, entries)
         end
         for _, cat in ipairs(cats) do
             -- Pass false to allowUnlearned to skip most unlearned spells natively
-            local ok, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, false)
-            if ok and ids then
-                for _, id in ipairs(ids) do
-                    if not common.issecretvalue(id) and IsValidID(id) then
-                        local cdInfo = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo(id)
-                        -- Only collect if it is explicitly known or has no restrictive known metadata
-                        if not cdInfo or cdInfo.isKnown ~= false then
-                            table.insert(list, id)
+            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
+                local ids = C_CooldownViewer.GetCooldownViewerCategorySet(cat, false)
+                if ids then
+                    for _, id in ipairs(ids) do
+                        if not common.issecretvalue(id) and IsValidID(id) then
+                            local cdInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(id)
+                            -- Only collect if it is explicitly known or has no restrictive known metadata
+                            if not cdInfo or cdInfo.isKnown ~= false then
+                                table.insert(list, id)
+                            end
                         end
                     end
                 end
@@ -1646,17 +1648,19 @@ HandleExternalDrop = function(zoneFrame, panelData, isTrackedBars)
             }
         end
         for _, cat in ipairs(cats) do
-            local ok, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, true)
-            if ok and ids then
-                for _, cid in ipairs(ids) do
-                    local cdInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(cid)
-                    if cdInfo then
-                        if draggedSpellID and cdInfo.spellID == draggedSpellID then
-                            foundCooldownID = cid
-                            break
-                        elseif draggedItemID and cdInfo.itemID == draggedItemID then
-                            foundCooldownID = cid
-                            break
+            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
+                local ids = C_CooldownViewer.GetCooldownViewerCategorySet(cat, true)
+                if ids then
+                    for _, cid in ipairs(ids) do
+                        local cdInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(cid)
+                        if cdInfo then
+                            if draggedSpellID and cdInfo.spellID == draggedSpellID then
+                                foundCooldownID = cid
+                                break
+                            elseif draggedItemID and cdInfo.itemID == draggedItemID then
+                                foundCooldownID = cid
+                                break
+                            end
                         end
                     end
                 end
@@ -1737,9 +1741,8 @@ OnIconDragStop = function(self)
     end
 
     if dropTargetZone then
-        -- Trigger drop (wrapped in pcall for safety)
         local script = dropTargetZone:GetScript("OnMouseUp")
-        if script then pcall(script, dropTargetZone) end
+        if script then script(dropTargetZone) end
     else
         -- Dropped in empty space (Trash)
         if draggedInfo.originalPanelEntries then

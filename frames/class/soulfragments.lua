@@ -73,11 +73,11 @@ local metaHasText      = false
 local function IsTalentKnown(spellID)
     local book = C_SpellBook
     if book and book.IsSpellKnownOrInSpellBook then
-        local ok, isKnown = pcall(book.IsSpellKnownOrInSpellBook, spellID)
-        if ok and isKnown then return true end
+        local isKnown = book.IsSpellKnownOrInSpellBook(spellID)
+        if isKnown then return true end
     elseif book and book.IsSpellKnown then
-        local ok, isKnown = pcall(book.IsSpellKnown, spellID)
-        if ok and isKnown then return true end
+        local isKnown = book.IsSpellKnown(spellID)
+        if isKnown then return true end
     elseif IsPlayerSpell and IsPlayerSpell(spellID) then
         return true
     end
@@ -112,7 +112,7 @@ local boundCap        = nil
 
 local function DropAuraContainer()
     if auraContainer then
-        pcall(auraContainer.Hide, auraContainer)
+        auraContainer:Hide()
         auraContainer   = nil
         auraSlotButton  = nil
         isBoundToEngine = false
@@ -131,28 +131,28 @@ local function BuildAuraContainer(specCap)
 
     DropAuraContainer()
 
-    local ok, c = pcall(CreateFrame, "AuraContainer", nil, UIParent, "CustomAuraContainerTemplate")
-    if not ok or not c then return false end
+    local c = CreateFrame("AuraContainer", nil, UIParent, "CustomAuraContainerTemplate")
+    if not c then return false end
 
     c:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", 0, 0)
     c:SetSize(1, 1)
-    pcall(c.SetFrameStrata, c, container:GetFrameStrata())
+    c:SetFrameStrata(container:GetFrameStrata())
 
     local slotFilters = { includeSpellIDs = SF_ROOTS }
 
-    local okSlot, btn = pcall(c.AddAuraSlot, c, "vsf", "HELPFUL|PLAYER", {
+    local btn = c:AddAuraSlot("vsf", "HELPFUL|PLAYER", {
         candidateFilters = slotFilters,
         initializeFrame = function(b)
             auraSlotButton = b
             b:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
             b:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, 0)
-            pcall(b.SetFrameStrata, b, container:GetFrameStrata())
+            b:SetFrameStrata(container:GetFrameStrata())
             b:SetFrameLevel(container:GetFrameLevel() + 2)
             if b.SetMouseMotionEnabled then b:SetMouseMotionEnabled(false) end
 
             local pad = (sfui.config.trackedBars and sfui.config.trackedBars.backdrop and sfui.config.trackedBars.backdrop.padding) or 1
             if bar then
-                pcall(bar.Hide, bar)
+                bar:Hide()
             end
 
             -- Must be parented to b for SetApplicationBar to accept it without errors
@@ -188,12 +188,11 @@ local function BuildAuraContainer(specCap)
             if b.SetApplicationCount then
                 local fmt = nil
                 if C_StringUtil and C_StringUtil.CreateNumericRuleFormatter then
-                    local okF, f = pcall(C_StringUtil.CreateNumericRuleFormatter)
-                    if okF and f then
+                    local f = C_StringUtil.CreateNumericRuleFormatter()
+                    if f then
                         local r = (Enum and Enum.NumericRuleFormatRounding and Enum.NumericRuleFormatRounding.Nearest) or 0
-                        if pcall(f.SetBreakpoints, f, { { threshold = 0, rounding = r, format = "%d" } }) then
-                            fmt = f
-                        end
+                        f:SetBreakpoints({ { threshold = 0, rounding = r, format = "%d" } })
+                        fmt = f
                     end
                 end
                 if fmt then
@@ -205,14 +204,14 @@ local function BuildAuraContainer(specCap)
         end,
     })
 
-    if not okSlot then
-        pcall(c.Hide, c)
+    if not btn then
+        c:Hide()
         return false
     end
 
     c:SetEnabled(true)
     c:SetUnit("player")
-    pcall(c.UpdateAllAuras, c)
+    if c.UpdateAllAuras then c:UpdateAllAuras() end
 
     auraContainer = c
     boundCap      = specCap
@@ -241,10 +240,10 @@ local function frameMatchesSF(frame)
 
     -- Only call GetCooldownViewerCooldownInfo when safe (out of combat)
     if not InCombatLockdown() and frame.GetCooldownID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-        local ok, id = pcall(frame.GetCooldownID, frame)
-        if ok and type(id) == "number" then
-            local okI, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, id)
-            if okI and type(info) == "table" then
+        local id = frame:GetCooldownID()
+        if type(id) == "number" then
+            local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(id)
+            if type(info) == "table" then
                 if type(info.spellID) == "number" and SF_ROOTS[info.spellID] then
                     return true
                 end
@@ -264,7 +263,9 @@ end
 local function scanPool(viewer, out)
     if viewer and viewer.itemFramePool and viewer.itemFramePool.EnumerateActive then
         for frame in viewer.itemFramePool:EnumerateActive() do
-            out[#out + 1] = frame
+            if frameMatchesSF(frame) then
+                table.insert(out, frame)
+            end
         end
     end
 end
@@ -292,6 +293,8 @@ local function GetSFCacheFrame()
 end
 
 -- ------------------------------------------------------------
+-- Live Multi-tier Stack Aggregator
+-- ------------------------------------------------------------
 -- Multi-tier stack reader (Fallback when C++ engine binder is absent):
 --   Tier 1: Direct Player Aura query (0ms latency, always fresh)
 --   Tier 2: Action Bar Display Count (Soul Cleave / Spirit Bomb native counter)
@@ -303,8 +306,8 @@ local function GetSFApplications(specCfg)
 
     -- 1. Primary Direct Aura Check (Instant, 0ms latency)
     if specCfg and specCfg.primaryAura and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
-        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, specCfg.primaryAura)
-        if ok and aura then
+        local aura = C_UnitAuras.GetPlayerAuraBySpellID(specCfg.primaryAura)
+        if aura then
             local apps = aura.applications
             if type(apps) == "number" then return apps end
             if restricted and issecretvalue(apps) then return apps end
@@ -317,8 +320,8 @@ local function GetSFApplications(specCfg)
         for i = 1, #SF_SPELLS do
             local sID = SF_SPELLS[i]
             if not specCfg or sID ~= specCfg.primaryAura then
-                local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, sID)
-                if ok and aura then
+                local aura = C_UnitAuras.GetPlayerAuraBySpellID(sID)
+                if aura then
                     local apps = aura.applications
                     if type(apps) == "number" then return apps end
                     if restricted and issecretvalue(apps) then return apps end
@@ -332,8 +335,8 @@ local function GetSFApplications(specCfg)
     if C_Spell and C_Spell.GetSpellDisplayCount then
         for i = 1, #ACTION_DISPLAY_SPELLS do
             local sID = ACTION_DISPLAY_SPELLS[i]
-            local ok, dc = pcall(C_Spell.GetSpellDisplayCount, sID)
-            if ok and dc ~= nil then
+            local dc = C_Spell.GetSpellDisplayCount(sID)
+            if dc ~= nil then
                 if type(dc) == "number" and dc > 0 then
                     return dc
                 elseif restricted and issecretvalue(dc) then
@@ -412,8 +415,8 @@ local function UpdateThresholdTick(specCfg, maxCap, currentStacks)
     local spec = common.get_current_spec_id and common.get_current_spec_id() or 0
     local hasMoC = false
     if spec == SPEC_DEVOURER and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
-        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, 1238495) -- Moment of Craving
-        if ok and aura then hasMoC = true end
+        local aura = C_UnitAuras.GetPlayerAuraBySpellID(1238495) -- Moment of Craving
+        if aura then hasMoC = true end
     end
 
     local activeThreshold = hasMoC and 10 or reapThreshold
@@ -593,8 +596,8 @@ local function UpdateVoidMetaDisplay(shouldShow)
     local inVoidMeta = false
     local metaExpiration = 0
     if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
-        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, VOID_META_ID)
-        if ok and aura then
+        local aura = C_UnitAuras.GetPlayerAuraBySpellID(VOID_META_ID)
+        if aura then
             inVoidMeta = true
             metaExpiration = aura.expirationTime or 0
         end
@@ -611,8 +614,8 @@ local function UpdateVoidMetaDisplay(shouldShow)
         -- In Void Metamorphosis: Collapsing Star build (0 to 30) - ReapMeter Form Violet (#735abf)
         local starStacks = 0
         if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
-            local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, SILENCE_WHISPERS_ID)
-            if ok and aura and aura.applications then
+            local aura = C_UnitAuras.GetPlayerAuraBySpellID(SILENCE_WHISPERS_ID)
+            if aura and aura.applications then
                 starStacks = aura.applications
             end
         end
@@ -642,8 +645,8 @@ local function UpdateVoidMetaDisplay(shouldShow)
         -- Out of Void Metamorphosis: Dark Heart build (0 to 50, or 35 with Soul Glutton)
         local darkHeartStacks = 0
         if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
-            local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, DARK_HEART_ID)
-            if ok and aura and aura.applications then
+            local aura = C_UnitAuras.GetPlayerAuraBySpellID(DARK_HEART_ID)
+            if aura and aura.applications then
                 darkHeartStacks = aura.applications
             end
         end
@@ -739,8 +742,8 @@ local function UpdateDisplay()
     local inMeta = false
     if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
         local metaID = (spec == SPEC_DEVOURER and 1217607) or (spec == SPEC_VENGEANCE and 187827) or 162264
-        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, metaID)
-        if ok and aura then inMeta = true end
+        local aura = C_UnitAuras.GetPlayerAuraBySpellID(metaID)
+        if aura then inMeta = true end
     end
 
     local currentCount = (type(lastKnownStacks) == "number" and lastKnownStacks) or 0
@@ -772,7 +775,7 @@ local function UpdateDisplay()
             bar:SetValue(0)
             if countText then countText:SetText("") end
         elseif issecretvalue(stacks) then
-            pcall(bar.SetValue, bar, stacks)
+            bar:SetValue(stacks)
             if countText then countText:SetText("") end
         else
             local num = type(stacks) == "number" and stacks or tonumber(stacks)
@@ -887,22 +890,28 @@ end
 -- must only run ONCE (RegisterUpdate, hooks) is guarded by _initialized.
 -- ------------------------------------------------------------
 function sfui.soulfragments:Initialize()
-    CreateSoulFragmentsFrame()
     local spec = common.get_current_spec_id and common.get_current_spec_id() or 0
+    currentSpecConfig = SPEC_CONFIGS[spec]
+
+    if not currentSpecConfig then
+        if container then container:Hide() end
+        if metaContainer then metaContainer:Hide() end
+        sfui.events.UnregisterUpdate("SoulFragments")
+        return
+    end
+
+    CreateSoulFragmentsFrame()
     if spec == SPEC_DEVOURER then
         CreateVoidMetaFrame()
     end
 
-    currentSpecConfig = SPEC_CONFIGS[spec]
-    if currentSpecConfig then
-        self:UpdatePosition()
-        BuildAuraContainer(currentSpecConfig.cap)
-    else
-        if container then container:Hide() end
-        if metaContainer then metaContainer:Hide() end
-    end
+    self:UpdatePosition()
+    BuildAuraContainer(currentSpecConfig.cap)
 
     if _initialized then
+        sfui.events.RegisterUpdate("SoulFragments", 0.05, function()
+            UpdateDisplay()
+        end)
         UpdateDisplay()
         return
     end
@@ -916,8 +925,6 @@ function sfui.soulfragments:Initialize()
     )
 
     -- 20 FPS update loop — registered once via the shared dispatcher.
-    -- sfui.events.RegisterUpdate has no dedup, so the _initialized guard above
-    -- is essential to prevent stacking callbacks on every PLAYER_ENTERING_WORLD.
     sfui.events.RegisterUpdate("SoulFragments", 0.05, function()
         UpdateDisplay()
     end)
@@ -936,14 +943,20 @@ local function onSpecChanged()
     local sp = common.get_current_spec_id and common.get_current_spec_id() or 0
     currentSpecConfig = SPEC_CONFIGS[sp]
     if currentSpecConfig then
+        CreateSoulFragmentsFrame()
+        if sp == SPEC_DEVOURER then CreateVoidMetaFrame() end
         if not InCombatLockdown() then
             BuildAuraContainer(currentSpecConfig.cap)
         end
         if container then sfui.soulfragments:UpdatePosition() end
+        sfui.events.RegisterUpdate("SoulFragments", 0.05, function()
+            UpdateDisplay()
+        end)
     else
         DropAuraContainer()
         if container then container:Hide() end
         if metaContainer then metaContainer:Hide() end
+        sfui.events.UnregisterUpdate("SoulFragments")
         if sfui.trackedbars and sfui.trackedbars.ForceLayoutUpdate then
             sfui.trackedbars.ForceLayoutUpdate()
         end

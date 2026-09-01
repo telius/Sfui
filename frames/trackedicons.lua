@@ -89,11 +89,9 @@ local function GetIconValue(entrySettings, panelConfig, key, default)
     return val
 end
 
--- Static pcall targets
-local function pcall_item_cd(icon)
+local function update_item_cd(icon)
     local s, d, e = C_Item.GetItemCooldown(icon.id)
     icon._start, icon._duration, icon._isEnabled = s, d, e
-    -- CooldownFrame_Set natively bypasses secret value locks inside its C++ widget
     CooldownFrame_Set(icon.cooldown, s, d, e)
     
     if icon.shadowCooldown then
@@ -199,11 +197,9 @@ end
 
 -- IsDragonriding: use sfui.common.IsDragonriding() (single source of truth)
 
--- Lightweight cooldown logic (CooldownCompanion + TweaksUI pattern):
+-- Lightweight cooldown logic:
 --   • SetCooldown() accepts secret values natively (C++ level)
 --   • isOnGCD is NeverSecret — always safe to branch on
---   • Scratch cooldown probe only when values are secret (M+ combat)
---   • Zero closures — all pcall uses the no-allocation form
 local scratchParent = CreateFrame("Frame")
 scratchParent:Hide()
 local scratchCooldown = CreateFrame("Cooldown", nil, scratchParent, "CooldownFrameTemplate")
@@ -225,24 +221,22 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
     local isOnCooldown = false
 
     if resolvedType == "item" then
-        local ok, countVal = pcall(pcall_item_cd, icon)
-        if ok then
-            count = countVal or 0
-            isEnabled = icon._isEnabled
-            local d = icon._duration
-            if d ~= nil and d > 0 then isOnCooldown = true end
-        end
+        local countVal = update_item_cd(icon)
+        count = countVal or 0
+        isEnabled = icon._isEnabled
+        local d = icon._duration
+        if d ~= nil and d > 0 then isOnCooldown = true end
     else
         -- Spell: officially supports tainted spellIdentifiers
-        local ok_cd, cdInfo = pcall(C_Spell.GetSpellCooldown, activeID)
+        local cdInfo = C_Spell.GetSpellCooldown(activeID)
 
-        if ok_cd and cdInfo ~= nil then
+        if cdInfo ~= nil then
             -- 12.0.1 Hotfix: 'SetCooldown' no longer legally accepts Secret Values.
             -- Addons MUST acquire a DurationObject and pass it to 'SetCooldownFromDurationObject'.
             if icon.cooldown.SetCooldownFromDurationObject and C_Spell.GetSpellCooldownDuration then
                 -- ignoreGCD=true (12.0.5+): skip GCD-only cooldowns to avoid phantom swipe
-                local ok_dur, durationObj = pcall(C_Spell.GetSpellCooldownDuration, activeID, true)
-                if ok_dur and durationObj then
+                local durationObj = C_Spell.GetSpellCooldownDuration(activeID, true)
+                if durationObj then
                     icon.cooldown:SetCooldownFromDurationObject(durationObj)
                     if icon.shadowCooldown then
                         icon.shadowCooldown:SetCooldownFromDurationObject(durationObj)
@@ -253,12 +247,11 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
                 end
             else
                 -- Pre-12.0.1 Legacy Fallback
-                local modRate = cdInfo.modRate or 1
                 local isEnabled = cdInfo.isEnabled
                 if isEnabled == nil then isEnabled = true end
                 
-                local ok_set = pcall(icon.cooldown.SetCooldown, icon.cooldown, cdInfo.startTime, cdInfo.duration)
-                if ok_set then
+                if not (issecretvalue and (issecretvalue(cdInfo.startTime) or issecretvalue(cdInfo.duration))) then
+                    icon.cooldown:SetCooldown(cdInfo.startTime, cdInfo.duration)
                     if icon.shadowCooldown then
                         icon.shadowCooldown:SetCooldown(cdInfo.startTime, cdInfo.duration)
                     end
@@ -269,7 +262,6 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
             end
 
             -- cdInfo.isActive and cdInfo.isOnGCD are designated "NeverSecret=true" in 12.0.1.
-            -- We securely branch on these to determine visual wipe conditions without comparing durations.
             local isActive = cdInfo.isActive
             local isOnGCD = cdInfo.isOnGCD
             
@@ -301,41 +293,30 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
             if icon.shadowCooldown then icon.shadowCooldown:Clear() end
         end
 
-        -- Display count string for the badge text.
-        -- C_Spell.GetSpellDisplayCount covers: spell charges, soul fragments,
-        -- resource-derived counts, alternate power, etc. — exactly what Blizzard's
-        -- own ActionButton (ActionButton.lua:809) and SpellFlyout use.
-        --
-        -- SecretWhenCooldownsRestricted = true (predicate renamed in 12.0.5):
-        -- the return value may be a secret LuaDurationObject in M+.
-        -- We MUST NOT compare it in Lua. Pass straight to UpdateCountText/SetText.
         local displayStr = ""
         
         -- 1. Try GetSpellDisplayCount (Actionbar native representation & Soul Fragments)
-        -- dc may be a secret LuaDurationObject; doing 'dc == ""' triggers immediate taint.
-        -- We just assign it to displayStr, and rely on safe type-checking later.
         if C_Spell.GetSpellDisplayCount then
-            local ok_dc, dc = pcall(C_Spell.GetSpellDisplayCount, activeID)
-            if ok_dc and dc ~= nil then
+            local dc = C_Spell.GetSpellDisplayCount(activeID)
+            if dc ~= nil then
                 displayStr = dc
             end
         end
 
         -- 2. Try SpellChargeInfo (CooldownViewer priority for >1 charge spells)
         if IsFallbackNeeded(displayStr) and C_Spell.GetSpellCharges then
-            local ok_ch, ch = pcall(C_Spell.GetSpellCharges, activeID)
-            if ok_ch and ch and ch.currentCharges and sfui.common.SafeGT(ch.maxCharges, 1) then
+            local ch = C_Spell.GetSpellCharges(activeID)
+            if ch and ch.currentCharges and sfui.common.SafeGT(ch.maxCharges, 1) then
                 displayStr = ch.currentCharges or ""
             end
         end
 
-        -- 3. Try GetSpellCastCount (CooldownViewer fallback fallback)
+        -- 3. Try GetSpellCastCount (CooldownViewer fallback)
         if IsFallbackNeeded(displayStr) and C_Spell.GetSpellCastCount then
-            local ok_cc, cc = pcall(C_Spell.GetSpellCastCount, activeID)
-            if ok_cc and cc ~= nil then
-                -- cc may be a secret value or an explicit number > 0
+            local cc = C_Spell.GetSpellCastCount(activeID)
+            if cc ~= nil then
                 if issecretvalue(cc) then
-                    displayStr = cc -- Safely bypass
+                    displayStr = cc
                 elseif type(cc) == "number" and cc > 0 then
                     displayStr = cc
                 end
@@ -353,9 +334,8 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
 
     -- Usability: supports tainted activeID
     if icon.type ~= "item" then
-        local ok_u, u, p = pcall(C_Spell.IsSpellUsable, activeID)
-        if ok_u then
-            -- Guard results: if secret, assume true so we don't hide spells blindly
+        if C_Spell and C_Spell.IsSpellUsable then
+            local u, p = C_Spell.IsSpellUsable(activeID)
             isUsable = sfui.common.SafeValue(u, true)
             notEnoughPower = sfui.common.SafeValue(p, false)
         end
@@ -506,15 +486,15 @@ local function SafeGetCooldownViewerCooldownInfo(id)
     if not id or not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCooldownInfo then return nil end
     local cid = tonumber(id)
     if cid and cid >= -2147483648 and cid <= 2147483647 then
-        if _cdInfoCache[cid] == nil then
+        if not _cdInfoCache[cid] then
             _cdInfoCacheCount = _cdInfoCacheCount + 1
             -- Wipe cache if it grows too large (e.g. 500 entries)
             if _cdInfoCacheCount > 500 then
                 wipe(_cdInfoCache)
                 _cdInfoCacheCount = 1
             end
-            local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cid)
-            _cdInfoCache[cid] = ok and info or false
+            local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cid)
+            _cdInfoCache[cid] = info or false
         end
         return _cdInfoCache[cid] or nil
     end
@@ -580,8 +560,8 @@ local function UpdateIconState(icon, panelConfig)
         if (isAuraType or linkedSpellIDs) and icon.type ~= "item" and activeID and activeID ~= 0 and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
             local aura = nil
             if isAuraType then
-                local ok_aura, baseAura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, activeID)
-                if ok_aura and baseAura then
+                local baseAura = C_UnitAuras.GetPlayerAuraBySpellID(activeID)
+                if baseAura then
                     aura = baseAura
                 end
             end
@@ -589,8 +569,8 @@ local function UpdateIconState(icon, panelConfig)
             if not aura and linkedSpellIDs then
                 -- Try resolving linked auras (e.g., Marrowrend tracking -> Bone Shield aura)
                 for _, linkedID in ipairs(linkedSpellIDs) do
-                    local ok_linked, linkedAura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, linkedID)
-                    if ok_linked and linkedAura then
+                    local linkedAura = C_UnitAuras.GetPlayerAuraBySpellID(linkedID)
+                    if linkedAura then
                         aura = linkedAura
                         break
                     end
@@ -811,15 +791,13 @@ local function CreateIconFrame(parent, id, entry, panelConfig)
     f:SetScript("OnEnter", function(self)
         local showTooltips = GetIconValue(self.entry.settings, panelConfig, "showTooltips", false)
         if showTooltips and GameTooltip and self.id and not issecretvalue(self.id) then
-            pcall(function()
-                GameTooltip:SetOwner(self:GetParent(), "ANCHOR_RIGHT")
-                if self.entry.type == "item" then
-                    GameTooltip:SetItemByID(self.id)
-                else
-                    GameTooltip:SetSpellByID(self.id)
-                end
-                GameTooltip:Show()
-            end)
+            GameTooltip:SetOwner(self:GetParent(), "ANCHOR_RIGHT")
+            if self.entry.type == "item" then
+                GameTooltip:SetItemByID(self.id)
+            else
+                GameTooltip:SetSpellByID(self.id)
+            end
+            GameTooltip:Show()
         end
     end)
     f:SetScript("OnLeave", function(self)
@@ -953,9 +931,9 @@ function sfui.trackedicons.UpdatePanelLayout(panelFrame, panelConfig)
             function(...) sfui.trackedicons.OnVisibilityEvent(nil, "PLAYER_REGEN_ENABLED", ...) end)
         sfui.events.RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED",
             function(...) sfui.trackedicons.OnVisibilityEvent(nil, "PLAYER_MOUNT_DISPLAY_CHANGED", ...) end)
-        sfui.events.RegisterEvent("UNIT_POWER_BAR_SHOW",
+        sfui.events.RegisterUnitEvent("UNIT_POWER_BAR_SHOW", "player",
             function(...) sfui.trackedicons.OnVisibilityEvent(nil, "UNIT_POWER_BAR_SHOW", ...) end)
-        sfui.events.RegisterEvent("UNIT_POWER_BAR_HIDE",
+        sfui.events.RegisterUnitEvent("UNIT_POWER_BAR_HIDE", "player",
             function(...) sfui.trackedicons.OnVisibilityEvent(nil, "UNIT_POWER_BAR_HIDE", ...) end)
     end
 
@@ -963,7 +941,8 @@ function sfui.trackedicons.UpdatePanelLayout(panelFrame, panelConfig)
 
     -- Trigger initial visibility check IMMEDIATELY
     if panelFrame.visHandler then
-        pcall(panelFrame.visHandler:GetScript("OnEvent"), panelFrame.visHandler)
+        local onEvent = panelFrame.visHandler:GetScript("OnEvent")
+        if onEvent then onEvent(panelFrame.visHandler) end
     end
 
 
@@ -1098,15 +1077,7 @@ function sfui.trackedicons.UpdatePanelLayout(panelFrame, panelConfig)
 
                 -- Sync Masque state
                 SyncIconMasque(icon)
-
-                -- Always add icons to layout; errors in state update should not hide them
-                local ok, isVisibleValue = pcall(UpdateIconState, icon, panelConfig)
-                if not ok then
-                    -- UpdateIconState errored — show icon anyway to prevent disappearing
-                    icon:Show()
-                    sfui.common.print("|cff6600ffsfui|r: UpdateIconState error:", isVisibleValue)
-                end
-
+                UpdateIconState(icon, panelConfig)
                 table.insert(activeIcons, icon)
             end
         end
@@ -1412,7 +1383,7 @@ end
 -- Hook to hide specific categories from Blizzard's CooldownViewer
 local function ProcessBlizzardVisibilitySync()
     if not BuffBarCooldownViewer or not BuffBarCooldownViewer.itemFramePool then return end
-    pcall(VisibilitySyncHelper)
+    VisibilitySyncHelper()
 end
 
 local function SyncBlizzardVisibility()
@@ -1537,25 +1508,21 @@ function sfui.trackedicons.initialize()
 
     -- UNIT_POWER_UPDATE covers resource pools (throttled out of combat to avoid mana/energy tick churn)
     local _lastOOCPowerTime = 0
-    sfui.events.RegisterEvent("UNIT_POWER_UPDATE", function(event, unit)
-        if unit == "player" then
-            if InCombatLockdown() then
+    sfui.events.RegisterUnitEvent("UNIT_POWER_UPDATE", "player", function(event, unit)
+        if InCombatLockdown() then
+            _needsStateUpdate = true
+        else
+            local now = GetTime()
+            if (now - _lastOOCPowerTime) >= 1.0 then
+                _lastOOCPowerTime = now
                 _needsStateUpdate = true
-            else
-                local now = GetTime()
-                if (now - _lastOOCPowerTime) >= 1.0 then
-                    _lastOOCPowerTime = now
-                    _needsStateUpdate = true
-                end
             end
         end
     end)
 
     -- Real-time events that require immediate structural/GCD sync
-    sfui.events.RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit)
-        if unit == "player" then
-            _needsStateUpdate = true
-        end
+    sfui.events.RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player", function(event, unit)
+        _needsStateUpdate = true
     end)
 
     sfui.events.RegisterEvent("SPELL_UPDATE_COOLDOWN", function()
@@ -1568,16 +1535,14 @@ function sfui.trackedicons.initialize()
 
     -- 11.0+ C_UnitAuras Event Migration (throttled out of combat to prevent background tick churn)
     local _lastOOCAuraTime = 0
-    sfui.events.RegisterEvent("UNIT_AURA", function(event, unit, updateInfo)
-        if unit == "player" then
-            if InCombatLockdown() then
+    sfui.events.RegisterUnitEvent("UNIT_AURA", "player", function(event, unit, updateInfo)
+        if InCombatLockdown() then
+            _needsStateUpdate = true
+        else
+            local now = GetTime()
+            if (now - _lastOOCAuraTime) >= 1.0 then
+                _lastOOCAuraTime = now
                 _needsStateUpdate = true
-            else
-                local now = GetTime()
-                if (now - _lastOOCAuraTime) >= 1.0 then
-                    _lastOOCAuraTime = now
-                    _needsStateUpdate = true
-                end
             end
         end
     end)

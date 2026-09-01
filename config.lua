@@ -521,8 +521,8 @@ sfui.config = {
         updateThrottle = 0.05, -- OnUpdate throttle interval (~20fps)
         -- Special case overrides (by cooldownID)
         specialCases = {
-            [9039] = { maxStacks = 12 },   -- Bone Shield (Death Knight)
-            [18469] = { maxStacks = 100 }, -- Ignore Pain (Warrior)
+            [9039] = { maxStacks = 12, spellID = 195181 },   -- Bone Shield (Death Knight)
+            [18469] = { maxStacks = 100, spellID = 190456 }, -- Ignore Pain (Warrior)
         },
         -- Default visibility settings
         hideOOC = false,      -- Hide all bars when out of combat

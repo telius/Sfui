@@ -53,7 +53,7 @@ local Enum              = _G.Enum
 local table, ipairs, pairs, type, math =
     _G.table, _G.ipairs, _G.pairs, _G.type, _G.math
 local math_min, math_max, math_floor = _G.math.min, _G.math.max, _G.math.floor
-local tostring, tonumber, pcall = _G.tostring, _G.tonumber, _G.pcall
+local tostring, tonumber = _G.tostring, _G.tonumber
 local wipe = _G.wipe or function(t) for k in pairs(t) do t[k] = nil end return t end
 local issecretvalue = _G.issecretvalue or function() return false end
 local QuestMapFrame_OpenToQuestDetails = _G.QuestMapFrame_OpenToQuestDetails
@@ -222,17 +222,17 @@ function State:Update()
         self._active = true; return
     end
 
-    local ok1, cm = pcall(_IsChallengeActive)
-    if ok1 and cm then self._active = true; return end
+    local cm = _IsChallengeActive and _IsChallengeActive()
+    if cm then self._active = true; return end
 
     if C_DelvesUI and C_DelvesUI.HasActiveDelve then
-        local okD, hasDelve = pcall(C_DelvesUI.HasActiveDelve)
-        if okD and hasDelve then self._active = true; return end
+        local hasDelve = C_DelvesUI.HasActiveDelve()
+        if hasDelve then self._active = true; return end
     end
 
     if _G.IsInInstance then
-        local okInst, inInst, instType = pcall(_G.IsInInstance)
-        if okInst and inInst and instType ~= "none" then
+        local inInst, instType = _G.IsInInstance()
+        if inInst and instType ~= "none" then
             if instType == "raid" and HasRaidQuest() then
                 self._active = false
                 return
@@ -242,8 +242,8 @@ function State:Update()
     end
 
     if _G.GetInstanceInfo then
-        local ok2, _, _, difficultyID = pcall(_G.GetInstanceInfo)
-        if ok2 and (difficultyID == 8 or difficultyID == 208) then self._active = true; return end
+        local _, _, _, difficultyID = _G.GetInstanceInfo()
+        if difficultyID == 8 or difficultyID == 208 then self._active = true; return end
     end
 
     self._active = false
@@ -287,10 +287,8 @@ local function ApplyBlizzardTrackerSuppression()
     local root = _G.ObjectiveTrackerFrame
     if not root then return end
 
-    pcall(function()
-        if root.SetAlpha then root:SetAlpha(0) end
-        if root.EnableMouse then root:EnableMouse(false) end
-    end)
+    if root.SetAlpha then root:SetAlpha(0) end
+    if root.EnableMouse then root:EnableMouse(false) end
 end
 
 local function SuppressBlizzardTracker()
@@ -302,11 +300,9 @@ local function RestoreBlizzardTracker()
     if not root then return end
     if InCombat() then return end
 
-    pcall(function()
-        if root.SetAlpha then root:SetAlpha(1) end
-        if root.EnableMouse then root:EnableMouse(true) end
-        if root.Show then root:Show() end
-    end)
+    if root.SetAlpha then root:SetAlpha(1) end
+    if root.EnableMouse then root:EnableMouse(true) end
+    if root.Show then root:Show() end
 end
 
 sfui.SuppressBlizzardTracker = SuppressBlizzardTracker
@@ -324,7 +320,13 @@ end
 local function FlushOutOfCombatQueue()
     for key, fn in pairs(outOfCombatQueue) do
         outOfCombatQueue[key] = nil
-        if fn then pcall(fn) end
+        if fn then
+            if sfui.common and sfui.common.safecall then
+                sfui.common.safecall(fn)
+            else
+                fn()
+            end
+        end
     end
 end
 
@@ -347,38 +349,40 @@ local function UpdateMapCache()
     end
 end
 
-local MAX_TABLE_POOL = 250
+local MAX_TABLE_POOL = 300
 local tablePool = {}
 local function AcquireTable()
     local t = table.remove(tablePool) or {}
     wipe(t)
     return t
 end
+
 local function ReleaseTable(t)
     if type(t) ~= "table" then return end
-    if t._syntheticObjs and t.objectives then
-        for _, obj in ipairs(t.objectives) do
-            if type(obj) == "table" then
-                wipe(obj)
-                if #tablePool < MAX_TABLE_POOL then
-                    table.insert(tablePool, obj)
+    if t.objectives then
+        if type(t.objectives) == "table" then
+            for i = #t.objectives, 1, -1 do
+                local obj = table.remove(t.objectives, i)
+                if type(obj) == "table" then
+                    wipe(obj)
+                    if #tablePool < MAX_TABLE_POOL then
+                        tablePool[#tablePool + 1] = obj
+                    end
                 end
             end
+            wipe(t.objectives)
+            if #tablePool < MAX_TABLE_POOL then
+                tablePool[#tablePool + 1] = t.objectives
+            end
         end
-        wipe(t.objectives)
-        if #tablePool < MAX_TABLE_POOL then
-            table.insert(tablePool, t.objectives)
-        end
-        t._syntheticObjs = nil
+        t.objectives = nil
     end
-    t.objectives = nil
+    t._syntheticObjs = nil
     wipe(t)
     if #tablePool < MAX_TABLE_POOL then
-        table.insert(tablePool, t)
+        tablePool[#tablePool + 1] = t
     end
 end
-
-
 
 -- Static section lists to eliminate table allocation on refresh
 local sectionLists = {
@@ -391,6 +395,7 @@ local sectionLists = {
     zone         = {},
     achievements = {},
 }
+
 local renderedSectionQuests = {
     scenario     = {},
     world        = {},
@@ -402,6 +407,21 @@ local renderedSectionQuests = {
     achievements = {},
 }
 local processedQuests = {}
+
+local function ClearSectionLists()
+    for _, def in ipairs(SECTION_DEFS) do
+        local list = sectionLists[def.id]
+        if list then
+            for i = #list, 1, -1 do
+                local entry = table.remove(list, i)
+                ReleaseTable(entry)
+            end
+        else
+            sectionLists[def.id] = {}
+        end
+        if not renderedSectionQuests[def.id] then renderedSectionQuests[def.id] = {} end
+    end
+end
 
 -- Saved state
 local function GetQLState()
@@ -434,18 +454,18 @@ local function UntrackQuest(questID)
     if InCombat() then
         QueueOutOfCombatAction("untrack_" .. tostring(questID), function()
             if C_QuestLog.RemoveQuestWatch then
-                pcall(C_QuestLog.RemoveQuestWatch, questID)
+                C_QuestLog.RemoveQuestWatch(questID)
             end
             if C_QuestLog.RemoveWorldQuestWatch then
-                pcall(C_QuestLog.RemoveWorldQuestWatch, questID)
+                C_QuestLog.RemoveWorldQuestWatch(questID)
             end
         end)
     else
         if C_QuestLog.RemoveQuestWatch then
-            pcall(C_QuestLog.RemoveQuestWatch, questID)
+            C_QuestLog.RemoveQuestWatch(questID)
         end
         if C_QuestLog.RemoveWorldQuestWatch then
-            pcall(C_QuestLog.RemoveWorldQuestWatch, questID)
+            C_QuestLog.RemoveWorldQuestWatch(questID)
         end
     end
 end
@@ -457,11 +477,11 @@ local function UntrackAchievement(achievementID)
     if not achievementID or achievementID <= 0 then return end
 
     if _G.RemoveTrackedAchievement then
-        pcall(_G.RemoveTrackedAchievement, achievementID)
+        _G.RemoveTrackedAchievement(achievementID)
     end
 
     if C_ContentTracking and C_ContentTracking.StopTracking then
-        pcall(C_ContentTracking.StopTracking, TRACKING_TYPE_ACHIEVEMENT, achievementID, TRACKING_STOP_TYPE_MANUAL)
+        C_ContentTracking.StopTracking(TRACKING_TYPE_ACHIEVEMENT, achievementID, TRACKING_STOP_TYPE_MANUAL)
     end
 end
 
@@ -471,30 +491,28 @@ local staticAchList = {}
 local function GetAchievementCriteriaList(achievementID)
     local numCriteria = 0
     if GetAchievementNumCriteria then
-        local ok, n = pcall(GetAchievementNumCriteria, achievementID)
-        if ok and type(n) == "number" then numCriteria = n end
+        local n = GetAchievementNumCriteria(achievementID)
+        if type(n) == "number" then numCriteria = n end
     end
 
     if numCriteria > 0 and GetAchievementCriteriaInfo then
         local objectives = nil
         for i = 1, numCriteria do
-            local cOk, cString, cType, completed, qty, reqQty, _, _, _, qtyString = pcall(GetAchievementCriteriaInfo, achievementID, i)
-            if cOk then
-                local finished = (completed == true) or (completed == 1)
-                local txt = cString
-                if not txt or txt == "" then txt = qtyString end
-                if txt and txt ~= "" then
-                    qty = tonumber(qty)
-                    reqQty = tonumber(reqQty)
-                    if qty and reqQty and reqQty > 1 then
-                        txt = txt .. " (" .. tostring(qty) .. "/" .. tostring(reqQty) .. ")"
-                    end
-                    if not objectives then objectives = AcquireTable() end
-                    local sObj = AcquireTable()
-                    sObj.text = txt
-                    sObj.finished = finished
-                    objectives[#objectives + 1] = sObj
+            local cString, cType, completed, qty, reqQty, _, _, _, qtyString = GetAchievementCriteriaInfo(achievementID, i)
+            local finished = (completed == true) or (completed == 1)
+            local txt = cString
+            if not txt or txt == "" then txt = qtyString end
+            if txt and txt ~= "" then
+                qty = tonumber(qty)
+                reqQty = tonumber(reqQty)
+                if qty and reqQty and reqQty > 1 then
+                    txt = txt .. " (" .. tostring(qty) .. "/" .. tostring(reqQty) .. ")"
                 end
+                if not objectives then objectives = AcquireTable() end
+                local sObj = AcquireTable()
+                sObj.text = txt
+                sObj.finished = finished
+                objectives[#objectives + 1] = sObj
             end
         end
         return objectives
@@ -522,8 +540,8 @@ local function ScanTrackedAchievements(intoList)
     end
 
     if C_ContentTracking and C_ContentTracking.GetTrackedIDs then
-        local ok, ids = pcall(C_ContentTracking.GetTrackedIDs, TRACKING_TYPE_ACHIEVEMENT)
-        if ok and ids and type(ids) == "table" then
+        local ids = C_ContentTracking.GetTrackedIDs(TRACKING_TYPE_ACHIEVEMENT)
+        if ids and type(ids) == "table" then
             for _, id in ipairs(ids) do
                 addID(id)
             end
@@ -534,8 +552,8 @@ local function ScanTrackedAchievements(intoList)
 
     for _, achievementID in ipairs(staticAchList) do
         if type(achievementID) == "number" and achievementID > 0 then
-            local aOk, id, name, points, completed, month, day, year, description, flags, icon = pcall(GetAchievementInfo, achievementID)
-            if aOk and name and name ~= "" then
+            local id, name, points, completed, month, day, year, description, flags, icon = GetAchievementInfo(achievementID)
+            if name and name ~= "" then
                 local isComplete = (completed == true) or (completed == 1)
                 local objs = GetAchievementCriteriaList(achievementID)
                 if (not objs or #objs == 0) and description and description ~= "" then
@@ -594,17 +612,17 @@ end
 local function IsQuestWatched(questID)
     if not questID or questID <= 0 then return false end
     if C_QuestLog.GetQuestWatchType then
-        local ok, wt = pcall(C_QuestLog.GetQuestWatchType, questID)
-        if ok and wt ~= nil then return true end
+        local wt = C_QuestLog.GetQuestWatchType(questID)
+        if wt ~= nil then return true end
     end
     if C_QuestLog.IsQuestWatched then
-        local ok, w = pcall(C_QuestLog.IsQuestWatched, questID)
-        if ok and w then return true end
+        local w = C_QuestLog.IsQuestWatched(questID)
+        if w then return true end
         if C_QuestLog.GetLogIndexForQuestID then
             local lIndex = C_QuestLog.GetLogIndexForQuestID(questID)
             if lIndex then
-                local ok2, w2 = pcall(C_QuestLog.IsQuestWatched, lIndex)
-                if ok2 and w2 then return true end
+                local w2 = C_QuestLog.IsQuestWatched(lIndex)
+                if w2 then return true end
             end
         end
     end
@@ -618,8 +636,7 @@ local function IsQuestWarbandCompleted(questID)
 
     local completed = false
     if C_QuestLog.IsQuestFlaggedCompletedOnAccount then
-        local ok, v = pcall(C_QuestLog.IsQuestFlaggedCompletedOnAccount, questID)
-        if ok and v then completed = true end
+        completed = C_QuestLog.IsQuestFlaggedCompletedOnAccount(questID) or false
     end
     warbandCompleteCache[questID] = completed
     return completed
@@ -631,20 +648,20 @@ local function IsMetaQuest(questID, defaultInfo)
     if defaultInfo and (defaultInfo.isMeta or defaultInfo.questClassification == QC_Meta) then return true end
 
     if C_QuestLog.IsMetaQuest then
-        local ok, v = pcall(C_QuestLog.IsMetaQuest, questID)
-        if ok and v then return true end
+        local v = C_QuestLog.IsMetaQuest(questID)
+        if v then return true end
     end
 
     if C_QuestInfoSystem and C_QuestInfoSystem.GetQuestClassification then
-        local ok, cls = pcall(C_QuestInfoSystem.GetQuestClassification, questID)
-        if ok and cls and (cls == QC_Meta or (QC and QC.Meta and cls == QC.Meta)) then
+        local cls = C_QuestInfoSystem.GetQuestClassification(questID)
+        if cls and (cls == QC_Meta or (QC and QC.Meta and cls == QC.Meta)) then
             return true
         end
     end
 
     if C_QuestLog.GetQuestTagInfo then
-        local ok, tag = pcall(C_QuestLog.GetQuestTagInfo, questID)
-        if ok and tag then
+        local tag = C_QuestLog.GetQuestTagInfo(questID)
+        if tag then
             if type(tag) == "table" then
                 if tag.isMeta or tag.tagName == "Meta" or tag.tagID == (Enum.QuestTag and Enum.QuestTag.Meta) or tag.tagID == 128 then
                     return true
@@ -658,8 +675,8 @@ local function IsMetaQuest(questID, defaultInfo)
     if C_QuestLog.GetInfo then
         local lIndex = C_QuestLog.GetLogIndexForQuestID and C_QuestLog.GetLogIndexForQuestID(questID)
         if lIndex then
-            local ok, info = pcall(C_QuestLog.GetInfo, lIndex)
-            if ok and info and (info.isMeta or info.questClassification == QC_Meta) then
+            local info = C_QuestLog.GetInfo(lIndex)
+            if info and (info.isMeta or info.questClassification == QC_Meta) then
                 return true
             end
         end
@@ -674,8 +691,8 @@ local function ClassifyQuest(info, questID)
         return "world"
     end
     if C_QuestInfoSystem and C_QuestInfoSystem.GetQuestClassification then
-        local ok, cls = pcall(C_QuestInfoSystem.GetQuestClassification, questID)
-        if ok and cls then
+        local cls = C_QuestInfoSystem.GetQuestClassification(questID)
+        if cls then
             if cls == QC_Campaign or cls == QC_Calling    then return "campaign"   end
             if cls == QC_Meta                             then return "meta"       end
             if cls == QC_Important or cls == QC_Legendary then return "important"  end
@@ -685,8 +702,8 @@ local function ClassifyQuest(info, questID)
     if info.campaignID and info.campaignID > 0 then return "campaign" end
     if IsMetaQuest(questID, info) then return "meta" end
     if C_QuestLog.IsImportantQuest then
-        local ok, v = pcall(C_QuestLog.IsImportantQuest, questID)
-        if ok and v then return "important" end
+        local v = C_QuestLog.IsImportantQuest(questID)
+        if v then return "important" end
     end
     local freq = info.frequency
     if freq == QR_Daily or freq == QR_Weekly or (freq and freq > 0) then
@@ -701,15 +718,15 @@ local function UntrackSectionQuests(sectionID)
             local tracked = { _G.GetTrackedAchievements() }
             for _, id in ipairs(tracked) do
                 if id and type(id) == "number" and id > 0 then
-                    pcall(_G.RemoveTrackedAchievement, id)
+                    _G.RemoveTrackedAchievement(id)
                 end
             end
         end
         if C_ContentTracking and C_ContentTracking.GetTrackedIDs and C_ContentTracking.StopTracking then
-            local ok, ids = pcall(C_ContentTracking.GetTrackedIDs, TRACKING_TYPE_ACHIEVEMENT)
-            if ok and ids and type(ids) == "table" then
+            local ids = C_ContentTracking.GetTrackedIDs(TRACKING_TYPE_ACHIEVEMENT)
+            if ids and type(ids) == "table" then
                 for _, id in ipairs(ids) do
-                    pcall(C_ContentTracking.StopTracking, TRACKING_TYPE_ACHIEVEMENT, id, TRACKING_STOP_TYPE_MANUAL)
+                    C_ContentTracking.StopTracking(TRACKING_TYPE_ACHIEVEMENT, id, TRACKING_STOP_TYPE_MANUAL)
                 end
             end
         end
@@ -1038,10 +1055,11 @@ local function AcquireRow()
 
         -- Find Group Eye Button (Right edge)
         local findGroupBtn
-        local ok = pcall(function()
+        local hasTemplate = (C_XMLUtil and C_XMLUtil.GetTemplateInfo and C_XMLUtil.GetTemplateInfo("QuestObjectiveFindGroupButtonTemplate")) ~= nil
+        if hasTemplate then
             findGroupBtn = CreateFrame("Button", nil, row, "QuestObjectiveFindGroupButtonTemplate")
-        end)
-        if not ok or not findGroupBtn then
+        end
+        if not findGroupBtn then
             findGroupBtn = CreateFrame("Button", nil, row)
             local eyeIcon = findGroupBtn:CreateTexture(nil, "ARTWORK")
             eyeIcon:SetSize(14, 14)
@@ -1056,7 +1074,7 @@ local function AcquireRow()
                 if qID and _G.LFGListUtil_FindQuestGroup then
                     C_Timer.After(0, function()
                         if not InCombat() and _G.LFGListUtil_FindQuestGroup and qID then
-                            pcall(_G.LFGListUtil_FindQuestGroup, qID, true)
+                            _G.LFGListUtil_FindQuestGroup(qID, true)
                         end
                     end)
                 end
@@ -1137,8 +1155,8 @@ local function AcquireRow()
                 end
 
                 if C_QuestLog.GetQuestObjectives then
-                    local ok, objs = pcall(C_QuestLog.GetQuestObjectives, s.questID)
-                    if ok and objs and #objs > 0 then
+                    local objs = C_QuestLog.GetQuestObjectives(s.questID)
+                    if objs and #objs > 0 then
                         SfuiQuestTooltip:AddLine(" ")
                         for _, obj in ipairs(objs) do
                             if obj.text and obj.text ~= "" then
@@ -1197,9 +1215,9 @@ local function AcquireRow()
 
                 if not InCombat() then
                     if _G.OpenAchievementFrameToAchievement then
-                        pcall(_G.OpenAchievementFrameToAchievement, s.achievementID)
+                        _G.OpenAchievementFrameToAchievement(s.achievementID)
                     elseif _G.ToggleAchievementFrame then
-                        pcall(_G.ToggleAchievementFrame)
+                        _G.ToggleAchievementFrame()
                     end
                 end
                 return
@@ -1218,7 +1236,7 @@ local function AcquireRow()
                     if not InCombat() then
                         C_Timer.After(0, function()
                             if not InCombat() and _G.ToggleWorldMap then
-                                pcall(_G.ToggleWorldMap)
+                                _G.ToggleWorldMap()
                             end
                         end)
                     end
@@ -1232,14 +1250,14 @@ local function AcquireRow()
                 if InCombat() then return end
                 if C_QuestLog.CanAbandonQuest and C_QuestLog.CanAbandonQuest(s.questID) then
                     if C_QuestLog.SetSelectedQuest then
-                        pcall(C_QuestLog.SetSelectedQuest, s.questID)
+                        C_QuestLog.SetSelectedQuest(s.questID)
                     end
                     if C_QuestLog.SetAbandonQuest then
-                        pcall(C_QuestLog.SetAbandonQuest)
+                        C_QuestLog.SetAbandonQuest()
                     end
                     if _G.QuestMapQuestOptions_AbandonQuest then
-                        local ok = pcall(_G.QuestMapQuestOptions_AbandonQuest, s.questID)
-                        if ok then return end
+                        _G.QuestMapQuestOptions_AbandonQuest(s.questID)
+                        return
                     end
 
                     local title = s.questTitle or (C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(s.questID)) or "Quest"
@@ -1249,7 +1267,7 @@ local function AcquireRow()
                     elseif _G.StaticPopup_Show then
                         _G.StaticPopup_Show("ABANDON_QUEST", title)
                     elseif C_QuestLog.AbandonQuest then
-                        pcall(C_QuestLog.AbandonQuest)
+                        C_QuestLog.AbandonQuest()
                     end
                 else
                     print("|cff8888ff[SFUI]|r Quest cannot be abandoned.")
@@ -1315,38 +1333,36 @@ local function AcquireRow()
 
             local isComplete = s.isComplete
             if isComplete == nil and C_QuestLog.IsComplete then
-                local ok, v = pcall(C_QuestLog.IsComplete, s.questID)
-                if ok then isComplete = v end
+                isComplete = C_QuestLog.IsComplete(s.questID)
             end
 
             local popUpType = nil
             if C_QuestLog.GetAutoQuestPopUpType then
-                local ok, pt = pcall(C_QuestLog.GetAutoQuestPopUpType, s.questID)
-                if ok then popUpType = pt end
+                popUpType = C_QuestLog.GetAutoQuestPopUpType(s.questID)
             end
 
             if popUpType == "OFFER" and _G.ShowQuestOffer then
-                pcall(_G.ShowQuestOffer, s.questID)
+                _G.ShowQuestOffer(s.questID)
                 return
             elseif (popUpType == "COMPLETE" or (isAutoComplete and isComplete)) and _G.ShowQuestComplete then
-                pcall(_G.ShowQuestComplete, s.questID)
+                _G.ShowQuestComplete(s.questID)
                 return
             end
 
             -- 2. Standard Quest: Open in Map & Quest Log details + SuperTrack
             if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then
-                pcall(C_SuperTrack.SetSuperTrackedQuestID, s.questID)
+                C_SuperTrack.SetSuperTrackedQuestID(s.questID)
             end
 
             if InCombatLockdown and InCombatLockdown() then return end
 
             if s.isWorldQuest then
                 if C_TaskQuest and C_TaskQuest.GetQuestZoneID and C_Map and C_Map.OpenWorldMap then
-                    local ok, zoneMapID = pcall(C_TaskQuest.GetQuestZoneID, s.questID)
-                    if ok and zoneMapID and zoneMapID ~= 0 then
+                    local zoneMapID = C_TaskQuest.GetQuestZoneID(s.questID)
+                    if zoneMapID and zoneMapID ~= 0 then
                         C_Timer.After(0, function()
                             if not InCombatLockdown or not InCombatLockdown() then
-                                pcall(C_Map.OpenWorldMap, zoneMapID)
+                                C_Map.OpenWorldMap(zoneMapID)
                             end
                         end)
                         return
@@ -1358,16 +1374,16 @@ local function AcquireRow()
             C_Timer.After(0, function()
                 if InCombatLockdown and InCombatLockdown() then return end
                 if C_QuestLog and C_QuestLog.SetSelectedQuest and targetQuestID then
-                    pcall(C_QuestLog.SetSelectedQuest, targetQuestID)
+                    C_QuestLog.SetSelectedQuest(targetQuestID)
                 end
                 if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID and targetQuestID then
-                    pcall(C_SuperTrack.SetSuperTrackedQuestID, targetQuestID)
+                    C_SuperTrack.SetSuperTrackedQuestID(targetQuestID)
                 end
 
                 if QuestMapFrame_OpenToQuestDetails and targetQuestID then
-                    pcall(QuestMapFrame_OpenToQuestDetails, targetQuestID)
+                    QuestMapFrame_OpenToQuestDetails(targetQuestID)
                 elseif _G.OpenWorldMap then
-                    pcall(_G.OpenWorldMap)
+                    _G.OpenWorldMap()
                 end
             end)
             Refresh:Request()
@@ -1485,29 +1501,27 @@ end
 local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
     local isComplete, isFailed = false, false
     if C_QuestLog.IsComplete then
-        local ok, v = pcall(C_QuestLog.IsComplete, questID)
-        if ok then isComplete = v end
+        isComplete = C_QuestLog.IsComplete(questID) or false
     end
     if C_QuestLog.IsFailed then
-        local ok, v = pcall(C_QuestLog.IsFailed, questID)
-        if ok then isFailed = v end
+        isFailed = C_QuestLog.IsFailed(questID) or false
     end
 
     local objs = nil
     if C_QuestLog.GetQuestObjectives then
-        local ok, v = pcall(C_QuestLog.GetQuestObjectives, questID)
-        if ok and v and #v > 0 then objs = v end
+        local v = C_QuestLog.GetQuestObjectives(questID)
+        if v and #v > 0 then objs = v end
     end
 
     local isSynthetic = false
     local qProgressBarPct = nil
     if C_TaskQuest and C_TaskQuest.GetQuestProgressBarInfo then
-        local ok, val = pcall(C_TaskQuest.GetQuestProgressBarInfo, questID)
-        if ok and val and val > 0 then qProgressBarPct = val end
+        local val = C_TaskQuest.GetQuestProgressBarInfo(questID)
+        if val and val > 0 then qProgressBarPct = val end
     end
     if not qProgressBarPct and _G.GetQuestProgressBarInfo then
-        local ok, val = pcall(_G.GetQuestProgressBarInfo, questID)
-        if ok and val and val > 0 then qProgressBarPct = val end
+        local val = _G.GetQuestProgressBarInfo(questID)
+        if val and val > 0 then qProgressBarPct = val end
     end
 
     if not objs or #objs == 0 then
@@ -1613,16 +1627,16 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
     local title = defaultInfo and defaultInfo.title
     if not title or title == "" then
         if C_TaskQuest and C_TaskQuest.GetQuestInfoByQuestID then
-            local ok, t = pcall(C_TaskQuest.GetQuestInfoByQuestID, questID)
-            if ok and t and t ~= "" then title = t end
+            local t = C_TaskQuest.GetQuestInfoByQuestID(questID)
+            if t and t ~= "" then title = t end
         end
         if (not title or title == "") and C_QuestLog.GetTitleForQuestID then
-            local ok, t = pcall(C_QuestLog.GetTitleForQuestID, questID)
-            if ok and t and t ~= "" then title = t end
+            local t = C_QuestLog.GetTitleForQuestID(questID)
+            if t and t ~= "" then title = t end
         end
         if (not title or title == "") and _G.QuestUtils_GetQuestName then
-            local ok, t = pcall(_G.QuestUtils_GetQuestName, questID)
-            if ok and t and t ~= "" then title = t end
+            local t = _G.QuestUtils_GetQuestName(questID)
+            if t and t ~= "" then title = t end
         end
     end
     title = title or "Unknown Quest"
@@ -1632,8 +1646,8 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
 
     if isWorld then
         if C_TaskQuest and C_TaskQuest.GetQuestTimeLeftMinutes then
-            local ok, mins = pcall(C_TaskQuest.GetQuestTimeLeftMinutes, questID)
-            if ok and mins and mins > 0 then
+            local mins = C_TaskQuest.GetQuestTimeLeftMinutes(questID)
+            if mins and mins > 0 then
                 if mins >= 1440 then
                     local d = math_floor(mins / 1440)
                     local h = math_floor((mins % 1440) / 60)
@@ -1661,13 +1675,13 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
     if isAutoComplete == nil and C_QuestLog.GetInfo then
         local lIndex = logIndex or (C_QuestLog.GetLogIndexForQuestID and C_QuestLog.GetLogIndexForQuestID(questID))
         if lIndex then
-            local ok, info = pcall(C_QuestLog.GetInfo, lIndex)
-            if ok and info then isAutoComplete = info.isAutoComplete end
+            local info = C_QuestLog.GetInfo(lIndex)
+            if info then isAutoComplete = info.isAutoComplete end
         end
     end
     if isAutoComplete == nil and _G.QuestCache and _G.QuestCache.Get then
-        local ok, qObj = pcall(_G.QuestCache.Get, _G.QuestCache, questID)
-        if ok and qObj then isAutoComplete = qObj.isAutoComplete end
+        local qObj = _G.QuestCache:Get(questID)
+        if qObj then isAutoComplete = qObj.isAutoComplete end
     end
 
     local isWarbandCompleted = IsQuestWarbandCompleted(questID)
@@ -1676,8 +1690,8 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
 
     local isAutoTurnIn = (isAutoComplete and isComplete)
     if not isAutoTurnIn and C_QuestLog.GetAutoQuestPopUpType then
-        local ok, pt = pcall(C_QuestLog.GetAutoQuestPopUpType, questID)
-        if ok and pt == "COMPLETE" then isAutoTurnIn = true end
+        local pt = C_QuestLog.GetAutoQuestPopUpType(questID)
+        if pt == "COMPLETE" then isAutoTurnIn = true end
     end
 
     local entry = AcquireTable()
@@ -1757,15 +1771,15 @@ end
 local function GetScenarioCriteriaSafe(criteriaIndex, stepID)
     -- 1. Query active scenario step criteria first (always current for active stage)
     if C_ScenarioInfo and C_ScenarioInfo.GetCriteriaInfo then
-        local ok, info = pcall(C_ScenarioInfo.GetCriteriaInfo, criteriaIndex)
-        if ok and info and type(info) == "table" and (info.description or info.criteriaString or info.string) then
+        local info = C_ScenarioInfo.GetCriteriaInfo(criteriaIndex)
+        if info and type(info) == "table" and (info.description or info.criteriaString or info.string) then
             info.description = info.description or info.criteriaString or info.string
             return info
         end
     end
     if C_Scenario and C_Scenario.GetCriteriaInfo then
-        local ok, desc, cType, comp, quant, totQuant, flags, assetID, quantStr, critID, dur, el, isWeight = pcall(C_Scenario.GetCriteriaInfo, criteriaIndex)
-        if ok and desc and desc ~= "" then
+        local desc, cType, comp, quant, totQuant, flags, assetID, quantStr, critID, dur, el, isWeight = C_Scenario.GetCriteriaInfo(criteriaIndex)
+        if desc and desc ~= "" then
             return {
                 description = desc,
                 criteriaType = cType,
@@ -1785,15 +1799,15 @@ local function GetScenarioCriteriaSafe(criteriaIndex, stepID)
 
     -- 2. Fallback to step-specific criteria if stepID / stepIndex provided (used for bonus steps)
     if stepID and C_ScenarioInfo and C_ScenarioInfo.GetCriteriaInfoByStep then
-        local ok, info = pcall(C_ScenarioInfo.GetCriteriaInfoByStep, stepID, criteriaIndex)
-        if ok and info and type(info) == "table" and (info.description or info.criteriaString or info.string) then
+        local info = C_ScenarioInfo.GetCriteriaInfoByStep(stepID, criteriaIndex)
+        if info and type(info) == "table" and (info.description or info.criteriaString or info.string) then
             info.description = info.description or info.criteriaString or info.string
             return info
         end
     end
     if stepID and C_Scenario and C_Scenario.GetCriteriaInfoByStep then
-        local ok, desc, cType, comp, quant, totQuant, flags, assetID, quantStr, critID, dur, el, isWeight = pcall(C_Scenario.GetCriteriaInfoByStep, stepID, criteriaIndex)
-        if ok and desc and desc ~= "" then
+        local desc, cType, comp, quant, totQuant, flags, assetID, quantStr, critID, dur, el, isWeight = C_Scenario.GetCriteriaInfoByStep(stepID, criteriaIndex)
+        if desc and desc ~= "" then
             return {
                 description = desc,
                 criteriaType = cType,
@@ -1840,8 +1854,8 @@ end
 
 local function CollectWidgetsFromSet(setID)
     if not setID or setID <= 0 or not C_UIWidgetManager or not C_UIWidgetManager.GetAllWidgetsBySetID then return end
-    local ok, widgets = pcall(C_UIWidgetManager.GetAllWidgetsBySetID, setID)
-    if ok and type(widgets) == "table" then
+    local widgets = C_UIWidgetManager.GetAllWidgetsBySetID(setID)
+    if widgets and type(widgets) == "table" then
         for _, w in ipairs(widgets) do
             local wID = (type(w) == "table" and w.widgetID) or (type(w) == "number" and w)
             if wID then AddWidgetIDToScan(wID) end
@@ -1856,8 +1870,8 @@ local function ScanWorldEventScenario(list)
 
     local inInst, instType = false, "none"
     if _G.IsInInstance then
-        local okInst, resInst, resType = pcall(_G.IsInInstance)
-        if okInst then inInst, instType = resInst, resType end
+        local resInst, resType = _G.IsInInstance()
+        if resInst ~= nil then inInst, instType = resInst, resType end
     end
     if inInst and instType ~= "none" then return end
 
@@ -1876,8 +1890,8 @@ local function ScanWorldEventScenario(list)
 
     local stepInfo = nil
     if C_ScenarioInfo and C_ScenarioInfo.GetScenarioStepInfo then
-        local ok, sInfo = pcall(C_ScenarioInfo.GetScenarioStepInfo)
-        if ok and sInfo and type(sInfo) == "table" then
+        local sInfo = C_ScenarioInfo.GetScenarioStepInfo()
+        if sInfo and type(sInfo) == "table" then
             stepInfo = sInfo
         end
     end
@@ -2016,28 +2030,28 @@ local function ScanWorldEventScenario(list)
 
     if C_UIWidgetManager then
         if C_UIWidgetManager.GetTopCenterWidgetSetID then
-            local ok, sID = pcall(C_UIWidgetManager.GetTopCenterWidgetSetID)
-            if ok and sID and sID > 0 then CollectWidgetsFromSet(sID) end
+            local sID = C_UIWidgetManager.GetTopCenterWidgetSetID()
+            if sID and sID > 0 then CollectWidgetsFromSet(sID) end
         end
         if C_UIWidgetManager.GetBelowMinimapWidgetSetID then
-            local ok, sID = pcall(C_UIWidgetManager.GetBelowMinimapWidgetSetID)
-            if ok and sID and sID > 0 then CollectWidgetsFromSet(sID) end
+            local sID = C_UIWidgetManager.GetBelowMinimapWidgetSetID()
+            if sID and sID > 0 then CollectWidgetsFromSet(sID) end
         end
         if C_UIWidgetManager.GetObjectiveTrackerWidgetSetID then
-            local ok, sID = pcall(C_UIWidgetManager.GetObjectiveTrackerWidgetSetID)
-            if ok and sID and sID > 0 then CollectWidgetsFromSet(sID) end
+            local sID = C_UIWidgetManager.GetObjectiveTrackerWidgetSetID()
+            if sID and sID > 0 then CollectWidgetsFromSet(sID) end
         end
         if C_UIWidgetManager.GetPowerBarWidgetSetID then
-            local ok, sID = pcall(C_UIWidgetManager.GetPowerBarWidgetSetID)
-            if ok and sID and sID > 0 then CollectWidgetsFromSet(sID) end
+            local sID = C_UIWidgetManager.GetPowerBarWidgetSetID()
+            if sID and sID > 0 then CollectWidgetsFromSet(sID) end
         end
     end
 
     for _, wID in ipairs(staticWidgetIDList) do
         -- A. ScenarioHeaderTimer
         if C_UIWidgetManager and C_UIWidgetManager.GetScenarioHeaderTimerWidgetVisualizationInfo then
-            local ok, tInfo = pcall(C_UIWidgetManager.GetScenarioHeaderTimerWidgetVisualizationInfo, wID)
-            if ok and tInfo and tInfo.shownState ~= 0 and tInfo.shownState ~= Enum.WidgetShownState.Hidden then
+            local tInfo = C_UIWidgetManager.GetScenarioHeaderTimerWidgetVisualizationInfo(wID)
+            if tInfo and tInfo.shownState ~= 0 and tInfo.shownState ~= Enum.WidgetShownState.Hidden then
                 local tMin = tInfo.timerMin or 0
                 local tMax = tInfo.timerMax or 0
                 local tVal = tInfo.timerValue or 0
@@ -2064,8 +2078,8 @@ local function ScanWorldEventScenario(list)
 
         -- B. StatusBar (Abundance, Event Progress, Delve Progress)
         if C_UIWidgetManager and C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo then
-            local ok, sInfo = pcall(C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo, wID)
-            if ok and sInfo and sInfo.shownState ~= 0 and sInfo.shownState ~= Enum.WidgetShownState.Hidden then
+            local sInfo = C_UIWidgetManager.GetStatusBarWidgetVisualizationInfo(wID)
+            if sInfo and sInfo.shownState ~= 0 and sInfo.shownState ~= Enum.WidgetShownState.Hidden then
                 local minVal = sInfo.barMin or 0
                 local maxVal = sInfo.barMax or 0
                 local curVal = sInfo.barValue or 0
@@ -2105,8 +2119,8 @@ local function ScanWorldEventScenario(list)
 
         -- C. DoubleStatusBar
         if C_UIWidgetManager and C_UIWidgetManager.GetDoubleStatusBarWidgetVisualizationInfo then
-            local ok, dInfo = pcall(C_UIWidgetManager.GetDoubleStatusBarWidgetVisualizationInfo, wID)
-            if ok and dInfo and dInfo.shownState ~= 0 and dInfo.shownState ~= Enum.WidgetShownState.Hidden then
+            local dInfo = C_UIWidgetManager.GetDoubleStatusBarWidgetVisualizationInfo(wID)
+            if dInfo and dInfo.shownState ~= 0 and dInfo.shownState ~= Enum.WidgetShownState.Hidden then
                 local lMin = dInfo.leftBarMin or 0
                 local lMax = dInfo.leftBarMax or 100
                 local lCur = dInfo.leftBarValue or 0
@@ -2131,8 +2145,8 @@ local function ScanWorldEventScenario(list)
 
         -- D. FillUpFrames
         if C_UIWidgetManager and C_UIWidgetManager.GetFillUpFramesWidgetVisualizationInfo then
-            local ok, fInfo = pcall(C_UIWidgetManager.GetFillUpFramesWidgetVisualizationInfo, wID)
-            if ok and fInfo and fInfo.shownState ~= 0 and fInfo.shownState ~= Enum.WidgetShownState.Hidden then
+            local fInfo = C_UIWidgetManager.GetFillUpFramesWidgetVisualizationInfo(wID)
+            if fInfo and fInfo.shownState ~= 0 and fInfo.shownState ~= Enum.WidgetShownState.Hidden then
                 local full = fInfo.numFullFrames or 0
                 local totalF = fInfo.numTotalFrames or 0
                 local val = fInfo.fillValue or full
@@ -2155,8 +2169,8 @@ local function ScanWorldEventScenario(list)
 
         -- E. DiscreteProgressSteps
         if C_UIWidgetManager and C_UIWidgetManager.GetDiscreteProgressStepsVisualizationInfo then
-            local ok, dpInfo = pcall(C_UIWidgetManager.GetDiscreteProgressStepsVisualizationInfo, wID)
-            if ok and dpInfo and dpInfo.shownState ~= 0 and dpInfo.shownState ~= Enum.WidgetShownState.Hidden then
+            local dpInfo = C_UIWidgetManager.GetDiscreteProgressStepsVisualizationInfo(wID)
+            if dpInfo and dpInfo.shownState ~= 0 and dpInfo.shownState ~= Enum.WidgetShownState.Hidden then
                 local pVal = dpInfo.progressVal or 0
                 local pMax = dpInfo.progressMax or dpInfo.numSteps or 0
                 if pMax > 0 then
@@ -2177,8 +2191,8 @@ local function ScanWorldEventScenario(list)
 
         -- F. TextWithState
         if C_UIWidgetManager and C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo then
-            local ok, wInfo = pcall(C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo, wID)
-            if ok and wInfo and wInfo.shownState ~= 0 and wInfo.shownState ~= Enum.WidgetShownState.Hidden and wInfo.text and wInfo.text ~= "" and not issecretvalue(wInfo.text) then
+            local wInfo = C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo(wID)
+            if wInfo and wInfo.shownState ~= 0 and wInfo.shownState ~= Enum.WidgetShownState.Hidden and wInfo.text and wInfo.text ~= "" and not issecretvalue(wInfo.text) then
                 local sObj = AcquireTable()
                 sObj.text = wInfo.text
                 sObj.finished = false
@@ -2189,8 +2203,8 @@ local function ScanWorldEventScenario(list)
 
         -- G. TextWithSubtext
         if C_UIWidgetManager and C_UIWidgetManager.GetTextWithSubtextWidgetVisualizationInfo then
-            local ok, wInfo = pcall(C_UIWidgetManager.GetTextWithSubtextWidgetVisualizationInfo, wID)
-            if ok and wInfo and wInfo.shownState ~= 0 and wInfo.shownState ~= Enum.WidgetShownState.Hidden then
+            local wInfo = C_UIWidgetManager.GetTextWithSubtextWidgetVisualizationInfo(wID)
+            if wInfo and wInfo.shownState ~= 0 and wInfo.shownState ~= Enum.WidgetShownState.Hidden then
                 local txt = (wInfo.title and wInfo.title ~= "" and not issecretvalue(wInfo.title) and wInfo.title)
                 if wInfo.subtext and wInfo.subtext ~= "" and not issecretvalue(wInfo.subtext) then
                     txt = txt and (txt .. ": " .. wInfo.subtext) or wInfo.subtext
@@ -2207,8 +2221,8 @@ local function ScanWorldEventScenario(list)
 
         -- H. TextureAndText
         if C_UIWidgetManager and C_UIWidgetManager.GetTextureAndTextVisualizationInfo then
-            local ok, wInfo = pcall(C_UIWidgetManager.GetTextureAndTextVisualizationInfo, wID)
-            if ok and wInfo and wInfo.shownState ~= 0 and wInfo.shownState ~= Enum.WidgetShownState.Hidden and wInfo.text and wInfo.text ~= "" and not issecretvalue(wInfo.text) then
+            local wInfo = C_UIWidgetManager.GetTextureAndTextVisualizationInfo(wID)
+            if wInfo and wInfo.shownState ~= 0 and wInfo.shownState ~= Enum.WidgetShownState.Hidden and wInfo.text and wInfo.text ~= "" and not issecretvalue(wInfo.text) then
                 local sObj = AcquireTable()
                 sObj.text = wInfo.text
                 sObj.finished = false
@@ -2219,8 +2233,8 @@ local function ScanWorldEventScenario(list)
 
         -- I. IconAndText
         if C_UIWidgetManager and C_UIWidgetManager.GetIconAndTextWidgetVisualizationInfo then
-            local ok, wInfo = pcall(C_UIWidgetManager.GetIconAndTextWidgetVisualizationInfo, wID)
-            if ok and wInfo and wInfo.state ~= 0 and wInfo.text and wInfo.text ~= "" and not issecretvalue(wInfo.text) then
+            local wInfo = C_UIWidgetManager.GetIconAndTextWidgetVisualizationInfo(wID)
+            if wInfo and wInfo.state ~= 0 and wInfo.text and wInfo.text ~= "" and not issecretvalue(wInfo.text) then
                 local sObj = AcquireTable()
                 sObj.text = wInfo.text
                 sObj.finished = false
@@ -2231,8 +2245,8 @@ local function ScanWorldEventScenario(list)
 
         -- J. StackedResourceTracker
         if C_UIWidgetManager and C_UIWidgetManager.GetStackedResourceTrackerWidgetVisualizationInfo then
-            local ok, rInfo = pcall(C_UIWidgetManager.GetStackedResourceTrackerWidgetVisualizationInfo, wID)
-            if ok and rInfo and rInfo.shownState ~= 0 and rInfo.shownState ~= Enum.WidgetShownState.Hidden and rInfo.resources then
+            local rInfo = C_UIWidgetManager.GetStackedResourceTrackerWidgetVisualizationInfo(wID)
+            if rInfo and rInfo.shownState ~= 0 and rInfo.shownState ~= Enum.WidgetShownState.Hidden and rInfo.resources then
                 for _, res in ipairs(rInfo.resources) do
                     if res.text and res.text ~= "" and not issecretvalue(res.text) then
                         local sObj = AcquireTable()
@@ -2247,8 +2261,8 @@ local function ScanWorldEventScenario(list)
 
         -- K. BulletTextList
         if C_UIWidgetManager and C_UIWidgetManager.GetBulletTextListWidgetVisualizationInfo then
-            local ok, bInfo = pcall(C_UIWidgetManager.GetBulletTextListWidgetVisualizationInfo, wID)
-            if ok and bInfo and bInfo.shownState ~= 0 and bInfo.shownState ~= Enum.WidgetShownState.Hidden and bInfo.lines then
+            local bInfo = C_UIWidgetManager.GetBulletTextListWidgetVisualizationInfo(wID)
+            if bInfo and bInfo.shownState ~= 0 and bInfo.shownState ~= Enum.WidgetShownState.Hidden and bInfo.lines then
                 for _, line in ipairs(bInfo.lines) do
                     if line and line ~= "" and not issecretvalue(line) then
                         local sObj = AcquireTable()
@@ -2263,8 +2277,8 @@ local function ScanWorldEventScenario(list)
 
         -- L. CaptureBar
         if C_UIWidgetManager and C_UIWidgetManager.GetCaptureBarWidgetVisualizationInfo then
-            local ok, cbInfo = pcall(C_UIWidgetManager.GetCaptureBarWidgetVisualizationInfo, wID)
-            if ok and cbInfo and cbInfo.shownState ~= 0 and cbInfo.shownState ~= Enum.WidgetShownState.Hidden then
+            local cbInfo = C_UIWidgetManager.GetCaptureBarWidgetVisualizationInfo(wID)
+            if cbInfo and cbInfo.shownState ~= 0 and cbInfo.shownState ~= Enum.WidgetShownState.Hidden then
                 local minV = cbInfo.barMinValue or 0
                 local maxV = cbInfo.barMaxValue or 100
                 local val = cbInfo.barValue or 0
@@ -2287,8 +2301,8 @@ local function ScanWorldEventScenario(list)
 
         -- M. TextColumnRow & TextureAndTextRow
         if C_UIWidgetManager and C_UIWidgetManager.GetTextColumnRowVisualizationInfo then
-            local ok, tcInfo = pcall(C_UIWidgetManager.GetTextColumnRowVisualizationInfo, wID)
-            if ok and tcInfo and tcInfo.shownState ~= 0 and tcInfo.shownState ~= Enum.WidgetShownState.Hidden and tcInfo.entries then
+            local tcInfo = C_UIWidgetManager.GetTextColumnRowVisualizationInfo(wID)
+            if tcInfo and tcInfo.shownState ~= 0 and tcInfo.shownState ~= Enum.WidgetShownState.Hidden and tcInfo.entries then
                 for _, ent in ipairs(tcInfo.entries) do
                     if ent.text and ent.text ~= "" and not issecretvalue(ent.text) then
                         local sObj = AcquireTable()
@@ -2301,8 +2315,8 @@ local function ScanWorldEventScenario(list)
             end
         end
         if C_UIWidgetManager and C_UIWidgetManager.GetTextureAndTextRowVisualizationInfo then
-            local ok, trInfo = pcall(C_UIWidgetManager.GetTextureAndTextRowVisualizationInfo, wID)
-            if ok and trInfo and trInfo.shownState ~= 0 and trInfo.shownState ~= Enum.WidgetShownState.Hidden and trInfo.entries then
+            local trInfo = C_UIWidgetManager.GetTextureAndTextRowVisualizationInfo(wID)
+            if trInfo and trInfo.shownState ~= 0 and trInfo.shownState ~= Enum.WidgetShownState.Hidden and trInfo.entries then
                 for _, ent in ipairs(trInfo.entries) do
                     if ent.text and ent.text ~= "" and not issecretvalue(ent.text) then
                         local sObj = AcquireTable()
@@ -2317,8 +2331,8 @@ local function ScanWorldEventScenario(list)
 
         -- N. HorizontalCurrencies & ScenarioHeaderCurrenciesAndBackground
         if C_UIWidgetManager and C_UIWidgetManager.GetHorizontalCurrenciesWidgetVisualizationInfo then
-            local ok, hcInfo = pcall(C_UIWidgetManager.GetHorizontalCurrenciesWidgetVisualizationInfo, wID)
-            if ok and hcInfo and hcInfo.shownState ~= 0 and hcInfo.shownState ~= Enum.WidgetShownState.Hidden and hcInfo.currencies then
+            local hcInfo = C_UIWidgetManager.GetHorizontalCurrenciesWidgetVisualizationInfo(wID)
+            if hcInfo and hcInfo.shownState ~= 0 and hcInfo.shownState ~= Enum.WidgetShownState.Hidden and hcInfo.currencies then
                 for _, cur in ipairs(hcInfo.currencies) do
                     local txt = (cur.leadingText and cur.leadingText ~= "" and not issecretvalue(cur.leadingText) and cur.leadingText)
                     if cur.text and cur.text ~= "" and not issecretvalue(cur.text) then
@@ -2335,8 +2349,8 @@ local function ScanWorldEventScenario(list)
             end
         end
         if C_UIWidgetManager and C_UIWidgetManager.GetScenarioHeaderCurrenciesAndBackgroundWidgetVisualizationInfo then
-            local ok, shcInfo = pcall(C_UIWidgetManager.GetScenarioHeaderCurrenciesAndBackgroundWidgetVisualizationInfo, wID)
-            if ok and shcInfo and shcInfo.shownState ~= 0 and shcInfo.shownState ~= Enum.WidgetShownState.Hidden and shcInfo.currencies then
+            local shcInfo = C_UIWidgetManager.GetScenarioHeaderCurrenciesAndBackgroundWidgetVisualizationInfo(wID)
+            if shcInfo and shcInfo.shownState ~= 0 and shcInfo.shownState ~= Enum.WidgetShownState.Hidden and shcInfo.currencies then
                 for _, cur in ipairs(shcInfo.currencies) do
                     local txt = (cur.leadingText and cur.leadingText ~= "" and not issecretvalue(cur.leadingText) and cur.leadingText)
                     if cur.text and cur.text ~= "" and not issecretvalue(cur.text) then
@@ -2355,8 +2369,8 @@ local function ScanWorldEventScenario(list)
 
         -- O. IconTextAndCurrencies
         if C_UIWidgetManager and C_UIWidgetManager.GetIconTextAndCurrenciesWidgetVisualizationInfo then
-            local ok, itcInfo = pcall(C_UIWidgetManager.GetIconTextAndCurrenciesWidgetVisualizationInfo, wID)
-            if ok and itcInfo and itcInfo.shownState ~= 0 and itcInfo.shownState ~= Enum.WidgetShownState.Hidden then
+            local itcInfo = C_UIWidgetManager.GetIconTextAndCurrenciesWidgetVisualizationInfo(wID)
+            if itcInfo and itcInfo.shownState ~= 0 and itcInfo.shownState ~= Enum.WidgetShownState.Hidden then
                 local txt = (itcInfo.text and itcInfo.text ~= "" and not issecretvalue(itcInfo.text) and itcInfo.text)
                 if itcInfo.description and itcInfo.description ~= "" and not issecretvalue(itcInfo.description) then
                     txt = txt and (txt .. ": " .. itcInfo.description) or itcInfo.description
@@ -2388,8 +2402,8 @@ local function ScanWorldEventScenario(list)
 
         -- P. ButtonHeader
         if C_UIWidgetManager and C_UIWidgetManager.GetButtonHeaderWidgetVisualizationInfo then
-            local ok, bhInfo = pcall(C_UIWidgetManager.GetButtonHeaderWidgetVisualizationInfo, wID)
-            if ok and bhInfo and bhInfo.shownState ~= 0 and bhInfo.shownState ~= Enum.WidgetShownState.Hidden and bhInfo.headerText and bhInfo.headerText ~= "" and not issecretvalue(bhInfo.headerText) then
+            local bhInfo = C_UIWidgetManager.GetButtonHeaderWidgetVisualizationInfo(wID)
+            if bhInfo and bhInfo.shownState ~= 0 and bhInfo.shownState ~= Enum.WidgetShownState.Hidden and bhInfo.headerText and bhInfo.headerText ~= "" and not issecretvalue(bhInfo.headerText) then
                 local sObj = AcquireTable()
                 sObj.text = bhInfo.headerText
                 sObj.finished = false
@@ -2401,8 +2415,8 @@ local function ScanWorldEventScenario(list)
 
     -- 3. Bonus Steps Scan (Bonus Objectives in Scenario / World Event)
     if C_Scenario and C_Scenario.GetBonusSteps then
-        local ok, steps = pcall(C_Scenario.GetBonusSteps)
-        if ok and steps and #steps > 0 then
+        local steps = C_Scenario.GetBonusSteps()
+        if steps and #steps > 0 then
             for _, bIdx in ipairs(steps) do
                 local bName, bDesc, bNumCrit, _, _, _, bShouldShow = C_Scenario.GetStepInfo(bIdx)
                 if bShouldShow then
@@ -2530,17 +2544,13 @@ function QL:DoRefresh()
                           C_SuperTrack.GetSuperTrackedQuestID()) or 0
     currentSuperTrackedID = superTracked
 
-    for _, def in ipairs(SECTION_DEFS) do
-        if not sectionLists[def.id] then sectionLists[def.id] = {} end
-        if not renderedSectionQuests[def.id] then renderedSectionQuests[def.id] = {} end
-        wipe(sectionLists[def.id])
-    end
+    ClearSectionLists()
     wipe(processedQuests)
 
     local inRaid = false
     if _G.IsInInstance then
-        local okInst, inInst, instType = pcall(_G.IsInInstance)
-        if okInst and inInst and instType == "raid" then
+        local inInst, instType = _G.IsInInstance()
+        if inInst and instType == "raid" then
             inRaid = true
         end
     end
@@ -2552,8 +2562,8 @@ function QL:DoRefresh()
 
     -- 1. Active local-area tasks & bonus objectives in player's immediate area (GetTasksTable)
     if not inRaid and GetTasksTable then
-        local ok, tasks = pcall(GetTasksTable)
-        if ok and tasks then
+        local tasks = GetTasksTable()
+        if tasks then
             for i = 1, #tasks do
                 AddWorldQuest(tasks[i], false)
             end
@@ -3245,18 +3255,15 @@ end  -- on_ql_event
 -- through sfui.events so they share the global dispatcher frame.
 -- High-burst events use RegisterThrottledEvent to avoid redundant Lua calls.
 
--- Helper: pcall-guarded registration matching the old Reg() pattern.
+-- Helper: Event registration helper.
 local function Reg(e) sfui.events.RegisterEvent(e, on_ql_event) end
 
 Reg("PLAYER_REGEN_DISABLED")
 Reg("PLAYER_REGEN_ENABLED")
 Reg("ADDON_LOADED")
-Reg("QUEST_LOG_UPDATE")
-Reg("QUEST_WATCH_LIST_CHANGED")
 Reg("QUEST_ACCEPTED")
 Reg("QUEST_TURNED_IN")
 Reg("QUEST_REMOVED")
-Reg("TASK_PROGRESS_UPDATE")
 Reg("TRACKED_ACHIEVEMENT_LIST_CHANGED")
 Reg("TRACKED_ACHIEVEMENT_UPDATE")
 Reg("ACHIEVEMENT_EARNED")
@@ -3278,6 +3285,17 @@ Reg("CHALLENGE_MODE_COMPLETED")
 Reg("CHALLENGE_MODE_RESET")
 Reg("SUPER_TRACKING_CHANGED")
 Reg("PLAYER_ENTERING_WORLD")
+
+-- Quest log and task updates fire in micro-bursts during quest acceptance/turn-in.
+-- Throttle to 0.2s to collapse multi-event bursts into a single refresh pass.
+do
+    local function _on_quest_log_burst(event, a1, a2)
+        on_ql_event(event, a1, a2)
+    end
+    sfui.events.RegisterThrottledEvent("QUEST_LOG_UPDATE",         0.2, _on_quest_log_burst)
+    sfui.events.RegisterThrottledEvent("QUEST_WATCH_LIST_CHANGED", 0.2, _on_quest_log_burst)
+    sfui.events.RegisterThrottledEvent("TASK_PROGRESS_UPDATE",      0.2, _on_quest_log_burst)
+end
 
 -- Zone change events fire simultaneously in triplicate on zone transitions.
 -- Throttle to 0.3s so the three events collapse into a single handler call.

@@ -43,7 +43,7 @@ end
 local function ReleaseTable(t)
     if not t then return end
     wipe(t)
-    table.insert(tablePool, t)
+    tablePool[#tablePool + 1] = t
 end
 
 local function ReleaseTableRecursive(t)
@@ -71,7 +71,7 @@ local function ReleaseColumn(f)
     f:Hide()
     f:SetParent(nil)
     f:ClearAllPoints()
-    table.insert(columnPool, f)
+    columnPool[#columnPool + 1] = f
 end
 
 local function AcquireCell(parent)
@@ -125,7 +125,7 @@ local function ReleaseCell(f)
         f.del:SetScript("OnLeave", nil)
         f.del:Hide()
     end
-    table.insert(cellPool, f)
+    cellPool[#cellPool + 1] = f
 end
 
 -- Professional Weekly KP Sources (TWW & Midnight Combined)
@@ -1385,10 +1385,16 @@ function sfui.alts.UpdateUI(force)
         ReleaseColumn(col)
     end
 
-    wipe(altsList)
+    for i = #altsList, 1, -1 do
+        local entry = table.remove(altsList, i)
+        ReleaseTable(entry)
+    end
     for guid, data in pairs(SfuiDB.alts) do
         if not data.isHidden then
-            table.insert(altsList, { guid = guid, data = data })
+            local entry = AcquireTable()
+            entry.guid = guid
+            entry.data = data
+            altsList[#altsList + 1] = entry
         end
     end
 
@@ -1775,61 +1781,24 @@ function sfui.alts.UpdateUI(force)
                 end
 
                 text:SetText(displayText)
-                text:SetTextColor(unpack(sfui.config.colors.white)) -- Base color is white, overrides are embedded
+                text:SetTextColor(unpack(sfui.config.colors.white))
 
-                -- Add tooltip for currency
                 cell:SetScript("OnEnter", function(self)
                     if not GameTooltip then return end
-                    pcall(function()
-                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                        if not isGroup then
-                            local tLine = tooltipLines[1]
-                            if tLine and tLine.itemConfig then
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    if not isGroup then
+                        local tLine = tooltipLines[1]
+                        if tLine and tLine.itemConfig then
+                            local name = tLine.name
+                            if not name then
                                 if tLine.itemConfig.isItem then
-                                    if GameTooltip.SetItemByID then
-                                        GameTooltip:SetItemByID(tLine.itemConfig.id)
-                                    elseif GameTooltip.SetHyperlink and tLine.itemConfig.link then
-                                        GameTooltip:SetHyperlink(tLine.itemConfig.link)
-                                    end
+                                    name = C_Item.GetItemInfo(tLine.itemConfig.id) or "Item"
                                 else
-                                    if GameTooltip.SetCurrencyByID then
-                                        GameTooltip:SetCurrencyByID(tLine.itemConfig.id)
-                                    end
-                                    if tLine.cData and type(tLine.cData) == "table" then
-                                        GameTooltip:AddLine(" ")
-                                        if tLine.cData.max and tLine.cData.max > 0 then
-                                            GameTooltip:AddDoubleLine("Weekly Earned:",
-                                                string.format("%d / %d", tLine.cData.earned or 0, tLine.cData.max), 1, 1, 1, 1, 1,
-                                                1)
-                                        elseif tLine.displayMaxQuantity > 0 then
-                                            local currentAmount = tLine.cData.useTotalEarned and tLine.cData.totalEarned or
-                                                tLine.cData.val
-                                            GameTooltip:AddDoubleLine("Season Earned:",
-                                                string.format("%d / %d", currentAmount or 0, tLine.displayMaxQuantity), 1, 1, 1,
-                                                1, 1, 1)
-                                        end
-                                        if tLine.isCapped then
-                                            GameTooltip:AddLine("Season/Weekly cap reached!", 1, 0, 0)
-                                        end
-                                    end
+                                    local info = C_CurrencyInfo.GetCurrencyInfo(tLine.itemConfig.id)
+                                    name = info and info.name or "Currency"
                                 end
                             end
-                            GameTooltip:Show()
-                            return
-                        end
 
-                        -- Group tooltip
-                        GameTooltip:AddLine(cat.label, 1, 1, 1)
-                        for _, tLine in ipairs(tooltipLines) do
-                            local name
-                            if tLine.itemConfig.isItem then
-                                name = C_Item.GetItemInfo(tLine.itemConfig.id) or "Item"
-                            else
-                                local info = C_CurrencyInfo.GetCurrencyInfo(tLine.itemConfig.id)
-                                name = info and info.name or "Currency"
-                            end
-
-                            GameTooltip:AddLine(" ")
                             GameTooltip:AddLine(string.format("|T%d:16:16:0:0|t %s", tLine.itemConfig.icon, name))
 
                             if tLine.cData and type(tLine.cData) == "table" then
@@ -1840,8 +1809,8 @@ function sfui.alts.UpdateUI(force)
                                     local currentAmount = tLine.cData.useTotalEarned and tLine.cData.totalEarned or
                                         tLine.cData.val
                                     GameTooltip:AddDoubleLine("Season Earned:",
-                                        string.format("%d / %d", currentAmount or 0, tLine.displayMaxQuantity), 1, 1, 1, 1, 1,
-                                        1)
+                                        string.format("%d / %d", currentAmount or 0, tLine.displayMaxQuantity), 1, 1, 1, 1,
+                                        1, 1)
                                 else
                                     local val = tLine.cData.val or 0
                                     GameTooltip:AddDoubleLine("Total:", tostring(val), 1, 1, 1, 1, 1, 1)
@@ -1855,7 +1824,29 @@ function sfui.alts.UpdateUI(force)
                             end
                         end
                         GameTooltip:Show()
-                    end)
+                        return
+                    end
+
+                    GameTooltip:AddLine(cat.label or "Currencies", 1, 1, 1)
+                    for _, tLine in ipairs(tooltipLines) do
+                        local name = tLine.name
+                        if not name then
+                            if tLine.itemConfig and tLine.itemConfig.isItem then
+                                name = C_Item.GetItemInfo(tLine.itemConfig.id) or "Item"
+                            elseif tLine.itemConfig then
+                                local info = C_CurrencyInfo.GetCurrencyInfo(tLine.itemConfig.id)
+                                name = info and info.name or "Currency"
+                            else
+                                name = "Currency"
+                            end
+                        end
+                        local count = tLine.count or 0
+                        local max = tLine.max or 0
+                        local lineText = (max > 0) and string.format("%s: %s / %s", name, count, max) or
+                            string.format("%s: %s", name, count)
+                        GameTooltip:AddLine(lineText, 1, 1, 1)
+                    end
+                    GameTooltip:Show()
                 end)
                 cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
             elseif cat.type == "quests_grid" then
@@ -2524,7 +2515,7 @@ function sfui.alts.initialize()
     local function on_alts_simple_sync()
         sfui.alts.SyncCurrentCharacter()
     end
-    sfui.events.RegisterEvent("CURRENCY_DISPLAY_UPDATE",  on_alts_simple_sync)
+    sfui.events.RegisterThrottledEvent("CURRENCY_DISPLAY_UPDATE", 0.5, on_alts_simple_sync)
     sfui.events.RegisterEvent("WEEKLY_REWARDS_UPDATE",    on_alts_simple_sync)
     sfui.events.RegisterEvent("PLAYER_LEVEL_UP",          on_alts_simple_sync)
     sfui.events.RegisterEvent("PLAYER_EQUIPMENT_CHANGED", on_alts_simple_sync)
