@@ -2,6 +2,17 @@
 
 > **Note**: This changelog documents **releases, architectural milestones, features**.
 
+## v12.1.0-21 (2026-09-01)
+
+### Castbars Optimization & Secret Value Hardening
+- **Castbar Architecture Refactor (`frames/castbar.lua`)**:
+  - Removed legacy interrupt marker and cooldown tracking logic (`CLASS_INTERRUPTS`, `knownInterrupts`, positioners, markers).
+  - Target castbar optimized to use Blizzard's C-engine `SetTimerDuration` duration animation without Lua `OnUpdate` polling loops.
+  - Safely evaluated Retail 12.x secret boolean `notInterruptible` via `C_CurveUtil.EvaluateColorValueFromBoolean`, completely preventing secret value taint crashes.
+  - Implemented zero-allocation telemetry table for `mem.lua` profiler queries (`sfui.castbar_debug_info`).
+  - Added memoized instant-cast spell detection with automatic invalidation on talent/spec updates.
+  - Fully standardized with `common.lua`, `dispatcher.lua`, `config.lua`, and `core.lua`.
+
 ---
 
 ## v12.1.0-20 (2026-08-31)
