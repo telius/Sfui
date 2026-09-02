@@ -458,27 +458,18 @@ local function RenderTrackedBarsRightSide(parent, width)
         parent._poolTitle = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         parent._poolTitle:SetPoint("TOPLEFT", 0, -5)
     end
-    parent._poolTitle:SetText("Tracked Buffs & Bars Pool (2, 3)")
+    parent._poolTitle:SetText("Tracked Bars Pool (3)")
     parent._poolTitle:Show()
 
     local yPos = -25
     local list = {}
     if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
-        local cats = { 2, 3 }
-        if Enum and Enum.CooldownViewerCategory then
-            cats = {}
-            if Enum.CooldownViewerCategory.TrackedBuff ~= nil then table.insert(cats, Enum.CooldownViewerCategory.TrackedBuff) else table.insert(cats, 2) end
-            if Enum.CooldownViewerCategory.TrackedBar ~= nil then table.insert(cats, Enum.CooldownViewerCategory.TrackedBar) else table.insert(cats, 3) end
-        end
-        for _, cat in ipairs(cats) do
-            if type(cat) == "number" and cat >= 0 then
-                local ok, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, true)
-                if ok and ids then
-                    for _, id in ipairs(ids) do
-                        if not common.issecretvalue(id) and IsValidID(id) then
-                            table.insert(list, id)
-                        end
-                    end
+        local cat = (Enum and Enum.CooldownViewerCategory and Enum.CooldownViewerCategory.TrackedBar) or 3
+        local ok, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, true)
+        if ok and ids then
+            for _, id in ipairs(ids) do
+                if not common.issecretvalue(id) and IsValidID(id) then
+                    table.insert(list, id)
                 end
             end
         end
@@ -563,7 +554,7 @@ local function RenderTrackedBarsRightSide(parent, width)
 
     if not parent._noIconsLabel then
         parent._noIconsLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        parent._noIconsLabel:SetText("No icons found in groups -2, 2, or 3.")
+        parent._noIconsLabel:SetText("No bars found in Category 3.")
     end
     if #list == 0 then
         parent._noIconsLabel:ClearAllPoints()
@@ -1005,6 +996,7 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
 
         local displayName = name or "Unnamed Panel"
         zone.label:SetText(displayName)
+        zone.label:SetTextColor(1, 1, 1, 1)
         if not isBuiltIn and panelIndex then
             zone.deleteBtn:Show()
         else
@@ -1252,6 +1244,19 @@ local function RenderAssignmentsIconPool(parent, width, entries)
         if i == #list then
             yPos = y - row * (ICON_SIZE + spacing) - ICON_SIZE - 20
         end
+    end
+
+    if not parent._assignNoIconsLabel then
+        parent._assignNoIconsLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    end
+    if #list == 0 then
+        parent._assignNoIconsLabel:SetText("No icons found in groups 0 or 1.")
+        parent._assignNoIconsLabel:ClearAllPoints()
+        parent._assignNoIconsLabel:SetPoint("TOPLEFT", 0, yPos)
+        parent._assignNoIconsLabel:Show()
+        yPos = yPos - 20
+    else
+        parent._assignNoIconsLabel:Hide()
     end
 
     return yPos

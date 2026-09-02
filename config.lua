@@ -624,7 +624,7 @@ sfui.config = {
         questHeight = 20,
         objectiveHeight = 13,
         itemSize = 32,
-        throttle = 0.5,
+        throttle = 0.35,
         defaultHidden = false,
         sections = {
             { id = "scenario",     label = "world event",  color = { 1.00, 0.60, 0.10 } },

@@ -43,21 +43,29 @@ local qcfg = g.questlog or {
 
 -- Localize Globals & Core C-APIs
 local CreateFrame, UIParent = _G.CreateFrame, _G.UIParent
-local C_QuestLog        = _G.C_QuestLog
-local C_TaskQuest       = _G.C_TaskQuest
-local C_Map             = _G.C_Map
-local C_QuestInfoSystem = _G.C_QuestInfoSystem
-local C_Timer           = _G.C_Timer
-local C_SuperTrack      = _G.C_SuperTrack
-local Enum              = _G.Enum
-local table, ipairs, pairs, type, math =
-    _G.table, _G.ipairs, _G.pairs, _G.type, _G.math
+local C_QuestLog                 = _G.C_QuestLog
+local C_TaskQuest                = _G.C_TaskQuest
+local C_Map                      = _G.C_Map
+-- C_QuestInfoSystem: reserved (unused; Blizzard API not yet stable)
+local C_Timer                    = _G.C_Timer
+local C_SuperTrack               = _G.C_SuperTrack
+local C_PerksActivities          = _G.C_PerksActivities
+local C_NeighborhoodInitiative   = _G.C_NeighborhoodInitiative
+local C_TradeSkillUI             = _G.C_TradeSkillUI
+local C_Item                     = _G.C_Item
+local Enum                       = _G.Enum
+local table, ipairs, pairs, type =
+    _G.table, _G.ipairs, _G.pairs, _G.type
 local math_min, math_max, math_floor = _G.math.min, _G.math.max, _G.math.floor
 local tostring, tonumber = _G.tostring, _G.tonumber
 local wipe = _G.wipe or function(t) for k in pairs(t) do t[k] = nil end return t end
 local issecretvalue = _G.issecretvalue or function() return false end
 local QuestMapFrame_OpenToQuestDetails = _G.QuestMapFrame_OpenToQuestDetails
 local GetTasksTable = _G.GetTasksTable
+local GetQuestProgressBarPercent = _G.GetQuestProgressBarPercent
+local GetNumAutoQuestPopUps = _G.GetNumAutoQuestPopUps
+local GetAutoQuestPopUp = _G.GetAutoQuestPopUp
+local IsInGroup = _G.IsInGroup
 local print = _G.print
 local string_format = string.format  -- localize alias (avoids global table lookup on every call)
 
@@ -83,23 +91,31 @@ local SECT_H     = qcfg.sectionHeight or 20
 local QUEST_H    = qcfg.questHeight or 20
 local OBJ_H      = qcfg.objectiveHeight or 13
 local PAD_X      = 8
-local OBJ_INDENT = 14
-local THROTTLE   = qcfg.throttle or 0.5
+-- OBJ_INDENT: reserved for future indented objectives (currently unused)
+local THROTTLE   = qcfg.throttle or 0.35
 local SECT_GAP   = 2
 local QUEST_PAD  = 2
 
--- Pre-cached Formatting Strings
-local ITEM_TAG_STRING   = "|TInterface\\Buttons\\WHITE8x8:6:6:0:0:8:8:0:8:0:8:102:0:255|t "
-local COLOR_COMPLETE    = "|cffff00ff"
-local COMPLETE_SUFFIX   = " |cff44cc44[Complete]|r"
-local COLOR_SUPERTRACK  = "|cffffff00"
-local COLOR_WARBAND     = "|cffa02020"
-local COLOR_META        = "|cff00ffff"
-local COLOR_FAILED      = "|cffff4444"
-local COLOR_DONE_CNT    = "|cff44cc44"
-local COLOR_UNDONE_CNT  = "|cff777777"
-local COLOR_TIME        = "|cff33d9f2"
-local COLOR_RESET       = "|r"
+-- Pre-cached Formatting Strings & Colors (Table-packed to conserve upvalues)
+local C = {
+    ITEM_TAG      = "|TInterface\\Buttons\\WHITE8x8:6:6:0:0:8:8:0:8:0:8:102:0:255|t ",
+    COMPLETE      = "|cffff00ff",
+    COMPLETE_SUF  = " |cff44cc44[Complete]|r",
+    SUPERTRACK    = "|cffffff00",
+    WARBAND       = "|cffa02020",
+    META          = "|cff00ffff",
+    FAILED        = "|cffff4444",
+    DONE_CNT      = "|cff44cc44",
+    UNDONE_CNT    = "|cff777777",
+    TIME          = "|cff33d9f2",
+    TIME_CRITICAL = "|cffff5533",
+    PARTY_COUNT   = "|cff33d9f2",
+    OFFER         = "|cff00ff88",
+    PERK          = "|cff33d9f2",
+    HOUSE         = "|cff88d055",
+    RECIPE        = "|cffe0a050",
+    RESET         = "|r",
+}
 
 -- Section definitions (display order)
 local SECTION_DEFS = qcfg.sections or {
@@ -598,6 +614,190 @@ local function ScanTrackedAchievements(intoList)
     end
 end
 
+local function ScanTrackedPerksActivities(intoList)
+    if not C_PerksActivities or not C_PerksActivities.GetTrackedPerksActivities or not C_PerksActivities.GetPerksActivityInfo then return end
+    local tracked = C_PerksActivities.GetTrackedPerksActivities()
+    local ids = tracked and tracked.trackedIDs
+    if not ids or #ids == 0 then return end
+
+    for _, actID in ipairs(ids) do
+        if type(actID) == "number" and actID > 0 then
+            local info = C_PerksActivities.GetPerksActivityInfo(actID)
+            if info and not info.completed and info.activityName and info.activityName ~= "" then
+                local objs = nil
+                local done, total = 0, 0
+                if info.requirementsList then
+                    for _, req in ipairs(info.requirementsList) do
+                        if req.requirementText and req.requirementText ~= "" and not issecretvalue(req.requirementText) then
+                            if not objs then objs = AcquireTable() end
+                            local sObj = AcquireTable()
+                            local cleanReq = req.requirementText:gsub(" / ", "/")
+                            sObj.text = cleanReq
+                            sObj.finished = (req.completed == true)
+                            objs[#objs + 1] = sObj
+                            total = total + 1
+                            if req.completed then done = done + 1 end
+                        end
+                    end
+                end
+
+                local entry = AcquireTable()
+                entry.activityID         = actID
+                entry.isPerksActivity    = true
+                entry.title              = info.activityName
+                entry.description        = info.description
+                entry.isComplete         = (info.completed == true)
+                entry.objectives         = objs
+                entry._syntheticObjs     = (objs ~= nil)
+                entry.done               = done
+                entry.total              = total
+                entry.singleCountStr     = (total > 0) and (done .. "/" .. total) or nil
+                intoList[#intoList + 1]  = entry
+            end
+        end
+    end
+end
+
+local function ScanTrackedHousingInitiatives(intoList)
+    if not C_NeighborhoodInitiative or not C_NeighborhoodInitiative.GetTrackedInitiativeTasks or not C_NeighborhoodInitiative.GetInitiativeTaskInfo then return end
+    local tracked = C_NeighborhoodInitiative.GetTrackedInitiativeTasks()
+    local ids = tracked and tracked.trackedIDs
+    if not ids or #ids == 0 then return end
+
+    for _, taskID in ipairs(ids) do
+        if type(taskID) == "number" and taskID > 0 then
+            local info = C_NeighborhoodInitiative.GetInitiativeTaskInfo(taskID)
+            if info and not info.completed and info.taskName and info.taskName ~= "" then
+                local objs = nil
+                local done, total = 0, 0
+                if info.requirementsList then
+                    for _, req in ipairs(info.requirementsList) do
+                        if req.requirementText and req.requirementText ~= "" and not issecretvalue(req.requirementText) then
+                            if not objs then objs = AcquireTable() end
+                            local sObj = AcquireTable()
+                            local cleanReq = req.requirementText:gsub(" / ", "/")
+                            sObj.text = cleanReq
+                            sObj.finished = (req.completed == true)
+                            objs[#objs + 1] = sObj
+                            total = total + 1
+                            if req.completed then done = done + 1 end
+                        end
+                    end
+                end
+
+                local entry = AcquireTable()
+                entry.housingTaskID      = taskID
+                entry.isHousingTask      = true
+                entry.title              = info.taskName
+                entry.isComplete         = (info.completed == true)
+                entry.objectives         = objs
+                entry._syntheticObjs     = (objs ~= nil)
+                entry.done               = done
+                entry.total              = total
+                entry.singleCountStr     = (total > 0) and (done .. "/" .. total) or nil
+                intoList[#intoList + 1]  = entry
+            end
+        end
+    end
+end
+
+local function ScanTrackedRecipes(intoList)
+    if not C_TradeSkillUI or not C_TradeSkillUI.GetRecipesTracked or not C_TradeSkillUI.GetRecipeSchematic then return end
+    for _, isRecraft in ipairs({ false, true }) do
+        local recipes = C_TradeSkillUI.GetRecipesTracked(isRecraft)
+        if recipes and #recipes > 0 then
+            for _, recipeID in ipairs(recipes) do
+                if type(recipeID) == "number" and recipeID > 0 then
+                    local schematic = C_TradeSkillUI.GetRecipeSchematic(recipeID, isRecraft)
+                    if schematic and schematic.name and schematic.name ~= "" then
+                        local objs = nil
+                        local done, total = 0, 0
+                        if schematic.reagentSlotSchematics then
+                            for _, slot in ipairs(schematic.reagentSlotSchematics) do
+                                local req = slot.quantityRequired or 1
+                                local reagent = slot.reagents and slot.reagents[1]
+                                if reagent then
+                                    local itemID = reagent.itemID
+                                    local currencyID = reagent.currencyID
+                                    local rName = nil
+                                    local curCount = 0
+                                    if itemID then
+                                        curCount = (C_Item and C_Item.GetItemCount and C_Item.GetItemCount(itemID)) or (_G.GetItemCount and _G.GetItemCount(itemID)) or 0
+                                        if C_Item and C_Item.GetItemNameByID then
+                                            rName = C_Item.GetItemNameByID(itemID)
+                                        end
+                                        if not rName and _G.GetItemInfo then
+                                            rName = _G.GetItemInfo(itemID)
+                                        end
+                                        rName = rName or ("Item #" .. tostring(itemID))
+                                    elseif currencyID and C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
+                                        local cInfo = C_CurrencyInfo.GetCurrencyInfo(currencyID)
+                                        if cInfo then
+                                            rName = cInfo.name
+                                            curCount = cInfo.quantity or 0
+                                        end
+                                    end
+
+                                    if rName and rName ~= "" then
+                                        if not objs then objs = AcquireTable() end
+                                        local isFin = (curCount >= req)
+                                        local sObj = AcquireTable()
+                                        sObj.text = string_format("%s (%d/%d)", rName, curCount, req)
+                                        sObj.finished = isFin
+                                        objs[#objs + 1] = sObj
+                                        total = total + 1
+                                        if isFin then done = done + 1 end
+                                    end
+                                end
+                            end
+                        end
+
+                        local isComplete = (total > 0 and done == total)
+                        local entry = AcquireTable()
+                        entry.recipeID           = recipeID
+                        entry.isRecraft          = isRecraft
+                        entry.isRecipe           = true
+                        entry.title              = schematic.name
+                        entry.isComplete         = isComplete
+                        entry.objectives         = objs
+                        entry._syntheticObjs     = (objs ~= nil)
+                        entry.done               = done
+                        entry.total              = total
+                        entry.singleCountStr     = (total > 0) and (done .. "/" .. total) or nil
+                        intoList[#intoList + 1]  = entry
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function ScanAutoQuestPopUps(intoList)
+    if not GetNumAutoQuestPopUps or not GetAutoQuestPopUp then return end
+    local num = GetNumAutoQuestPopUps() or 0
+    if num == 0 then return end
+
+    for i = 1, num do
+        local questID, popUpType = GetAutoQuestPopUp(i)
+        if questID and questID > 0 and popUpType == "OFFER" and not processedQuests[questID] then
+            local title = (C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID))
+                       or (C_TaskQuest and C_TaskQuest.GetQuestInfoByQuestID and C_TaskQuest.GetQuestInfoByQuestID(questID))
+                       or "Quest Offer"
+
+            local entry = AcquireTable()
+            entry.questID            = questID
+            entry.title              = title
+            entry.isAutoQuestOffer   = true
+            entry.isComplete         = false
+            entry.isFailed           = false
+            entry.done               = 0
+            entry.total              = 0
+            processedQuests[questID] = true
+            intoList[#intoList + 1]  = entry
+        end
+    end
+end
+
 -- World Quest cache — invalidated on zone change.
 local worldQuestCache = {}
 
@@ -734,6 +934,36 @@ local function UntrackSectionQuests(sectionID)
             if ids and type(ids) == "table" then
                 for _, id in ipairs(ids) do
                     C_ContentTracking.StopTracking(TRACKING_TYPE_ACHIEVEMENT, id, TRACKING_STOP_TYPE_MANUAL)
+                end
+            end
+        end
+        return
+    end
+
+    if sectionID == "activities" then
+        if C_PerksActivities and C_PerksActivities.RemoveTrackedPerksActivity then
+            local tracked = C_PerksActivities.GetTrackedPerksActivities()
+            if tracked and tracked.trackedIDs then
+                for _, id in ipairs(tracked.trackedIDs) do
+                    C_PerksActivities.RemoveTrackedPerksActivity(id)
+                end
+            end
+        end
+        if C_NeighborhoodInitiative and C_NeighborhoodInitiative.RemoveTrackedInitiativeTask then
+            local tracked = C_NeighborhoodInitiative.GetTrackedInitiativeTasks()
+            if tracked and tracked.trackedIDs then
+                for _, id in ipairs(tracked.trackedIDs) do
+                    C_NeighborhoodInitiative.RemoveTrackedInitiativeTask(id)
+                end
+            end
+        end
+        if C_TradeSkillUI and C_TradeSkillUI.SetRecipeTracked then
+            for _, isRecraft in ipairs({ false, true }) do
+                local recipes = C_TradeSkillUI.GetRecipesTracked(isRecraft)
+                if recipes then
+                    for _, rID in ipairs(recipes) do
+                        C_TradeSkillUI.SetRecipeTracked(rID, false, isRecraft)
+                    end
                 end
             end
         end
@@ -1026,6 +1256,33 @@ local function AcquireRow()
                 return
             end
 
+            if row.activityID then
+                local state = GetQLState()
+                state.expandedQuests = state.expandedQuests or {}
+                local key = "perk_" .. tostring(row.activityID)
+                state.expandedQuests[key] = not state.expandedQuests[key]
+                Refresh:Request()
+                return
+            end
+
+            if row.housingTaskID then
+                local state = GetQLState()
+                state.expandedQuests = state.expandedQuests or {}
+                local key = "house_" .. tostring(row.housingTaskID)
+                state.expandedQuests[key] = not state.expandedQuests[key]
+                Refresh:Request()
+                return
+            end
+
+            if row.recipeID then
+                local state = GetQLState()
+                state.expandedQuests = state.expandedQuests or {}
+                local key = "rec_" .. tostring(row.recipeID) .. (row.isRecraft and "_r" or "")
+                state.expandedQuests[key] = not state.expandedQuests[key]
+                Refresh:Request()
+                return
+            end
+
             local qID = row.questID
             if qID then
                 local state = GetQLState()
@@ -1138,6 +1395,89 @@ local function AcquireRow()
                 return
             end
 
+            if s.isAutoQuestOffer and s.questID then
+                SfuiQuestTooltip:SetOwner(s, "ANCHOR_LEFT")
+                SfuiQuestTooltip:ClearLines()
+                SfuiQuestTooltip:AddLine(s.questTitle or "Quest Offer", 0.00, 1.00, 0.50)
+                SfuiQuestTooltip:AddLine("Incoming Remote Quest Offer", 0.85, 0.85, 0.85)
+                SfuiQuestTooltip:AddLine(" ")
+                SfuiQuestTooltip:AddLine("|cff888888Left-click: Accept Quest Offer|r", 1, 1, 1)
+                SfuiQuestTooltip:AddLine("|cff888888Shift-click: Dismiss Offer|r", 1, 1, 1)
+                SfuiQuestTooltip:Show()
+                return
+            end
+
+            if s.isPerksActivity and s.activityID then
+                SfuiQuestTooltip:SetOwner(s, "ANCHOR_LEFT")
+                SfuiQuestTooltip:ClearLines()
+                SfuiQuestTooltip:AddLine(s.questTitle or "Traveler's Log", 0.20, 0.85, 0.95)
+                if s.description and s.description ~= "" then
+                    SfuiQuestTooltip:AddLine(s.description, 0.85, 0.85, 0.85, true)
+                end
+                if s.objectives and #s.objectives > 0 then
+                    SfuiQuestTooltip:AddLine(" ")
+                    for _, obj in ipairs(s.objectives) do
+                        if obj.text and obj.text ~= "" then
+                            local r, g, b = 0.75, 0.75, 0.75
+                            if obj.finished then r, g, b = 0.30, 0.80, 0.30 end
+                            SfuiQuestTooltip:AddLine("  - " .. obj.text, r, g, b, true)
+                        end
+                    end
+                end
+                SfuiQuestTooltip:AddLine(" ")
+                SfuiQuestTooltip:AddLine("|cff888888Left-click: Open Traveler's Log|r", 1, 1, 1)
+                SfuiQuestTooltip:AddLine("|cff888888Right-click / Arrow: Collapse/Expand requirements|r", 1, 1, 1)
+                SfuiQuestTooltip:AddLine("|cff888888Shift-click: Untrack Activity|r", 1, 1, 1)
+                SfuiQuestTooltip:Show()
+                return
+            end
+
+            if s.isHousingTask and s.housingTaskID then
+                SfuiQuestTooltip:SetOwner(s, "ANCHOR_LEFT")
+                SfuiQuestTooltip:ClearLines()
+                SfuiQuestTooltip:AddLine(s.questTitle or "Housing Endeavor", 0.55, 0.85, 0.35)
+                SfuiQuestTooltip:AddLine("Player Housing Neighborhood Initiative", 0.85, 0.85, 0.85)
+                if s.objectives and #s.objectives > 0 then
+                    SfuiQuestTooltip:AddLine(" ")
+                    for _, obj in ipairs(s.objectives) do
+                        if obj.text and obj.text ~= "" then
+                            local r, g, b = 0.75, 0.75, 0.75
+                            if obj.finished then r, g, b = 0.30, 0.80, 0.30 end
+                            SfuiQuestTooltip:AddLine("  - " .. obj.text, r, g, b, true)
+                        end
+                    end
+                end
+                SfuiQuestTooltip:AddLine(" ")
+                SfuiQuestTooltip:AddLine("|cff888888Left-click: Open Endeavors Tab|r", 1, 1, 1)
+                SfuiQuestTooltip:AddLine("|cff888888Right-click / Arrow: Collapse/Expand requirements|r", 1, 1, 1)
+                SfuiQuestTooltip:AddLine("|cff888888Shift-click: Untrack Task|r", 1, 1, 1)
+                SfuiQuestTooltip:Show()
+                return
+            end
+
+            if s.isRecipe and s.recipeID then
+                SfuiQuestTooltip:SetOwner(s, "ANCHOR_LEFT")
+                SfuiQuestTooltip:ClearLines()
+                SfuiQuestTooltip:AddLine(s.questTitle or "Tracked Recipe", 0.90, 0.65, 0.30)
+                SfuiQuestTooltip:AddLine(s.isRecraft and "Recrafting Recipe" or "Crafting Recipe", 0.85, 0.85, 0.85)
+                if s.objectives and #s.objectives > 0 then
+                    SfuiQuestTooltip:AddLine(" ")
+                    for _, obj in ipairs(s.objectives) do
+                        if obj.text and obj.text ~= "" then
+                            local r, g, b = 0.75, 0.75, 0.75
+                            if obj.finished then r, g, b = 0.30, 0.80, 0.30 end
+                            SfuiQuestTooltip:AddLine("  - " .. obj.text, r, g, b, true)
+                        end
+                    end
+                end
+                SfuiQuestTooltip:AddLine(" ")
+                SfuiQuestTooltip:AddLine("|cff888888Left-click: Open Recipe in Profession Window|r", 1, 1, 1)
+                SfuiQuestTooltip:AddLine("|cff888888Right-click / Arrow: Collapse/Expand reagents|r", 1, 1, 1)
+                SfuiQuestTooltip:AddLine("|cff888888Shift-click: Untrack Recipe|r", 1, 1, 1)
+                SfuiQuestTooltip:Show()
+                return
+            end
+
             if s.questID then
                 SfuiQuestTooltip:SetOwner(s, "ANCHOR_LEFT")
                 SfuiQuestTooltip:ClearLines()
@@ -1154,7 +1494,11 @@ local function AcquireRow()
                 SfuiQuestTooltip:AddLine(s.questTitle or "Quest", 1, 1, 1)
 
                 if s.timeLeftText then
-                    SfuiQuestTooltip:AddLine(s.timeLeftText, 0.20, 0.85, 0.95)
+                    if s.isCriticalTime then
+                        SfuiQuestTooltip:AddLine(s.timeLeftText .. " (Expiring Soon!)", 1.0, 0.35, 0.2)
+                    else
+                        SfuiQuestTooltip:AddLine(s.timeLeftText, 0.20, 0.85, 0.95)
+                    end
                 end
 
                 if s.isWarbandCompleted then
@@ -1174,6 +1518,12 @@ local function AcquireRow()
                         end
                     end
                 end
+
+                if IsInGroup and IsInGroup() and s.questID and s.questID > 0 and SfuiQuestTooltip.SetQuestPartyProgress then
+                    SfuiQuestTooltip:AddLine(" ")
+                    SfuiQuestTooltip:SetQuestPartyProgress(s.questID)
+                end
+
                 SfuiQuestTooltip:AddLine(" ")
                 SfuiQuestTooltip:AddLine("|cff888888Left-click: Track & Show on Map|r", 1, 1, 1)
                 SfuiQuestTooltip:AddLine("|cff888888Right-click / Arrow: Collapse/Expand objectives|r", 1, 1, 1)
@@ -1225,6 +1575,123 @@ local function AcquireRow()
                         _G.OpenAchievementFrameToAchievement(s.achievementID)
                     elseif _G.ToggleAchievementFrame then
                         _G.ToggleAchievementFrame()
+                    end
+                end
+                return
+            end
+
+            if s.isAutoQuestOffer and s.questID then
+                local IsShiftKeyDown = _G.IsShiftKeyDown
+                if IsShiftKeyDown and IsShiftKeyDown() then
+                    if _G.RemoveAutoQuestPopUp then
+                        _G.RemoveAutoQuestPopUp(s.questID)
+                        Refresh:Request()
+                    end
+                    return
+                end
+                if _G.ShowQuestOffer then
+                    _G.ShowQuestOffer(s.questID)
+                end
+                return
+            end
+
+            if s.isPerksActivity and s.activityID then
+                local IsShiftKeyDown = _G.IsShiftKeyDown
+                if IsShiftKeyDown and IsShiftKeyDown() then
+                    local ChatEdit_GetActiveWindow = _G.ChatEdit_GetActiveWindow
+                    local ChatEdit_InsertLink = _G.ChatEdit_InsertLink
+                    local activeChat = ChatEdit_GetActiveWindow and ChatEdit_GetActiveWindow()
+                    if activeChat and activeChat:IsShown() and activeChat:HasFocus() then
+                        if C_PerksActivities and C_PerksActivities.GetPerksActivityChatLink and ChatEdit_InsertLink then
+                            local link = C_PerksActivities.GetPerksActivityChatLink(s.activityID)
+                            if link and ChatEdit_InsertLink(link) then return end
+                        end
+                    end
+                    if C_PerksActivities and C_PerksActivities.RemoveTrackedPerksActivity then
+                        C_PerksActivities.RemoveTrackedPerksActivity(s.activityID)
+                        Refresh:Request()
+                    end
+                    return
+                end
+
+                if btn == "RightButton" then
+                    local state = GetQLState()
+                    state.expandedQuests = state.expandedQuests or {}
+                    local key = "perk_" .. tostring(s.activityID)
+                    state.expandedQuests[key] = not state.expandedQuests[key]
+                    Refresh:Request()
+                    return
+                end
+
+                if not InCombat() then
+                    if not _G.EncounterJournal and _G.EncounterJournal_LoadUI then
+                        _G.EncounterJournal_LoadUI()
+                    end
+                    if _G.MonthlyActivitiesFrame_OpenFrameToActivity then
+                        _G.MonthlyActivitiesFrame_OpenFrameToActivity(s.activityID)
+                    end
+                end
+                return
+            end
+
+            if s.isHousingTask and s.housingTaskID then
+                local IsShiftKeyDown = _G.IsShiftKeyDown
+                if IsShiftKeyDown and IsShiftKeyDown() then
+                    local ChatEdit_GetActiveWindow = _G.ChatEdit_GetActiveWindow
+                    local ChatEdit_InsertLink = _G.ChatEdit_InsertLink
+                    local activeChat = ChatEdit_GetActiveWindow and ChatEdit_GetActiveWindow()
+                    if activeChat and activeChat:IsShown() and activeChat:HasFocus() then
+                        if C_NeighborhoodInitiative and C_NeighborhoodInitiative.GetInitiativeTaskChatLink and ChatEdit_InsertLink then
+                            local link = C_NeighborhoodInitiative.GetInitiativeTaskChatLink(s.housingTaskID)
+                            if link and ChatEdit_InsertLink(link) then return end
+                        end
+                    end
+                    if C_NeighborhoodInitiative and C_NeighborhoodInitiative.RemoveTrackedInitiativeTask then
+                        C_NeighborhoodInitiative.RemoveTrackedInitiativeTask(s.housingTaskID)
+                        Refresh:Request()
+                    end
+                    return
+                end
+
+                if btn == "RightButton" then
+                    local state = GetQLState()
+                    state.expandedQuests = state.expandedQuests or {}
+                    local key = "house_" .. tostring(s.housingTaskID)
+                    state.expandedQuests[key] = not state.expandedQuests[key]
+                    Refresh:Request()
+                    return
+                end
+
+                if not InCombat() and _G.HousingFramesUtil and _G.HousingFramesUtil.OpenFrameToTaskID then
+                    _G.HousingFramesUtil.OpenFrameToTaskID(s.housingTaskID)
+                end
+                return
+            end
+
+            if s.isRecipe and s.recipeID then
+                local IsShiftKeyDown = _G.IsShiftKeyDown
+                if IsShiftKeyDown and IsShiftKeyDown() then
+                    if C_TradeSkillUI and C_TradeSkillUI.SetRecipeTracked then
+                        C_TradeSkillUI.SetRecipeTracked(s.recipeID, false, s.isRecraft == true)
+                        Refresh:Request()
+                    end
+                    return
+                end
+
+                if btn == "RightButton" then
+                    local state = GetQLState()
+                    state.expandedQuests = state.expandedQuests or {}
+                    local key = "rec_" .. tostring(s.recipeID) .. (s.isRecraft and "_r" or "")
+                    state.expandedQuests[key] = not state.expandedQuests[key]
+                    Refresh:Request()
+                    return
+                end
+
+                if not InCombat() then
+                    if _G.ProfessionsUtil and _G.ProfessionsUtil.OpenProfessionFrameToRecipe then
+                        _G.ProfessionsUtil.OpenProfessionFrameToRecipe(s.recipeID)
+                    elseif C_TradeSkillUI and C_TradeSkillUI.OpenRecipe then
+                        C_TradeSkillUI.OpenRecipe(s.recipeID)
                     end
                 end
                 return
@@ -1437,10 +1904,12 @@ local function AcquireObjRow()
         barCenterFS:SetPoint("CENTER", bar, "CENTER", 0, 0)
         barCenterFS:SetJustifyH("CENTER")
         barCenterFS:SetWordWrap(false)
-        bar.CenterFS = barCenterFS
-
         bar:Hide()
         obj.Bar = bar
+        obj.BarFS = barCenterFS
+    end
+    if not obj.BarFS and obj.Bar and obj.Bar.CenterFS then
+        obj.BarFS = obj.Bar.CenterFS
     end
     obj:Show()
     table.insert(activeObjs, obj)
@@ -1522,7 +1991,11 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
 
     local isSynthetic = false
     local qProgressBarPct = nil
-    if C_TaskQuest and C_TaskQuest.GetQuestProgressBarInfo then
+    if GetQuestProgressBarPercent then
+        local p = GetQuestProgressBarPercent(questID)
+        if p and p > 0 then qProgressBarPct = p end
+    end
+    if not qProgressBarPct and C_TaskQuest and C_TaskQuest.GetQuestProgressBarInfo then
         local val = C_TaskQuest.GetQuestProgressBarInfo(questID)
         if val and val > 0 then qProgressBarPct = val end
     end
@@ -1547,18 +2020,12 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
         end
     elseif objs then
         for _, obj in ipairs(objs) do
-            local hasPctText = obj.text and not issecretvalue(obj.text) and obj.text:find("%%")
-            local isBarType = (obj.type == "progressbar" or obj.type == 8 or qProgressBarPct ~= nil or hasPctText or (obj.numRequired and not issecretvalue(obj.numRequired) and obj.numRequired == 100))
+            local isBarType = (obj.type == "progressbar" or obj.type == 8 or (obj.objectiveType and (obj.objectiveType == 8 or obj.objectiveType == "progressbar")))
 
             if isBarType then
                 obj.type = "progressbar"
-                if not obj.numFulfilled or obj.numFulfilled == 0 then
-                    if qProgressBarPct then
-                        obj.numFulfilled = qProgressBarPct
-                    elseif hasPctText then
-                        local p = obj.text:match("(%d+)%%")
-                        if p then obj.numFulfilled = tonumber(p) end
-                    end
+                if (not obj.numFulfilled or obj.numFulfilled == 0) and qProgressBarPct then
+                    obj.numFulfilled = qProgressBarPct
                 end
                 if not obj.numRequired or obj.numRequired <= 1 then
                     obj.numRequired = 100
@@ -1649,12 +2116,16 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
     title = title or "Unknown Quest"
 
     local timeLeftText = nil
+    local isCriticalTime = false
     local isWorld = (forcedSectionID == "world" or IsWorldQuest(questID))
 
     if isWorld then
         if C_TaskQuest and C_TaskQuest.GetQuestTimeLeftMinutes then
             local mins = C_TaskQuest.GetQuestTimeLeftMinutes(questID)
             if mins and mins > 0 then
+                if mins <= 15 then
+                    isCriticalTime = true
+                end
                 if mins >= 1440 then
                     local d = math_floor(mins / 1440)
                     local h = math_floor((mins % 1440) / 60)
@@ -1675,6 +2146,14 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
                     timeLeftText = string_format("%dm", mins)
                 end
             end
+        end
+    end
+
+    local partyCount = 0
+    if IsInGroup and IsInGroup() and C_QuestLog and C_QuestLog.GetNumPartyMembersOnQuest then
+        local numP = C_QuestLog.GetNumPartyMembersOnQuest(questID)
+        if numP and numP > 0 then
+            partyCount = numP
         end
     end
 
@@ -1719,6 +2198,8 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo)
     entry.singleCountStr     = singleCountStr
     entry.isWorldQuest       = isWorld
     entry.timeLeftText       = timeLeftText
+    entry.isCriticalTime     = isCriticalTime
+    entry.partyCount         = partyCount
     entry.isScenario         = false
     return entry
 
@@ -1775,6 +2256,10 @@ local function AddWorldQuest(qID, isExplicitlyWatched)
     end
 end
 
+-- Reuse table: avoids per-call allocation on the legacy C_Scenario multi-return path.
+-- Safe because callers consume the table immediately and never store the reference.
+local _criteriaReuseTable = {}
+
 local function GetScenarioCriteriaSafe(criteriaIndex, stepID)
     -- 1. Query active scenario step criteria first (always current for active stage)
     if C_ScenarioInfo and C_ScenarioInfo.GetCriteriaInfo then
@@ -1787,20 +2272,20 @@ local function GetScenarioCriteriaSafe(criteriaIndex, stepID)
     if C_Scenario and C_Scenario.GetCriteriaInfo then
         local desc, cType, comp, quant, totQuant, flags, assetID, quantStr, critID, dur, el, isWeight = C_Scenario.GetCriteriaInfo(criteriaIndex)
         if desc and desc ~= "" then
-            return {
-                description = desc,
-                criteriaType = cType,
-                completed = comp,
-                quantity = quant,
-                totalQuantity = totQuant,
-                flags = flags,
-                assetID = assetID,
-                quantityString = quantStr,
-                criteriaID = critID,
-                duration = dur,
-                elapsed = el,
-                isWeightedProgress = isWeight,
-            }
+            local t = _criteriaReuseTable
+            t.description       = desc
+            t.criteriaType      = cType
+            t.completed         = comp
+            t.quantity          = quant
+            t.totalQuantity     = totQuant
+            t.flags             = flags
+            t.assetID           = assetID
+            t.quantityString    = quantStr
+            t.criteriaID        = critID
+            t.duration          = dur
+            t.elapsed           = el
+            t.isWeightedProgress = isWeight
+            return t
         end
     end
 
@@ -1815,20 +2300,20 @@ local function GetScenarioCriteriaSafe(criteriaIndex, stepID)
     if stepID and C_Scenario and C_Scenario.GetCriteriaInfoByStep then
         local desc, cType, comp, quant, totQuant, flags, assetID, quantStr, critID, dur, el, isWeight = C_Scenario.GetCriteriaInfoByStep(stepID, criteriaIndex)
         if desc and desc ~= "" then
-            return {
-                description = desc,
-                criteriaType = cType,
-                completed = comp,
-                quantity = quant,
-                totalQuantity = totQuant,
-                flags = flags,
-                assetID = assetID,
-                quantityString = quantStr,
-                criteriaID = critID,
-                duration = dur,
-                elapsed = el,
-                isWeightedProgress = isWeight,
-            }
+            local t = _criteriaReuseTable
+            t.description       = desc
+            t.criteriaType      = cType
+            t.completed         = comp
+            t.quantity          = quant
+            t.totalQuantity     = totQuant
+            t.flags             = flags
+            t.assetID           = assetID
+            t.quantityString    = quantStr
+            t.criteriaID        = critID
+            t.duration          = dur
+            t.elapsed           = el
+            t.isWeightedProgress = isWeight
+            return t
         end
     end
     return nil
@@ -2533,24 +3018,9 @@ local function ScanWorldEventScenario(list)
 end
 
 -- ─────────────────────────────────────────────────────────
---  REFRESH (Zero Allocation Loop)
+--  DATA COLLECTION & SCANNING (Zero Allocation)
 -- ─────────────────────────────────────────────────────────
-function QL:DoRefresh()
-    State:Update()
-    if State:IsActive() then
-        if self:IsShown() then self:Hide() end
-        return
-    end
-    if not self:IsShown() then return end
-
-    local savedScroll = scrollBar:GetValue()
-    ClearRows()
-
-    local state        = GetQLState()
-    local superTracked = (C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and
-                          C_SuperTrack.GetSuperTrackedQuestID()) or 0
-    currentSuperTrackedID = superTracked
-
+local function CollectTrackedQuests(superTracked)
     ClearSectionLists()
     wipe(processedQuests)
 
@@ -2577,7 +3047,7 @@ function QL:DoRefresh()
         end
     end
 
-    -- 4. Explicitly watched world quests
+    -- 2. Explicitly watched world quests
     if C_QuestLog.GetNumWorldQuestWatches then
         local numW = C_QuestLog.GetNumWorldQuestWatches() or 0
         for w = 1, numW do
@@ -2588,7 +3058,7 @@ function QL:DoRefresh()
         end
     end
 
-    -- 5. Watched standard quests from Blizzard watch index
+    -- 3. Watched standard quests from Blizzard watch index
     if C_QuestLog.GetNumQuestWatches then
         local numW = C_QuestLog.GetNumQuestWatches() or 0
         for w = 1, numW do
@@ -2608,7 +3078,7 @@ function QL:DoRefresh()
         end
     end
 
-    -- 6. Standard quest log scan — show any quest that is watched, supertracked, or belongs to current raid
+    -- 4. Standard quest log scan — show any quest that is watched, supertracked, or belongs to current raid
     local numEntries = C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetNumQuestLogEntries() or 0
     for i = 1, numEntries do
         if not C_QuestLog.GetInfo then break end
@@ -2639,9 +3109,21 @@ function QL:DoRefresh()
         end
     end
 
-    -- 7. Tracked achievements scan
+    -- 5. Tracked achievements scan
     if sectionLists["achievements"] then
         ScanTrackedAchievements(sectionLists["achievements"])
+    end
+
+    -- 6. Auto-Quest Offers (remote popups)
+    if not inRaid and sectionLists["important"] then
+        ScanAutoQuestPopUps(sectionLists["important"])
+    end
+
+    -- 7. Modern Trackables (Traveler's Log, Housing Endeavors, Recipes)
+    if not inRaid and sectionLists["activities"] then
+        ScanTrackedPerksActivities(sectionLists["activities"])
+        ScanTrackedHousingInitiatives(sectionLists["activities"])
+        ScanTrackedRecipes(sectionLists["activities"])
     end
 
     -- Smart Priority Sort within each active section
@@ -2651,7 +3133,12 @@ function QL:DoRefresh()
             table.sort(list, QuestSortComparator)
         end
     end
+end
 
+-- ─────────────────────────────────────────────────────────
+--  ROW & OBJECTIVE RENDERING LOOP
+-- ─────────────────────────────────────────────────────────
+local function RenderSections(state, superTracked)
     local y = 0
 
     for _, def in ipairs(SECTION_DEFS) do
@@ -2667,6 +3154,12 @@ function QL:DoRefresh()
                     table.insert(rendered, entry.questID)
                 elseif entry.achievementID then
                     table.insert(rendered, entry.achievementID)
+                elseif entry.activityID then
+                    table.insert(rendered, entry.activityID)
+                elseif entry.housingTaskID then
+                    table.insert(rendered, entry.housingTaskID)
+                elseif entry.recipeID then
+                    table.insert(rendered, entry.recipeID)
                 end
             end
 
@@ -2688,12 +3181,21 @@ function QL:DoRefresh()
                     row.questID            = entry.questID
                     row.achievementID      = entry.achievementID
                     row.isAchievement      = entry.isAchievement
+                    row.activityID         = entry.activityID
+                    row.isPerksActivity    = entry.isPerksActivity
+                    row.housingTaskID      = entry.housingTaskID
+                    row.isHousingTask      = entry.isHousingTask
+                    row.recipeID           = entry.recipeID
+                    row.isRecraft          = entry.isRecraft
+                    row.isRecipe           = entry.isRecipe
+                    row.isAutoQuestOffer   = entry.isAutoQuestOffer
                     row.questTitle         = entry.title
                     row.description        = entry.description
                     row.points             = entry.points
                     row.objectives         = entry.objectives
                     row.isWorldQuest       = entry.isWorldQuest
                     row.timeLeftText       = entry.timeLeftText
+                    row.isCriticalTime     = entry.isCriticalTime
                     row.isWarbandCompleted = entry.isWarbandCompleted
                     row.isMeta             = entry.isMeta
                     row.isAutoComplete     = entry.isAutoComplete
@@ -2719,7 +3221,6 @@ function QL:DoRefresh()
                         row.Dot:Hide()
                     end
 
-                    -- Left-side popout indicators (outside window on the left of dropdown icon)
                     if row.LeftFS then
                         row.LeftFS:ClearAllPoints()
                         row.LeftFS:SetPoint("RIGHT", row, "LEFT", -6, 0)
@@ -2727,7 +3228,10 @@ function QL:DoRefresh()
                         row.LeftFS:Hide()
                     end
 
-                    if entry.isComplete and row.LeftFS then
+                    if entry.isAutoQuestOffer and row.LeftFS then
+                        row.LeftFS:SetText(C.OFFER .. "[Offer]" .. C.RESET)
+                        row.LeftFS:Show()
+                    elseif entry.isComplete and row.LeftFS then
                         if entry.isAutoTurnIn then
                             row.LeftFS:SetText("|cffff00ff[Turn In]|r")
                         else
@@ -2737,54 +3241,95 @@ function QL:DoRefresh()
                     end
 
                     local rawTitle = entry.title or "Unknown"
-                    local timeTag = (entry.isWorldQuest and entry.timeLeftText) and (" " .. COLOR_TIME .. "[" .. entry.timeLeftText .. "]" .. COLOR_RESET) or ""
+                    local timeCol = entry.isCriticalTime and C.TIME_CRITICAL or C.TIME
+                    local timeTag = (entry.isWorldQuest and entry.timeLeftText) and (" " .. timeCol .. "[" .. entry.timeLeftText .. "]" .. C.RESET) or ""
+                    local partyTag = (entry.partyCount and entry.partyCount > 0) and (" " .. C.PARTY_COUNT .. "[P:" .. entry.partyCount .. "]" .. C.RESET) or ""
 
                     local titleStr
-                    if entry.isAchievement then
-                        local achCol = entry.isComplete and "|cff44cc44" or "|cffe0a050"
-                        local baseText = achCol .. strlower(rawTitle) .. COLOR_RESET
+                    if entry.isAutoQuestOffer then
+                        titleStr = C.OFFER .. "[Offer] " .. C.RESET .. rawTitle
+                    elseif entry.isPerksActivity then
+                        local pCol = entry.isComplete and "|cff44cc44" or C.PERK
+                        local baseText = pCol .. "[Traveler] " .. C.RESET .. rawTitle
                         if entry.isComplete then
-                            titleStr = baseText .. COMPLETE_SUFFIX
+                            titleStr = baseText .. C.COMPLETE_SUF
                         elseif entry.singleCountStr then
                             local isFin = (entry.done == entry.total)
-                            local col = isFin and COLOR_DONE_CNT or COLOR_UNDONE_CNT
-                            titleStr = baseText .. " " .. col .. "[" .. entry.singleCountStr .. "]" .. COLOR_RESET
+                            local col = isFin and C.DONE_CNT or C.UNDONE_CNT
+                            titleStr = baseText .. " " .. col .. "[" .. entry.singleCountStr .. "]" .. C.RESET
+                        else
+                            titleStr = baseText
+                        end
+                    elseif entry.isHousingTask then
+                        local hCol = entry.isComplete and "|cff44cc44" or C.HOUSE
+                        local baseText = hCol .. "[Housing] " .. C.RESET .. rawTitle
+                        if entry.isComplete then
+                            titleStr = baseText .. C.COMPLETE_SUF
+                        elseif entry.singleCountStr then
+                            local isFin = (entry.done == entry.total)
+                            local col = isFin and C.DONE_CNT or C.UNDONE_CNT
+                            titleStr = baseText .. " " .. col .. "[" .. entry.singleCountStr .. "]" .. C.RESET
+                        else
+                            titleStr = baseText
+                        end
+                    elseif entry.isRecipe then
+                        local rCol = entry.isComplete and "|cff44cc44" or C.RECIPE
+                        local recLabel = entry.isRecraft and "[Recraft] " or "[Recipe] "
+                        local baseText = rCol .. recLabel .. C.RESET .. rawTitle
+                        if entry.isComplete then
+                            titleStr = baseText .. C.COMPLETE_SUF
+                        elseif entry.singleCountStr then
+                            local isFin = (entry.done == entry.total)
+                            local col = isFin and C.DONE_CNT or C.UNDONE_CNT
+                            titleStr = baseText .. " " .. col .. "[" .. entry.singleCountStr .. "]" .. C.RESET
+                        else
+                            titleStr = baseText
+                        end
+                    elseif entry.isAchievement then
+                        local achCol = entry.isComplete and "|cff44cc44" or "|cffe0a050"
+                        local baseText = achCol .. strlower(rawTitle) .. C.RESET
+                        if entry.isComplete then
+                            titleStr = baseText .. C.COMPLETE_SUF
+                        elseif entry.singleCountStr then
+                            local isFin = (entry.done == entry.total)
+                            local col = isFin and C.DONE_CNT or C.UNDONE_CNT
+                            titleStr = baseText .. " " .. col .. "[" .. entry.singleCountStr .. "]" .. C.RESET
                         elseif entry.total > 0 then
-                            local col = (entry.done == entry.total) and COLOR_DONE_CNT or COLOR_UNDONE_CNT
-                            titleStr = baseText .. " " .. col .. "[" .. entry.done .. "/" .. entry.total .. "]" .. COLOR_RESET
+                            local col = (entry.done == entry.total) and C.DONE_CNT or C.UNDONE_CNT
+                            titleStr = baseText .. " " .. col .. "[" .. entry.done .. "/" .. entry.total .. "]" .. C.RESET
                         else
                             titleStr = baseText
                         end
                     elseif entry.isScenario then
-                        local scTimeTag = (entry.timeLeftText) and (" " .. COLOR_TIME .. "[" .. entry.timeLeftText .. "]" .. COLOR_RESET) or ""
-                        titleStr = "|cffffaa00" .. rawTitle .. COLOR_RESET .. scTimeTag
+                        local scTimeTag = (entry.timeLeftText) and (" " .. C.TIME .. "[" .. entry.timeLeftText .. "]" .. C.RESET) or ""
+                        titleStr = "|cffffaa00" .. rawTitle .. C.RESET .. scTimeTag
                     elseif entry.isFailed then
-                        titleStr = COLOR_FAILED .. rawTitle .. COLOR_RESET .. timeTag
+                        titleStr = C.FAILED .. rawTitle .. C.RESET .. timeTag
                     elseif entry.isComplete and entry.isAutoTurnIn then
-                        titleStr = COLOR_COMPLETE .. rawTitle .. " [Turn In]" .. COLOR_RESET .. timeTag
+                        titleStr = C.COMPLETE .. rawTitle .. " [Turn In]" .. C.RESET .. timeTag
                     elseif entry.isComplete then
-                        local compTitle = entry.isMeta and (COLOR_META .. rawTitle .. COLOR_RESET) or rawTitle
-                        titleStr = compTitle .. timeTag .. COMPLETE_SUFFIX
+                        local compTitle = entry.isMeta and (C.META .. rawTitle .. C.RESET) or rawTitle
+                        titleStr = compTitle .. timeTag .. C.COMPLETE_SUF
                     else
                         local titleColor
                         if isSuperTracked then
-                            titleColor = COLOR_SUPERTRACK
+                            titleColor = C.SUPERTRACK
                         elseif entry.isMeta then
-                            titleColor = COLOR_META
+                            titleColor = C.META
                         elseif entry.isWarbandCompleted then
-                            titleColor = COLOR_WARBAND
+                            titleColor = C.WARBAND
                         end
-                        local titleText = titleColor and (titleColor .. rawTitle .. COLOR_RESET) or rawTitle
+                        local titleText = titleColor and (titleColor .. rawTitle .. C.RESET) or rawTitle
 
                         if entry.singleCountStr then
                             local isFin = (entry.done == entry.total)
-                            local col = isFin and COLOR_DONE_CNT or COLOR_UNDONE_CNT
-                            titleStr = titleText .. timeTag .. " " .. col .. "[" .. entry.singleCountStr .. "]" .. COLOR_RESET
+                            local col = isFin and C.DONE_CNT or C.UNDONE_CNT
+                            titleStr = titleText .. timeTag .. partyTag .. " " .. col .. "[" .. entry.singleCountStr .. "]" .. C.RESET
                         elseif entry.total > 0 then
-                            local col = (entry.done == entry.total) and COLOR_DONE_CNT or COLOR_UNDONE_CNT
-                            titleStr = titleText .. timeTag .. " " .. col .. "[" .. entry.done .. "/" .. entry.total .. "]" .. COLOR_RESET
+                            local col = (entry.done == entry.total) and C.DONE_CNT or C.UNDONE_CNT
+                            titleStr = titleText .. timeTag .. partyTag .. " " .. col .. "[" .. entry.done .. "/" .. entry.total .. "]" .. C.RESET
                         else
-                            titleStr = titleText .. timeTag
+                            titleStr = titleText .. timeTag .. partyTag
                         end
                     end
 
@@ -2799,6 +3344,18 @@ function QL:DoRefresh()
                     if entry.isAchievement then
                         local key = "ach_" .. tostring(entry.achievementID)
                         isQuestExpanded = state.expandedQuests and state.expandedQuests[key]
+                    elseif entry.isPerksActivity then
+                        local key = "perk_" .. tostring(entry.activityID)
+                        isQuestExpanded = state.expandedQuests and state.expandedQuests[key]
+                        if isQuestExpanded == nil then isQuestExpanded = true end
+                    elseif entry.isHousingTask then
+                        local key = "house_" .. tostring(entry.housingTaskID)
+                        isQuestExpanded = state.expandedQuests and state.expandedQuests[key]
+                        if isQuestExpanded == nil then isQuestExpanded = true end
+                    elseif entry.isRecipe then
+                        local key = "rec_" .. tostring(entry.recipeID) .. (entry.isRecraft and "_r" or "")
+                        isQuestExpanded = state.expandedQuests and state.expandedQuests[key]
+                        if isQuestExpanded == nil then isQuestExpanded = true end
                     else
                         isQuestExpanded = state.expandedQuests and state.expandedQuests[entry.questID]
                         if isQuestExpanded == nil and entry.isScenario then
@@ -2822,21 +3379,13 @@ function QL:DoRefresh()
                                 orow:SetPoint("TOPLEFT",  content, "TOPLEFT",  objX, -y)
                                 orow:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0,    -y)
 
-                                -- Check if this objective qualifies for a statusbar (% objectives only):
-                                local isBar = (obj.type == "progressbar" or obj.type == 8)
-                                if not isBar and obj.text and not issecretvalue(obj.text) and obj.text:find("%%") then
-                                    isBar = true
-                                end
-                                if not isBar and obj.numRequired and not issecretvalue(obj.numRequired) and obj.numRequired == 100 then
-                                    isBar = true
-                                end
+                                local isBar = (obj.type == "progressbar" or obj.type == 8 or (obj.objectiveType and (obj.objectiveType == 8 or obj.objectiveType == "progressbar")))
 
                                 if isBar and not obj.finished then
                                     local BAR_H = 18
                                     local totalH = OBJ_H + 2 + BAR_H
                                     orow:SetHeight(totalH)
 
-                                    -- 1. Objective Text on top
                                     orow.FS:Show()
                                     local cleanText = obj.text
                                     if cleanText and not issecretvalue(cleanText) then
@@ -2851,14 +3400,17 @@ function QL:DoRefresh()
                                         orow.FS:SetTextColor(0.85, 0.85, 0.85)
                                     end
 
-                                    -- 2. Status Bar underneath (zero Lua arithmetic)
                                     orow.Bar:Show()
                                     local maxVal = 100
                                     if obj.type ~= "progressbar" and obj.numRequired and not issecretvalue(obj.numRequired) and obj.numRequired > 1 then
                                         maxVal = obj.numRequired
                                     end
+                                    local curVal = obj.numFulfilled or 0
+                                    if (obj.type == "progressbar" or isBar) and curVal > 100 and curVal <= 10000 then
+                                        curVal = math_floor(curVal / 100)
+                                    end
                                     orow.Bar:SetMinMaxValues(0, maxVal)
-                                    orow.Bar:SetValue(obj.numFulfilled or 0)
+                                    orow.Bar:SetValue(curVal)
 
                                     local r, g, b = def.color[1], def.color[2], def.color[3]
                                     if entry.isMeta then
@@ -2869,29 +3421,41 @@ function QL:DoRefresh()
                                     local barTxt = obj.barText
                                     if not barTxt or barTxt == "" then
                                         if obj.numFulfilled and not issecretvalue(obj.numFulfilled) then
-                                            if obj.numRequired and not issecretvalue(obj.numRequired) and obj.numRequired == 100 then
-                                                barTxt = tostring(obj.numFulfilled) .. "%"
-                                            elseif obj.numRequired and not issecretvalue(obj.numRequired) and obj.numRequired > 1 then
-                                                barTxt = tostring(obj.numFulfilled) .. "/" .. tostring(obj.numRequired)
-                                            else
-                                                barTxt = tostring(obj.numFulfilled) .. "%"
+                                            local n = obj.numFulfilled
+                                            if (obj.type == "progressbar" or isBar) and n > 100 and n <= 10000 then
+                                                n = math_floor(n / 100)
                                             end
+                                            if obj.numRequired and not issecretvalue(obj.numRequired) and obj.numRequired == 100 then
+                                                barTxt = tostring(n) .. "%"
+                                            elseif obj.numRequired and not issecretvalue(obj.numRequired) and obj.numRequired > 1 then
+                                                barTxt = tostring(n) .. "/" .. tostring(obj.numRequired)
+                                            else
+                                                barTxt = tostring(n) .. "%"
+                                            end
+                                        else
+                                            barTxt = "0%"
                                         end
                                     end
-                                    orow.Bar.CenterFS:SetText(barTxt or "")
-                                    orow.Bar.CenterFS:SetTextColor(1, 1, 1)
-
-                                    y = y + totalH + 2
+                                    local barFS = orow.BarFS or (orow.Bar and orow.Bar.CenterFS)
+                                    if barFS then
+                                        barFS:SetText(barTxt)
+                                    end
+                                    y = y + totalH
                                 else
-                                    orow.Bar:Hide()
-                                    orow.FS:Show()
+                                    if orow.Bar then orow.Bar:Hide() end
+                                    local barFS = orow.BarFS or (orow.Bar and orow.Bar.CenterFS)
+                                    if barFS then
+                                        barFS:SetText("")
+                                    end
                                     orow:SetHeight(OBJ_H)
-                                    local r, g, b = 0.45, 0.45, 0.45
-                                    if obj.finished then r, g, b = 0.25, 0.70, 0.25 end
+
                                     local objStr = "- " .. (obj.text or "")
-                                    if orow.lastObjStr ~= objStr or orow.lastFinished ~= obj.finished then
+                                    local isFin = (obj.finished == true)
+                                    if orow.lastObjStr ~= objStr or orow.lastFinished ~= isFin then
                                         orow.lastObjStr = objStr
-                                        orow.lastFinished = obj.finished
+                                        orow.lastFinished = isFin
+                                        local r, g, b = 0.65, 0.65, 0.65
+                                        if isFin then r, g, b = 0.35, 0.80, 0.35 end
                                         orow.FS:SetText(objStr)
                                         orow.FS:SetTextColor(r, g, b)
                                     end
@@ -2913,6 +3477,13 @@ function QL:DoRefresh()
         wipe(list)
     end
 
+    return y
+end
+
+-- ─────────────────────────────────────────────────────────
+--  LAYOUT & SCROLLBAR SIZING
+-- ─────────────────────────────────────────────────────────
+local function UpdateScrollLayout(y, savedScroll)
     local qlTop = UpdateQuestLogAnchor()
     local screenH = (UIParent and UIParent:GetHeight()) or 768
     local bottomPhysicalLimit = (screenH * 0.50) + 50
@@ -2922,7 +3493,7 @@ function QL:DoRefresh()
     local contentH  = math_max(y, 20)
     content:SetHeight(contentH)
     local clipH = math_min(contentH, maxAllowedH)
-    self:SetHeight(clipH)
+    QL:SetHeight(clipH)
     scrollClip:SetHeight(clipH)
 
     local scrollMax = math_max(0, contentH - clipH)
@@ -2938,6 +3509,30 @@ function QL:DoRefresh()
         scrollClip:SetPoint("BOTTOMRIGHT", QL, "BOTTOMRIGHT", -7, 0)
         content:SetWidth(FRAME_W - 7)
     end
+end
+
+-- ─────────────────────────────────────────────────────────
+--  REFRESH ENTRY POINT
+-- ─────────────────────────────────────────────────────────
+function QL:DoRefresh()
+    State:Update()
+    if State:IsActive() then
+        if self:IsShown() then self:Hide() end
+        return
+    end
+    if not self:IsShown() then return end
+
+    local savedScroll = scrollBar:GetValue()
+    ClearRows()
+
+    local state        = GetQLState()
+    local superTracked = (C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and
+                          C_SuperTrack.GetSuperTrackedQuestID()) or 0
+    currentSuperTrackedID = superTracked
+
+    CollectTrackedQuests(superTracked)
+    local y = RenderSections(state, superTracked)
+    UpdateScrollLayout(y, savedScroll)
 end
 
 -- ─────────────────────────────────────────────────────────
@@ -3205,8 +3800,9 @@ local function on_ql_event(event, arg1, arg2)
     elseif event == "QUEST_TURNED_IN" or event == "QUEST_REMOVED" then
         local qID = arg1
         if qID and type(qID) == "number" then
-            questProgressCache[qID] = nil
+            questProgressCache[qID]  = nil
             warbandCompleteCache[qID] = nil
+            worldQuestCache[qID]     = nil  -- prune: quest gone, no need to cache its type
             local state = GetQLState()
             if state.expandedQuests then state.expandedQuests[qID] = nil end
         end
@@ -3247,6 +3843,20 @@ local function on_ql_event(event, arg1, arg2)
         or event == "UPDATE_UI_WIDGET" or event == "UPDATE_ALL_UI_WIDGETS" then
         CheckVisibilityAndRefresh()
 
+    elseif event == "QUEST_AUTOCOMPLETE" then
+        local qID = arg1
+        if qID and type(qID) == "number" and qID > 0 then
+            local state = GetQLState()
+            state.expandedQuests = state.expandedQuests or {}
+            state.expandedQuests[qID] = true
+        end
+        CheckVisibilityAndRefresh()
+
+    elseif event == "PERKS_ACTIVITIES_TRACKED_UPDATED" or event == "PERKS_ACTIVITIES_TRACKED_LIST_CHANGED" or event == "PERKS_ACTIVITY_COMPLETED"
+        or event == "INITIATIVE_TASKS_TRACKED_UPDATED" or event == "INITIATIVE_TASKS_TRACKED_LIST_CHANGED" or event == "NEIGHBORHOOD_INITIATIVE_UPDATED"
+        or event == "TRACKED_RECIPE_UPDATE" or event == "BAG_UPDATE_DELAYED" or event == "GROUP_ROSTER_UPDATE" or event == "QUEST_WATCH_UPDATE" then
+        Refresh:Request()
+
     elseif event == "TRACKED_ACHIEVEMENT_LIST_CHANGED" or event == "TRACKED_ACHIEVEMENT_UPDATE" or event == "ACHIEVEMENT_EARNED" then
         Refresh:Request()
 
@@ -3269,8 +3879,19 @@ Reg("PLAYER_REGEN_DISABLED")
 Reg("PLAYER_REGEN_ENABLED")
 Reg("ADDON_LOADED")
 Reg("QUEST_ACCEPTED")
+Reg("QUEST_AUTOCOMPLETE")
 Reg("QUEST_TURNED_IN")
 Reg("QUEST_REMOVED")
+Reg("QUEST_WATCH_UPDATE")
+Reg("GROUP_ROSTER_UPDATE")
+Reg("PERKS_ACTIVITIES_TRACKED_UPDATED")
+Reg("PERKS_ACTIVITIES_TRACKED_LIST_CHANGED")
+Reg("PERKS_ACTIVITY_COMPLETED")
+Reg("INITIATIVE_TASKS_TRACKED_UPDATED")
+Reg("INITIATIVE_TASKS_TRACKED_LIST_CHANGED")
+Reg("NEIGHBORHOOD_INITIATIVE_UPDATED")
+Reg("TRACKED_RECIPE_UPDATE")
+Reg("BAG_UPDATE_DELAYED")
 Reg("TRACKED_ACHIEVEMENT_LIST_CHANGED")
 Reg("TRACKED_ACHIEVEMENT_UPDATE")
 Reg("ACHIEVEMENT_EARNED")

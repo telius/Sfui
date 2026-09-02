@@ -434,12 +434,13 @@ local function get_all_cdm_entries()
             type = "cooldown",
             cooldownID = cooldownID,
             spellID = info.spellID,
-            id = info.spellID,
+            id = info.spellID or cooldownID,
             settings = { showText = true }
         }
-        if info.category == 0 or not info.category then
+        local cat = info.category
+        if cat == 0 or not cat then
             table.insert(cat0, entry)
-        elseif info.category == 1 then
+        elseif cat == 1 then
             table.insert(cat1, entry)
         end
     end
@@ -752,7 +753,10 @@ function sfui.common.ensure_panels_initialized()
         local pName = panels[i].name
         if pName then
             local uName = upper(pName)
-            if builtins[uName] then
+            if uName == "BUFFS" then
+                table.remove(panels, i)
+                changed = true
+            elseif builtins[uName] then
                 if seenUpperNames[uName] then
                     table.remove(panels, i)
                     changed = true
@@ -2065,9 +2069,18 @@ function sfui.common.hide_blizzard_cooldown_viewers()
     local viewers = {
         "EssentialCooldownViewer",
         "UtilityCooldownViewer",
-        "BuffIconCooldownViewer",
         "BuffBarCooldownViewer",
     }
+
+    -- Ensure BuffIconCooldownViewer (Blizzard Tracked Buffs stack) remains visible and interactive
+    local buffViewer = _G["BuffIconCooldownViewer"]
+    if buffViewer then
+        buffViewer._sfui_setting_alpha = true
+        buffViewer:SetAlpha(1)
+        buffViewer._sfui_setting_alpha = false
+        buffViewer:EnableMouse(true)
+        buffViewer.ignoreFramePositionManager = nil
+    end
 
     local bmfc = GetBottomManagedFrameContainer and GetBottomManagedFrameContainer()
 
@@ -2085,6 +2098,7 @@ function sfui.common.hide_blizzard_cooldown_viewers()
             if not viewer._sfui_alpha_hooked then
                 viewer._sfui_alpha_hooked = true
                 hooksecurefunc(viewer, "SetAlpha", function(self, alpha)
+                    if self == _G["BuffIconCooldownViewer"] then return end
                     if alpha > 0 and not self._sfui_setting_alpha then
                         self._sfui_setting_alpha = true
                         self:SetAlpha(0)
@@ -2182,7 +2196,6 @@ function sfui.common.are_blizzard_cooldown_viewers_hidden()
     local viewers = {
         "EssentialCooldownViewer",
         "UtilityCooldownViewer",
-        "BuffIconCooldownViewer",
         "BuffBarCooldownViewer",
     }
     for _, name in ipairs(viewers) do
