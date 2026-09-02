@@ -1209,3 +1209,13 @@ end
 function sfui.lootspec.initialize()
     -- DB schema initialized lazily via DB() on first access
 end
+
+local _lootDebug = {}
+function sfui.lootspec_debug_info()
+    local db = SfuiDB and SfuiDB.lootspec
+    _lootDebug.frameCreated = frame ~= nil
+    _lootDebug.frameShown = frame and frame:IsShown() or false
+    _lootDebug.enabled = db and db.enabled or false
+    _lootDebug.hasRaidCache = raidDataCache ~= nil
+    return _lootDebug
+end

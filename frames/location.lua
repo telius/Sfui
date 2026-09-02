@@ -236,3 +236,11 @@ sfui_events.RegisterEvent("CHALLENGE_MODE_START", function()
     lastInstancePrint = nil
     C_Timer.After(0.2, print_instance_status)
 end)
+
+local _locDebug = {}
+function sfui.location_debug_info()
+    _locDebug.watchingRoster = watchingRoster
+    _locDebug.pendingDungeon = pendingDungeon ~= nil
+    _locDebug.enabled = is_enabled()
+    return _locDebug
+end

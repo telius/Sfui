@@ -2003,6 +2003,7 @@ function sfui.common.hide_blizzard_cooldown_viewers()
     local viewers = {
         "EssentialCooldownViewer",
         "UtilityCooldownViewer",
+        "BuffBarCooldownViewer",
     }
 
     for _, viewerName in ipairs(viewers) do
@@ -2010,17 +2011,6 @@ function sfui.common.hide_blizzard_cooldown_viewers()
         if viewer then
             viewer:SetAlpha(0)
             viewer:EnableMouse(false)
-            viewer:Hide()
-            viewer:UnregisterAllEvents()
-
-            if not viewer._sfui_hooked then
-                hooksecurefunc(viewer, "Show", function(self)
-                    self:SetAlpha(0)
-                    self:EnableMouse(false)
-                    self:Hide()
-                end)
-                viewer._sfui_hooked = true
-            end
         end
     end
     -- Ensure the CVar is set to 1 so Blizzard's internal data systems are active.

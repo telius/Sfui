@@ -1217,8 +1217,6 @@ local function UpdateBarsState()
 
     for blizzFrame in BuffBarCooldownViewer.itemFramePool:EnumerateActive() do
         if blizzFrame.cooldownID then
-            if blizzFrame.SetAlpha then blizzFrame:SetAlpha(0) end
-
             local myBar = bars[blizzFrame.cooldownID]
             if myBar and myBar:IsShown() and blizzFrame.Bar then
                 local config = myBar._config or GetTrackedBarConfig(blizzFrame.cooldownID)
@@ -1409,18 +1407,8 @@ function sfui.trackedbars.initialize()
 
     -- Hide Blizzard Frame
     if BuffBarCooldownViewer then
-        -- Only hide, don't aggressively move/scale/strata it.
-        -- The alpha(0) is enough to make it invisible.
         BuffBarCooldownViewer:SetAlpha(0)
         BuffBarCooldownViewer:EnableMouse(false)
-        hooksecurefunc(BuffBarCooldownViewer, "Show", function(self)
-            self:SetAlpha(0)
-            self:EnableMouse(false)
-        end)
-        if BuffBarCooldownViewer:IsShown() then
-            BuffBarCooldownViewer:SetAlpha(0)
-            BuffBarCooldownViewer:EnableMouse(false)
-        end
     end
 
     -- Hide Blizzard Cooldown Frames

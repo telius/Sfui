@@ -347,3 +347,11 @@ function sfui.research.apply_side_buttons(parent)
         yOffset = yOffset - 35
     end
 end
+
+local _resDebug = {}
+function sfui.research_debug_info()
+    local side = _G.sfui_research_side_frame
+    _resDebug.frameCreated = side ~= nil
+    _resDebug.frameShown = side and side:IsShown() or false
+    return _resDebug
+end

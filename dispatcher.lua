@@ -339,3 +339,33 @@ end
 
 -- Sync flag once on login in case the watcher was enabled during init.
 sfui.events.RegisterEvent("PLAYER_LOGIN", _mem_tick)
+
+local _dispDebug = {}
+function sfui.dispatcher_debug_info()
+    local totalGlobalEvents = 0
+    local totalGlobalCbs = 0
+    for _, cbs in pairs(eventCallbacks) do
+        totalGlobalEvents = totalGlobalEvents + 1
+        totalGlobalCbs = totalGlobalCbs + #cbs
+    end
+
+    local totalUnitEvents = 0
+    local totalUnitCbs = 0
+    local totalUnits = 0
+    for _, evs in pairs(unitEventCallbacks) do
+        totalUnits = totalUnits + 1
+        for _, cbs in pairs(evs) do
+            totalUnitEvents = totalUnitEvents + 1
+            totalUnitCbs = totalUnitCbs + #cbs
+        end
+    end
+
+    _dispDebug.globalEvents = totalGlobalEvents
+    _dispDebug.globalCallbacks = totalGlobalCbs
+    _dispDebug.units = totalUnits
+    _dispDebug.unitEvents = totalUnitEvents
+    _dispDebug.unitCallbacks = totalUnitCbs
+    _dispDebug.updateLoops = #updateCallbacks
+    _dispDebug.memProfiling = _memActive
+    return _dispDebug
+end

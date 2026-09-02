@@ -2,6 +2,23 @@
 
 > **Note**: This changelog documents **releases, architectural milestones, features**.
 
+## v12.1.0-23 (2026-09-02)
+
+### Combat Hardening & Diagnostics
+- **CooldownViewer & LayoutFrame Taint Prevention (`common.lua`, `frames/trackedbars.lua`)**:
+  - Replaced intrusive `Hide()` and `UnregisterAllEvents()` on Blizzard's `CooldownViewer` layout frames with clean `SetAlpha(0)` and `EnableMouse(false)`.
+  - Removed per-tick `SetAlpha` calls from `UpdateBarsState()` 60 FPS loop, completely eliminating `LayoutFrame.lua:491` and `FrameUtil.lua:223` secret number comparison taint errors in combat.
+- **CDM Category Safety (`frames/cdm.lua`)**:
+  - Sanitized category ID resolution in `RenderAssignmentsIconPool` and reverse lookup to guarantee valid non-negative numbers (`0` Essential, `1` Utility, `2` Buffs, `3` Tracked Bars).
+  - Protected all `C_CooldownViewer.GetCooldownViewerCategorySet` calls with range checks and `pcall` guards.
+- **Combat Equipment Protection (`frames/highest.lua`)**:
+  - Added `InCombatLockdown()` check to abort automated item swaps during combat, preventing `[ADDON_ACTION_BLOCKED] EquipCursorItem()` errors.
+- **Memory Diagnostics Expansion (`frames/mem.lua`, `dispatcher.lua`)**:
+  - Added real-time telemetry tracking for central event dispatcher (`sfui.dispatcher_debug_info`).
+  - Added module telemetry for all remaining sub-systems (`currency`, `lootspec`, `location`, `cdm`, `research`).
+
+---
+
 ## v12.1.0-22 (2026-09-01)
 
 ### Architecture & Modernization

@@ -466,16 +466,14 @@ local function RenderTrackedBarsRightSide(parent, width)
     if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
         local cats = { 2, 3 }
         if Enum and Enum.CooldownViewerCategory then
-            cats = {
-                Enum.CooldownViewerCategory.TrackedBuff or 2,
-                Enum.CooldownViewerCategory.TrackedBar or 3
-            }
+            cats = {}
+            if Enum.CooldownViewerCategory.TrackedBuff ~= nil then table.insert(cats, Enum.CooldownViewerCategory.TrackedBuff) else table.insert(cats, 2) end
+            if Enum.CooldownViewerCategory.TrackedBar ~= nil then table.insert(cats, Enum.CooldownViewerCategory.TrackedBar) else table.insert(cats, 3) end
         end
         for _, cat in ipairs(cats) do
-            -- Pass true to allowUnlearned to include unavailable spells gracefully
-            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
-                local ids = C_CooldownViewer.GetCooldownViewerCategorySet(cat, true)
-                if ids then
+            if type(cat) == "number" and cat >= 0 then
+                local ok, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, true)
+                if ok and ids then
                     for _, id in ipairs(ids) do
                         if not common.issecretvalue(id) and IsValidID(id) then
                             table.insert(list, id)
@@ -796,8 +794,9 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
         }
         local importBtn = common.create_dropdown(zone, 80, options, function(gId)
             if not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCategorySet then return end
-            local list = C_CooldownViewer.GetCooldownViewerCategorySet(gId, true)
-            if not list then return end
+            if type(gId) ~= "number" or gId < 0 then return end
+            local ok, list = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, gId, true)
+            if not ok or not list then return end
 
             local isList = (type(list) == "table")
             local entries = zone.isTrackedBars and common.get_tracked_bars() or
@@ -1117,25 +1116,22 @@ local function RenderAssignmentsIconPool(parent, width, entries)
         parent._assignPoolTitle = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         parent._assignPoolTitle:SetPoint("TOPLEFT", 0, -5)
     end
-    parent._assignPoolTitle:SetText("Assignments Pool (-1, 0, 1)")
+    parent._assignPoolTitle:SetText("Assignments Pool (0, 1)")
     parent._assignPoolTitle:Show()
 
     local yPos = -25
     local list = {}
     if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
-        local cats = { -1, 0, 1 }
+        local cats = { 0, 1 }
         if Enum and Enum.CooldownViewerCategory then
-            cats = {
-                Enum.CooldownViewerCategory.Disabled or -1,
-                Enum.CooldownViewerCategory.Essential or 0,
-                Enum.CooldownViewerCategory.Utility or 1
-            }
+            cats = {}
+            if Enum.CooldownViewerCategory.Essential ~= nil then table.insert(cats, Enum.CooldownViewerCategory.Essential) else table.insert(cats, 0) end
+            if Enum.CooldownViewerCategory.Utility ~= nil then table.insert(cats, Enum.CooldownViewerCategory.Utility) else table.insert(cats, 1) end
         end
         for _, cat in ipairs(cats) do
-            -- Pass false to allowUnlearned to skip most unlearned spells natively
-            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
-                local ids = C_CooldownViewer.GetCooldownViewerCategorySet(cat, false)
-                if ids then
+            if type(cat) == "number" and cat >= 0 then
+                local ok, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, false)
+                if ok and ids then
                     for _, id in ipairs(ids) do
                         if not common.issecretvalue(id) and IsValidID(id) then
                             local cdInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(id)
@@ -1636,21 +1632,20 @@ HandleExternalDrop = function(zoneFrame, panelData, isTrackedBars)
     -- Reverse lookup cooldownID from spellID or itemID
     if not entry.cooldownID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
         local foundCooldownID = nil
-        local cats = { -2, -1, 0, 1, 2, 3 }
+        local cats = { 0, 1, 2, 3 }
         if Enum and Enum.CooldownViewerCategory then
-            cats = {
-                Enum.CooldownViewerCategory.HiddenAura or -2,
-                Enum.CooldownViewerCategory.Disabled or -1,
-                Enum.CooldownViewerCategory.Essential or 0,
-                Enum.CooldownViewerCategory.Utility or 1,
-                Enum.CooldownViewerCategory.TrackedBuff or 2,
-                3
-            }
+            cats = {}
+            for _, val in pairs(Enum.CooldownViewerCategory) do
+                if type(val) == "number" and val >= 0 then
+                    table.insert(cats, val)
+                end
+            end
         end
+        if #cats == 0 then cats = { 0, 1, 2, 3 } end
         for _, cat in ipairs(cats) do
-            if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
-                local ids = C_CooldownViewer.GetCooldownViewerCategorySet(cat, true)
-                if ids then
+            if type(cat) == "number" and cat >= 0 then
+                local ok, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, true)
+                if ok and ids then
                     for _, cid in ipairs(ids) do
                         local cdInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(cid)
                         if cdInfo then
@@ -1834,4 +1829,13 @@ function sfui.cdm.UpdateVisibility()
             zone:Hide()
         end
     end
+end
+
+local _cdmDebug = {}
+function sfui.cdm_debug_info()
+    local cFrame = _G.sfui_cdm_frame
+    _cdmDebug.frameCreated = cFrame ~= nil
+    _cdmDebug.frameShown = cFrame and cFrame:IsShown() or false
+    _cdmDebug.activeZones = sfui.cdm.activeZones and #sfui.cdm.activeZones or 0
+    return _cdmDebug
 end

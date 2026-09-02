@@ -1274,6 +1274,12 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
             return
         end
 
+        if InCombatLockdown() then
+            if not silent then sfprint("Equip canceled: cannot change equipment in combat.") end
+            onEquipFinished()
+            return
+        end
+
         local entry = equipQueue[index]
         local slotID, item = entry.slotID, entry.item
         local oldLink = entry.oldLink

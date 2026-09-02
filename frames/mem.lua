@@ -318,6 +318,94 @@ function sfui.mem.GetModuleStats()
     end
     stats["soulfragments"] = sfStats
 
+    -- Event Dispatcher Module
+    local dispMod = {
+        name = "event dispatcher",
+        status = "|cff00ff88active|r",
+        line1 = "events: 0 global • 0 unit",
+        line2 = "update tickers: 0 loops • zero churn",
+    }
+    if sfui.dispatcher_debug_info then
+        local d = sfui.dispatcher_debug_info()
+        dispMod.line1 = string_format("events: %d global (%d cbs) • %d unit (%d cbs)", d.globalEvents or 0, d.globalCallbacks or 0, d.unitEvents or 0, d.unitCallbacks or 0)
+        dispMod.line2 = string_format("update tickers: %d loops • unit frames: %d", d.updateLoops or 0, d.units or 0)
+    end
+    stats["dispatcher"] = dispMod
+
+    -- Currency & Item Trackers Module
+    local currMod = {
+        name = "currency & item bars",
+        status = "|cff888888idle|r",
+        line1 = "currency: none • item: none",
+        line2 = "backpack anchor: character frame",
+    }
+    if sfui.currency_debug_info then
+        local cInfo = sfui.currency_debug_info()
+        local ready = cInfo.currencyFrameCreated or cInfo.itemFrameCreated
+        currMod.status = ready and "|cff00ff88ready|r" or "|cff888888idle|r"
+        currMod.line1 = string_format("currency bar: %s • item bar: %s", cInfo.currencyFrameCreated and "ready" or "none", cInfo.itemFrameCreated and "ready" or "none")
+    end
+    stats["currency"] = currMod
+
+    -- Loot Spec Manager Module
+    local lootMod = {
+        name = "loot spec manager",
+        status = "|cff888888idle|r",
+        line1 = "frame: none • enabled: no",
+        line2 = "ej encounter cache: none",
+    }
+    if sfui.lootspec_debug_info then
+        local l = sfui.lootspec_debug_info()
+        lootMod.status = l.enabled and "|cff00ff88enabled|r" or "|cff888888disabled|r"
+        lootMod.line1 = string_format("frame: %s (shown: %s) • enabled: %s", l.frameCreated and "ready" or "none", l.frameShown and "yes" or "no", l.enabled and "yes" or "no")
+        lootMod.line2 = string_format("encounter journal cache: %s", l.hasRaidCache and "cached" or "none")
+    end
+    stats["lootspec"] = lootMod
+
+    -- Location & Keystone Reminder Module
+    local locMod = {
+        name = "keystone reminder",
+        status = "|cff888888idle|r",
+        line1 = "roster watcher: idle",
+        line2 = "dungeon status: ready",
+    }
+    if sfui.location_debug_info then
+        local loc = sfui.location_debug_info()
+        locMod.status = loc.enabled and (loc.watchingRoster and "|cff00ff88watching|r" or "|cff888888idle|r") or "|cff888888disabled|r"
+        locMod.line1 = string_format("roster watcher: %s", loc.watchingRoster and "|cff00ff88active|r" or "idle")
+        locMod.line2 = string_format("pending group: %s • reminder: %s", loc.pendingDungeon and "yes" or "none", loc.enabled and "on" or "off")
+    end
+    stats["location"] = locMod
+
+    -- Cooldown Manager (CDM) Drag-Drop Module
+    local cdmMod = {
+        name = "cdm layout manager",
+        status = "|cff888888idle|r",
+        line1 = "editor: closed",
+        line2 = "active drop zones: 0",
+    }
+    if sfui.cdm_debug_info then
+        local cdm = sfui.cdm_debug_info()
+        cdmMod.status = cdm.frameShown and "|cff00ff88editor open|r" or (cdm.frameCreated and "|cff888888ready|r" or "|cff888888idle|r")
+        cdmMod.line1 = string_format("editor frame: %s (shown: %s)", cdm.frameCreated and "ready" or "none", cdm.frameShown and "yes" or "no")
+        cdmMod.line2 = string_format("active registered zones: %d", cdm.activeZones or 0)
+    end
+    stats["cdm"] = cdmMod
+
+    -- Research & Talent Trees Module
+    local resMod = {
+        name = "research tree browser",
+        status = "|cff888888closed|r",
+        line1 = "side frame: none",
+        line2 = "trees: 4 expansions",
+    }
+    if sfui.research_debug_info then
+        local r = sfui.research_debug_info()
+        resMod.status = r.frameShown and "|cff00ff88open|r" or "|cff888888closed|r"
+        resMod.line1 = string_format("side frame: %s", r.frameCreated and "ready" or "none")
+    end
+    stats["research"] = resMod
+
     return stats
 end
 
@@ -504,10 +592,10 @@ local leaderboardRows = {}
 local activeTab = "modules"
 
 local MODULE_ORDER = {
-    "quests", "mythic", "trackedbars", "trackedicons", "bars",
+    "dispatcher", "quests", "mythic", "trackedbars", "trackedicons", "bars",
     "soulfragments", "gear", "stats", "alts", "merchant", "portals",
     "castbars", "minimap", "glows", "automation",
-    "cursor", "vehicle", "transfer"
+    "cursor", "vehicle", "currency", "lootspec", "location", "cdm", "research", "transfer"
 }
 
 function sfui.mem.create_mem_panel()
