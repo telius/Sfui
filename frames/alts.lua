@@ -128,77 +128,12 @@ local function ReleaseCell(f)
     cellPool[#cellPool + 1] = f
 end
 
--- Professional Weekly KP Sources (TWW & Midnight Combined)
-local PROF_KP_SOURCES = {
-    [171] = { treatise = { 95127 }, quest = { 93690 }, treasures = { { 93528 }, { 93529 } }, catchup = 3189 },                                                                 -- Alchemy
-    [164] = { treatise = { 95128 }, quest = { 93691 }, treasures = { { 93530 }, { 93531 } }, catchup = 3199 },                                                                 -- Blacksmithing
-    [333] = { treatise = { 95129 }, quest = { 93699, 93698, 93697 }, treasures = { { 95048, 95049, 95050, 95051, 95052 }, { 95053 }, { 93532 }, { 93533 } }, catchup = 3198 }, -- Enchanting
-    [202] = { treatise = { 95138 }, quest = { 93692 }, treasures = { { 93534 }, { 93535 } }, catchup = 3197 },                                                                 -- Engineering
-    [182] = { treatise = { 95130 }, quest = { 93700, 93701, 93702, 93703, 93704 }, treasures = { { 81425, 81426, 81427, 81428, 81429 }, { 81430 } }, catchup = 3196 },         -- Herbalism
-    [773] = { treatise = { 95131 }, quest = { 93693 }, treasures = { { 93536 }, { 93537 } }, catchup = 3195 },                                                                 -- Inscription
-    [755] = { treatise = { 95133 }, quest = { 93694 }, treasures = { { 93539 }, { 93538 } }, catchup = 3194 },                                                                 -- Jewelcrafting
-    [165] = { treatise = { 95134 }, quest = { 93695 }, treasures = { { 93540 }, { 93541 } }, catchup = 3193 },                                                                 -- Leatherworking
-    [186] = { treatise = { 95135 }, quest = { 93705, 93706, 93707, 93708, 93709 }, treasures = { { 88673, 88674, 88675, 88676, 88677 }, { 88678 } }, catchup = 3192 },         -- Mining
-    [393] = { treatise = { 95136 }, quest = { 93710, 93711, 93712, 93713, 93714 }, treasures = { { 88534, 88549, 88536, 88537, 88530 }, { 88529 } }, catchup = 3191 },         -- Skinning
-    [197] = { treatise = { 95137 }, quest = { 93696 }, treasures = { { 93542 }, { 93543 } }, catchup = 3190 },                                                                 -- Tailoring
-}
--- Midnight expansion skillLine ID mappings
-PROF_KP_SOURCES[2906] = PROF_KP_SOURCES[171] -- Alchemy
-PROF_KP_SOURCES[2907] = PROF_KP_SOURCES[164] -- Blacksmithing
-PROF_KP_SOURCES[2909] = PROF_KP_SOURCES[333] -- Enchanting
-PROF_KP_SOURCES[2908] = PROF_KP_SOURCES[202] -- Engineering
-PROF_KP_SOURCES[2905] = PROF_KP_SOURCES[182] -- Herbalism
-PROF_KP_SOURCES[2911] = PROF_KP_SOURCES[773] -- Inscription
-PROF_KP_SOURCES[2910] = PROF_KP_SOURCES[755] -- Jewelcrafting
-PROF_KP_SOURCES[2912] = PROF_KP_SOURCES[165] -- Leatherworking
-PROF_KP_SOURCES[2904] = PROF_KP_SOURCES[186] -- Mining
-PROF_KP_SOURCES[2903] = PROF_KP_SOURCES[393] -- Skinning
-PROF_KP_SOURCES[2913] = PROF_KP_SOURCES[197] -- Tailoring
+local PROF_KP_SOURCES = sfui.season and sfui.season.PROF_KP_SOURCES or {}
 
 -- Configuration & Data Tables
 local CATEGORIES = {}
 
-local CURRENCIES = {
-    {
-        isGroup = true,
-        label = "Mistcrests",
-        items = {
-            { id = 3445, icon = 0 }, -- Hero Mistcrest
-            { id = 3446, icon = 0 }, -- Myth Mistcrest
-        }
-    },
-    { id = 274476, label = "Spark",     icon = 0, isItem = true }, -- Spark of Tides
-    { id = 3465,   label = "Catalyst",  icon = 0 },                -- Venomblight Manaflux
-    { id = 3448,   label = "Corrosive Coin", icon = 0, fallbackIDs = { 3110 } }, -- Corrosive Coin
-    {
-        isGroup = true,
-        label = "Keys",
-        items = {
-            { id = 3028, icon = 4622270 }, -- Restored Coffer Key
-            { id = 3310, icon = 133016 },  -- Coffer Key Shard
-        }
-    },
-    -- 12.0.5 / 12.1 Currencies and Items
-    { id = 3418,   label = "VoidCore", icon = 0 },                -- Nebulous Voidcore
-    { id = 3405,   label = "Accolade", icon = 0 },                -- Field Accolade
-    { id = 3373,   label = "Pearl",    icon = 0 },                -- Angler Pearls
-    { id = 267051, label = "Particle", icon = 0, isItem = true }, -- Dark Particle
-}
-
--- Warband pool quests: IsQuestFlaggedCompleted is account-wide for these,
--- so we track per-character completion via QUEST_TURNED_IN events.
-local LEGENDS_POOL = {
-    92713, -- Echoes Rekindled (Main wrapper)
-    92716, -- The Story of Wey'nan's Ward
-    92719, -- The Story of the Cauldron of Echoes
-    92721, -- The Story of the Echoless Flame
-    92720, -- The Story of Aln'hara's Bloom
-    92722, -- The Story of Russula's Outreach
-    92724, -- The Story of the Root of the World
-    92725, -- The Story of Sky's Hope
-    -- Legacy / Beta IDs
-    89268, 88993, 88994, 88996, 88997, 88995,
-}
+local CURRENCIES = sfui.season and sfui.season.CURRENCIES or {}
 
 local BASE_CATEGORIES = {
     { name = "GENERAL",       label = "Character",     type = "header" },
@@ -311,6 +246,8 @@ function sfui.alts.RefreshDynamicCategories(force)
                 local itemConfig = AcquireTable()
                 itemConfig.id = itemDef.id
                 itemConfig.isItem = itemDef.isItem
+                itemConfig.showSeasonEarned = itemDef.showSeasonEarned
+                itemConfig.isSparkDust = itemDef.isSparkDust
                 local icon = itemDef.icon
                 if not icon or icon == 0 then
                     if itemConfig.isItem then
@@ -840,78 +777,40 @@ function sfui.alts.PerformSync(isLogout)
         }
     end
 
-    -- 1. Unity Against the Void (Midnight Apex/Pinnacle Meta-Quest)
-    local unityPool = {
-        93766, 93767, 93769, 93889, 93890, 93891, 93892, 93909, 93910,
-        93911, 93912, 93913, 94457, 95842, 95843, 96727, 98232
-    }
-    q.unity = GetQuestStatus(93744, unityPool)
-
-    -- 2. Abundant Offerings (Eversong / Silvermoon Pinnacle Cache)
-    q.abundance = GetQuestStatus(89507)
-
-    -- 3. Legends of the Haranir / Echoes Rekindled (Warband quest)
-    local prevLegendsCompleted = q.legends and q.legends.completed
-    q.legends = GetQuestStatus(92713, LEGENDS_POOL, true)
-    if prevLegendsCompleted and not q.legends.completed then
-        q.legends.completed = true
-    end
-
-    -- 4. Saltheril's Soiree / Runestones
-    local runestonesPool = { 90573, 90574, 90575, 90576 }
-    q.runestones = GetQuestStatus(91966, runestonesPool)
-
-    -- 5. Stormarion Assault
-    q.stormarion = GetQuestStatus(90962)
-
-    -- 6. Void Surges & Trailing Xal'atath (Patch 12.1 Pinnacle Weeklies)
-    local surgePool = { 96995, 98172 }
-    q.surges = GetQuestStatus(nil, surgePool)
-
-    -- 7. Special Assignment (2 per week)
-    local saPool = { 92145, 92063, 93013, 93438, 93244, 91390, 91796, 92139 }
-    q.specialAssignment = GetQuestStatus(nil, saPool, false, 2)
-
-    -- 8. World Boss (including Lair Boss Nymrissa Wavecaller)
-    local worldBossPool = { 92123, 92560, 92636, 92034, 97128 }
-    q.worldBoss = GetQuestStatus(nil, worldBossPool)
-
-    -- 9. Trovehunter's Bounty (Tier 8+ Bountiful Delve Map -> Hero/Champion track)
-    q.bounty = GetQuestStatus(86371)
-
-    -- 10. Gilded Stash: Tier 11 Delve weekly cap (0-4), tracked via UI Widget 7591.
-    q.gildedStash = q.gildedStash or { done = 0, total = 4, completed = false, active = false }
-    local stashWidget = C_UIWidgetManager and C_UIWidgetManager.GetSpellDisplayVisualizationInfo(7591)
-    if stashWidget and stashWidget.spellInfo and stashWidget.spellInfo.tooltip then
-        local _, fulfilled = stashWidget.spellInfo.tooltip:match("COLOR:([^%d]*(%d)/4)")
-        local n = tonumber(fulfilled)
-        if n then
-            q.gildedStash.done      = n
-            q.gildedStash.active    = n > 0 and n < 4
-            q.gildedStash.completed = n >= 4
-        end
-    end
-
-    -- 11. Prey Bounty (Beacon: 94446, Preferential: 91277, Anguish: 96528)
-    local preyPool = { 94446, 91277, 96528 }
-    q.prey = GetQuestStatus(nil, preyPool)
-
-    -- 12. Void Assaults (Field Accolades -> Champion/Hero Gear)
-    local voidAssaultsPool = { 94386, 94385 }
-    q.voidAssaults = GetQuestStatus(nil, voidAssaultsPool)
-
-    -- 13. Weekly Bonus Event (Emissary of War: 93598, Delves: 93595, WQ: 93605, Battle: 93593, Arena: 93600)
-    local bonusEventPool = { 93598, 93595, 93605, 93593, 93600 }
-    q.bonusEvent = GetQuestStatus(nil, bonusEventPool)
-
-    -- 14. Timewalking Raid (Heroic Raid Cache)
-    local twRaidQuests = { 82817, 47523, 50316, 57637 }
-    q.twRaid = { completed = false, progress = 0, active = false }
-    for _, qID in ipairs(twRaidQuests) do
-        local s = GetQuestStatus(qID)
-        if s.completed or s.active then
-            q.twRaid = s
-            break
+    -- Evaluate seasonal weekly quests from sfui.season.WEEKLY_QUESTS
+    if sfui.season and sfui.season.WEEKLY_QUESTS then
+        for _, def in ipairs(sfui.season.WEEKLY_QUESTS) do
+            if def.widgetID then
+                local status = q[def.key] or { done = 0, total = def.targetTotal or 4, completed = false, active = false }
+                local stashWidget = C_UIWidgetManager and C_UIWidgetManager.GetSpellDisplayVisualizationInfo(def.widgetID)
+                if stashWidget and stashWidget.spellInfo and stashWidget.spellInfo.tooltip then
+                    local _, fulfilled = stashWidget.spellInfo.tooltip:match("COLOR:([^%d]*(%d)/" .. (def.targetTotal or 4) .. ")")
+                    local n = tonumber(fulfilled)
+                    if n then
+                        status.done      = n
+                        status.active    = n > 0 and n < (def.targetTotal or 4)
+                        status.completed = n >= (def.targetTotal or 4)
+                    end
+                end
+                q[def.key] = status
+            elseif def.isAny and def.pool then
+                local res = { completed = false, progress = 0, active = false }
+                for _, qID in ipairs(def.pool) do
+                    local s = GetQuestStatus(qID)
+                    if s.completed or s.active then
+                        res = s
+                        break
+                    end
+                end
+                q[def.key] = res
+            else
+                local prevCompleted = def.preserveCompleted and q[def.key] and q[def.key].completed
+                local s = GetQuestStatus(def.questID or def.wrapperID, def.pool, def.skipFlagCheck, def.targetTotal)
+                if prevCompleted and not s.completed then
+                    s.completed = true
+                end
+                q[def.key] = s
+            end
         end
     end
 
@@ -1752,8 +1651,11 @@ function sfui.alts.UpdateUI(force)
                     end
 
                     local val = cData and (type(cData) == "table" and cData.val or cData) or 0
+                    local currentEarned = cData and type(cData) == "table" and (cData.useTotalEarned and cData.totalEarned or cData.val) or val
                     local displayVal
-                    if val >= 1000 then
+                    if itemConfig.showSeasonEarned and displayMaxQuantity > 0 then
+                        displayVal = string.format("%d/%d", currentEarned, displayMaxQuantity)
+                    elseif val >= 1000 then
                         displayVal = string.format("%.1fk", val / 1000)
                     else
                         displayVal = tostring(val)
@@ -1763,7 +1665,18 @@ function sfui.alts.UpdateUI(force)
                         displayText = displayText .. "  "
                     end
 
-                    if isCapped then
+                    if itemConfig.isSparkDust and displayMaxQuantity > 0 then
+                        local colorCode
+                        if currentEarned >= displayMaxQuantity then
+                            colorCode = "|cff00ff88" -- Green: caught up / all dust earned
+                        elseif currentEarned > 0 then
+                            colorCode = "|cffffaa00" -- Orange: partially earned
+                        else
+                            colorCode = "|cffff4444" -- Red: no dust earned yet
+                        end
+                        displayText = displayText ..
+                            string.format("|T%d:12:12:0:0|t %s%s|r", itemConfig.icon, colorCode, displayVal)
+                    elseif isCapped then
                         local r, g, b = unpack(sfui.config.appearance.errorColor)
                         local colorCode = string.format("|cff%02x%02x%02x", r * 255, g * 255, b * 255)
                         displayText = displayText ..
@@ -1776,7 +1689,10 @@ function sfui.alts.UpdateUI(force)
                         itemConfig = itemConfig,
                         cData = cData,
                         isCapped = isCapped,
-                        displayMaxQuantity = displayMaxQuantity
+                        displayMaxQuantity = displayMaxQuantity,
+                        count = val,
+                        earned = currentEarned,
+                        max = displayMaxQuantity,
                     })
                 end
 
@@ -1830,21 +1746,47 @@ function sfui.alts.UpdateUI(force)
                     GameTooltip:AddLine(cat.label or "Currencies", 1, 1, 1)
                     for _, tLine in ipairs(tooltipLines) do
                         local name = tLine.name
+                        local icon = tLine.itemConfig and tLine.itemConfig.icon
                         if not name then
                             if tLine.itemConfig and tLine.itemConfig.isItem then
-                                name = C_Item.GetItemInfo(tLine.itemConfig.id) or "Item"
+                                name = C_Item.GetItemInfo(tLine.itemConfig.id) or (tLine.itemConfig.id == 274476 and "Spark of Tides" or "Item")
                             elseif tLine.itemConfig then
                                 local info = C_CurrencyInfo.GetCurrencyInfo(tLine.itemConfig.id)
-                                name = info and info.name or "Currency"
+                                name = info and info.name or (tLine.itemConfig.id == 3509 and "Tidal Spark Dust" or "Currency")
                             else
                                 name = "Currency"
                             end
                         end
-                        local count = tLine.count or 0
-                        local max = tLine.max or 0
-                        local lineText = (max > 0) and string.format("%s: %s / %s", name, count, max) or
-                            string.format("%s: %s", name, count)
-                        GameTooltip:AddLine(lineText, 1, 1, 1)
+                        local iconPrefix = (icon and icon > 0) and string.format("|T%d:14:14:0:0|t ", icon) or ""
+                        local cData = tLine.cData
+                        local val = tLine.count or 0
+                        local maxQty = tLine.displayMaxQuantity or 0
+                        local earned = tLine.earned or val
+
+                        if tLine.itemConfig and tLine.itemConfig.isSparkDust then
+                            GameTooltip:AddDoubleLine(iconPrefix .. name .. ":",
+                                string.format("%d in bags", val), 1, 1, 1, 1, 1, 1)
+                            if maxQty > 0 then
+                                local statusColor = earned >= maxQty and "|cff00ff88" or (earned > 0 and "|cffffaa00" or "|cffff4444")
+                                GameTooltip:AddDoubleLine("Season Earned / Cap:",
+                                    string.format("%s%d / %d|r", statusColor, earned, maxQty), 1, 1, 1, 1, 1, 1)
+                            end
+                        elseif cData and type(cData) == "table" then
+                            if cData.max and cData.max > 0 then
+                                GameTooltip:AddDoubleLine(iconPrefix .. name .. ":",
+                                    string.format("%d (weekly: %d / %d)", val, cData.earned or 0, cData.max), 1, 1, 1, 1, 1, 1)
+                            elseif maxQty > 0 then
+                                GameTooltip:AddDoubleLine(iconPrefix .. name .. ":",
+                                    string.format("%d (season: %d / %d)", val, earned, maxQty), 1, 1, 1, 1, 1, 1)
+                            else
+                                GameTooltip:AddDoubleLine(iconPrefix .. name .. ":", tostring(val), 1, 1, 1, 1, 1, 1)
+                            end
+                            if tLine.isCapped then
+                                GameTooltip:AddLine("Season/Weekly cap reached!", 1, 0, 0)
+                            end
+                        else
+                            GameTooltip:AddDoubleLine(iconPrefix .. name .. ":", tostring(val), 1, 1, 1, 1, 1, 1)
+                        end
                     end
                     GameTooltip:Show()
                 end)
@@ -1869,25 +1811,8 @@ function sfui.alts.UpdateUI(force)
                     text:Hide()
                     local q = alt.data.quests
 
-                    -- Block definitions: Core Pinnacle Caches (purple) then High-Tier Events & Delves (amber)
-                    local BLOCKS = {
-                        -- Core Pinnacle weeklies (Champion track gear)
-                        { key = "unity",             label = "Unity",       group = "core" },
-                        { key = "abundance",         label = "Abundance",   group = "core" },
-                        { key = "legends",           label = "Legends",     group = "core" },
-                        { key = "runestones",        label = "Runestones",  group = "core" },
-                        { key = "stormarion",        label = "Stormarion",  group = "core" },
-                        { key = "surges",            label = "Surges",      group = "core" },
-                        { key = "specialAssignment", label = "Special",     group = "core", isCount = true },
-                        { key = "worldBoss",         label = "World Boss",  group = "core" },
-                        -- High-Tier Delve / Prey / Event weeklies (Champion / Hero track gear)
-                        { key = "bounty",            label = "Bounty Map",  group = "bonus" },
-                        { key = "gildedStash",       label = "Stash (T11)", group = "bonus", isCount = true },
-                        { key = "prey",              label = "Prey",        group = "bonus" },
-                        { key = "voidAssaults",      label = "Void",        group = "bonus" },
-                        { key = "bonusEvent",        label = "Event",       group = "bonus" },
-                        { key = "twRaid",            label = "TW Raid",     group = "bonus" },
-                    }
+                    -- Block definitions sourced from sfui.season.WEEKLY_QUESTS
+                    local BLOCKS = sfui.season and sfui.season.WEEKLY_QUESTS or {}
                     -- Colours: completed / inProgress / available — per group
                     local CORE_DONE   = { 0.40, 0.00, 1.00, 0.85 } -- #6600ff vivid purple
                     local CORE_PROG   = { 0.18, 0.00, 0.45, 0.85 } -- dark purple
@@ -1901,7 +1826,7 @@ function sfui.alts.UpdateUI(force)
                     local numBlocks   = #BLOCKS
                     local GAP         = 6                          -- px gap between core and bonus group
                     local totalW      = cfg.columnWidth - 10
-                    local blockW      = (totalW - GAP) / numBlocks
+                    local blockW      = (totalW - GAP) / math_max(1, numBlocks)
 
                     for bIdx, block in ipairs(BLOCKS) do
                         local rect = cell["qRect" .. bIdx] or cell:CreateTexture(nil, "ARTWORK")
@@ -1909,8 +1834,8 @@ function sfui.alts.UpdateUI(force)
                         rect:Show()
                         rect:SetSize(math_max(2, blockW - 2), cfg.rowHeight - 12)
 
-                        -- Offset: blocks 9-14 (bonus) get extra GAP nudge
-                        local xOff = (bIdx - 1) * blockW + 5 + (bIdx >= 9 and GAP or 0)
+                        -- Offset: bonus group gets extra GAP nudge
+                        local xOff = (bIdx - 1) * blockW + 5 + (block.group == "bonus" and GAP or 0)
                         rect:SetPoint("LEFT", xOff, 0)
 
                         local status   = q and q[block.key]
@@ -2153,54 +2078,18 @@ function sfui.alts.UpdateUI(force)
                             if ilvl and ilvl > 0 then return ilvl end
                         end
                     end
-                    -- Patch 12.1 / Midnight Great Vault ilvl baseline
-                    if g == "raid" then
-                        if l == 16 then return 318 end -- Mythic (Myth 1/6)
-                        if l == 15 then return 305 end -- Heroic (Hero 1/6)
-                        if l == 14 then return 292 end -- Normal (Champion 1/6)
-                        if l == 17 then return 279 end -- LFR (Veteran 1/6)
-                    elseif g == "dungeon" then
-                        if l >= 10 then return 318 end -- +10+ (Myth 1/6)
-                        if l >= 7  then return 315 end -- +7 to +9 (Hero 4/6)
-                        if l == 6  then return 311 end -- +6 (Hero 3/6)
-                        if l >= 4  then return 308 end -- +4 to +5 (Hero 2/6)
-                        if l >= 2  then return 305 end -- +2 to +3 (Hero 1/6)
-                        if l >= 0  then return 292 end -- M0 / Heroic (Champion 1/6)
-                    elseif g == "world" then
-                        if l >= 8 then return 308 end -- Tier 8+ (Hero 2/6)
-                        if l == 7 then return 305 end -- Tier 7 (Hero 1/6)
-                        if l == 6 then return 298 end -- Tier 6 (Champion 3/6)
-                        if l == 5 then return 295 end -- Tier 5 (Champion 2/6)
-                        if l == 4 then return 292 end -- Tier 4 (Champion 1/6)
-                        if l == 3 then return 285 end -- Tier 3 (Veteran 3/6)
-                        if l == 2 then return 282 end -- Tier 2 (Veteran 2/6)
-                        if l >= 1 then return 279 end -- Tier 1 (Veteran 1/6)
+                    -- Great Vault ilvl baseline and upgrade track from sfui.season
+                    if sfui.season and sfui.season.GetVaultBaseline then
+                        local bIlvl = sfui.season.GetVaultBaseline(g, l)
+                        if bIlvl then return bIlvl end
                     end
                     return nil
                 end
 
                 local GetVaultTrack = function(g, l)
-                    if g == "dungeon" then
-                        if l >= 10 then return "|cffff8000Myth 1/6|r" end
-                        if l >= 7  then return "|cffa335eeHero 4/6|r" end
-                        if l == 6  then return "|cffa335eeHero 3/6|r" end
-                        if l >= 4  then return "|cffa335eeHero 2/6|r" end
-                        if l >= 2  then return "|cffa335eeHero 1/6|r" end
-                        if l >= 0  then return "|cff0070ddChampion 1/6|r" end
-                    elseif g == "world" then
-                        if l >= 8 then return "|cffa335eeHero 2/6|r" end
-                        if l == 7 then return "|cffa335eeHero 1/6|r" end
-                        if l == 6 then return "|cff0070ddChampion 3/6|r" end
-                        if l == 5 then return "|cff0070ddChampion 2/6|r" end
-                        if l == 4 then return "|cff0070ddChampion 1/6|r" end
-                        if l == 3 then return "|cff1eff00Veteran 3/6|r" end
-                        if l == 2 then return "|cff1eff00Veteran 2/6|r" end
-                        if l >= 1 then return "|cff1eff00Veteran 1/6|r" end
-                    elseif g == "raid" then
-                        if l == 16 then return "|cffff8000Myth 1/6|r" end
-                        if l == 15 then return "|cffa335eeHero 1/6|r" end
-                        if l == 14 then return "|cff0070ddChampion 1/6|r" end
-                        if l == 17 then return "|cff1eff00Veteran 1/6|r" end
+                    if sfui.season and sfui.season.GetVaultBaseline then
+                        local _, track = sfui.season.GetVaultBaseline(g, l)
+                        if track then return track end
                     end
                     return nil
                 end

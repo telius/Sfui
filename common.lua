@@ -2054,6 +2054,8 @@ function sfui.initialize_database()
 end
 
 -- Helper to systematically hide specific Blizzard CooldownViewer frames
+local cooldownViewersInitialized = false
+
 function sfui.common.hide_blizzard_cooldown_viewers()
     -- Ensure the addon is loaded first
     if not C_AddOns.IsAddOnLoaded("Blizzard_CooldownViewer") then
@@ -2063,21 +2065,133 @@ function sfui.common.hide_blizzard_cooldown_viewers()
     local viewers = {
         "EssentialCooldownViewer",
         "UtilityCooldownViewer",
+        "BuffIconCooldownViewer",
         "BuffBarCooldownViewer",
     }
+
+    local bmfc = GetBottomManagedFrameContainer and GetBottomManagedFrameContainer()
 
     for _, viewerName in ipairs(viewers) do
         local viewer = _G[viewerName]
         if viewer then
             viewer:SetAlpha(0)
             viewer:EnableMouse(false)
+            viewer.ignoreFramePositionManager = true
+
+            if bmfc and bmfc.showingFrames then
+                bmfc.showingFrames[viewer] = nil
+            end
+
+            if not viewer._sfui_alpha_hooked then
+                viewer._sfui_alpha_hooked = true
+                hooksecurefunc(viewer, "SetAlpha", function(self, alpha)
+                    if alpha > 0 and not self._sfui_setting_alpha then
+                        self._sfui_setting_alpha = true
+                        self:SetAlpha(0)
+                        self._sfui_setting_alpha = false
+                    end
+                end)
+            end
+
+            if not viewer._sfui_show_hooked then
+                viewer._sfui_show_hooked = true
+                viewer:HookScript("OnShow", function(self)
+                    self:SetAlpha(0)
+                    self:EnableMouse(false)
+                end)
+            end
+
+            if not viewer._sfui_opacity_hooked and viewer.UpdateSystemSettingOpacity then
+                viewer._sfui_opacity_hooked = true
+                hooksecurefunc(viewer, "UpdateSystemSettingOpacity", function(self)
+                    self:SetAlpha(0)
+                end)
+            end
         end
     end
+
+    -- Prevent BottomManagedFrameContainer from animating CDM frames back to alpha 1
+    if bmfc and not bmfc._sfui_anim_hooked and bmfc.AnimInManagedFrames then
+        bmfc._sfui_anim_hooked = true
+        hooksecurefunc(bmfc, "AnimInManagedFrames", function()
+            sfui.common.hide_blizzard_cooldown_viewers()
+        end)
+    end
+
+    if not cooldownViewersInitialized then
+        cooldownViewersInitialized = true
+
+        -- Cinematic and cutscene frame OnHide hooks
+        if _G.CinematicFrame then
+            _G.CinematicFrame:HookScript("OnHide", function()
+                sfui.common.hide_blizzard_cooldown_viewers()
+            end)
+        end
+        if _G.MovieFrame then
+            _G.MovieFrame:HookScript("OnHide", function()
+                sfui.common.hide_blizzard_cooldown_viewers()
+            end)
+        end
+
+        -- Blizzard EventRegistry callbacks
+        if EventRegistry and EventRegistry.RegisterCallback then
+            EventRegistry:RegisterCallback("CinematicFrame.CinematicStopped", function()
+                sfui.common.hide_blizzard_cooldown_viewers()
+            end)
+            EventRegistry:RegisterCallback("UI.TopLevelParentShown", function()
+                sfui.common.hide_blizzard_cooldown_viewers()
+            end)
+            EventRegistry:RegisterCallback("EditMode.Exit", function()
+                sfui.common.hide_blizzard_cooldown_viewers()
+            end)
+        end
+
+        -- Game events for cinematics, movies, challenge mode, and layout updates
+        if sfui.events and sfui.events.RegisterEvent then
+            sfui.events.RegisterEvent("CINEMATIC_STOP", function()
+                sfui.common.hide_blizzard_cooldown_viewers()
+            end)
+            sfui.events.RegisterEvent("STOP_MOVIE", function()
+                sfui.common.hide_blizzard_cooldown_viewers()
+            end)
+            sfui.events.RegisterEvent("CHALLENGE_MODE_START", function()
+                sfui.common.hide_blizzard_cooldown_viewers()
+            end)
+            sfui.events.RegisterEvent("CHALLENGE_MODE_RESET", function()
+                sfui.common.hide_blizzard_cooldown_viewers()
+            end)
+            sfui.events.RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED", function()
+                sfui.common.hide_blizzard_cooldown_viewers()
+            end)
+            sfui.events.RegisterEvent("ADDON_LOADED", function(event, loadedAddon)
+                if loadedAddon == "Blizzard_CooldownViewer" then
+                    sfui.common.hide_blizzard_cooldown_viewers()
+                end
+            end)
+        end
+    end
+
     -- Ensure the CVar is set to 1 so Blizzard's internal data systems are active.
     -- We hide the frames visually, but we need the data provider to function.
     if GetCVar("cooldownViewerEnabled") == "0" then
         SetCVar("cooldownViewerEnabled", 1)
     end
+end
+
+function sfui.common.are_blizzard_cooldown_viewers_hidden()
+    local viewers = {
+        "EssentialCooldownViewer",
+        "UtilityCooldownViewer",
+        "BuffIconCooldownViewer",
+        "BuffBarCooldownViewer",
+    }
+    for _, name in ipairs(viewers) do
+        local f = _G[name]
+        if f and (f:GetAlpha() > 0 or f:IsMouseEnabled()) then
+            return false
+        end
+    end
+    return true
 end
 
 -- Centralized Dropdown Menu Widget

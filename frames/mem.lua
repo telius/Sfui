@@ -388,7 +388,8 @@ function sfui.mem.GetModuleStats()
         local cdm = sfui.cdm_debug_info()
         cdmMod.status = cdm.frameShown and "|cff00ff88editor open|r" or (cdm.frameCreated and "|cff888888ready|r" or "|cff888888idle|r")
         cdmMod.line1 = string_format("editor frame: %s (shown: %s)", cdm.frameCreated and "ready" or "none", cdm.frameShown and "yes" or "no")
-        cdmMod.line2 = string_format("active registered zones: %d", cdm.activeZones or 0)
+        local blizzHidden = sfui.common and sfui.common.are_blizzard_cooldown_viewers_hidden and sfui.common.are_blizzard_cooldown_viewers_hidden()
+        cdmMod.line2 = string_format("active zones: %d • blizz hidden: %s", cdm.activeZones or 0, blizzHidden and "|cff00ff88yes|r" or "|cffff4444no|r")
     end
     stats["cdm"] = cdmMod
 

@@ -2,6 +2,31 @@
 
 > **Note**: This changelog documents **releases, architectural milestones, features**.
 
+## v12.1.0-25 (2026-09-02)
+
+### Architecture & Features
+- **Centralized Seasonal Architecture (`season.lua`, `sfui.toc`)**:
+  - Introduced root database `sfui.season` for Midnight Season 2 (Patch 12.1) loaded ahead of core and frames.
+  - Centralized seasonal currencies (Mistcrests, Spark of Tides, Tidal Spark Dust, Catalysts, Coffer Keys, Voidcores, Accolades, Pearls, Particles).
+  - Centralized all 14 weekly quests (Unity, Abundance, Legends, Runestones, Stormarion, Surges, Special Assignments, World Boss, Bounty Map, Gilded Delve Stash, Prey, Void Assaults, Bonus Event, Timewalking Raid).
+  - Centralized all 11 profession knowledge point sources (`PROF_KP_SOURCES`) with weekly quests, treatises, gatherable/treasure drops, catchup currency IDs, and Midnight skillLine mappings (2903–2913).
+  - Centralized Great Vault item level baselines (279–318) and color-coded upgrade tracks (`Myth 1/6`, `Hero 4/6`, `Champion 1/6`, `Veteran 1/6`).
+- **Alts Window Optimization & Spark Progression (`frames/alts.lua`)**:
+  - Refactored `alts.lua` to source currencies, weekly quest pools, profession KP data, and Great Vault baselines directly from `sfui.season`, removing over 160 lines of static tables and redundant branching.
+  - Added **Tidal Spark Dust** (Currency `3509`) tracking alongside **Spark of Tides** (Item `274476`). Displays bag count and seasonal earned vs cap (`earned/max`) with color status (green = caught up, orange = partial, red = 0 earned).
+  - Fixed group tooltip rendering where `tLine.count` and `max` were unpopulated.
+- **LFG Dungeon Auto-Select Automation (`frames/automation.lua`, `frames/options.lua`)**:
+  - Added `lfgDungeonMythicKeystoneCompetitive` automation setting.
+  - Automatically pre-selects **Mythic Keystone** difficulty and **Competitive** playstyle when creating a dungeon group in Group Finder (`LFGListEntryCreation_Show`).
+- **Blizzard Cooldown Viewer Suppression Hardening (`common.lua`, `core.lua`, `frames/mem.lua`)**:
+  - Suppressed all 4 Blizzard Cooldown Viewers (`EssentialCooldownViewer`, `UtilityCooldownViewer`, `BuffIconCooldownViewer`, `BuffBarCooldownViewer`).
+  - Evicted viewers from `BottomManagedFrameContainer.showingFrames` and set `ignoreFramePositionManager = true`.
+  - Hooked `SetAlpha` to re-assert `0` against Blizzard animations.
+  - Hooked `CinematicFrame:OnHide`, `MovieFrame:OnHide`, `"CinematicFrame.CinematicStopped"`, `"UI.TopLevelParentShown"`, and challenge mode start/reset events.
+  - Added `blizz hidden: yes/no` live telemetry to `frames/mem.lua`.
+
+---
+
 ## v12.1.0-24 (2026-09-02)
 
 ### Features & Fixes

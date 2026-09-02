@@ -775,6 +775,11 @@ function sfui.create_options_panel()
         "automatically enables the \"current expansion only\" filter every time you open the auction house.")
     ah_expansion_cb:SetPoint("TOPLEFT", keystone_cb, "BOTTOMLEFT", 0, -10)
 
+    if SfuiDB.autoLfgDungeonDefaults == nil then SfuiDB.autoLfgDungeonDefaults = true end
+    local lfg_dungeon_cb = create_checkbox(automation_panel, "LFG: auto Mythic+ & Competitive", "autoLfgDungeonDefaults", nil,
+        "automatically selects Mythic+ Keystone difficulty and Competitive playstyle when creating a dungeon group in Group Finder.")
+    lfg_dungeon_cb:SetPoint("TOPLEFT", ah_expansion_cb, "BOTTOMLEFT", 0, -10)
+
 
     local minimap_header = minimap_panel:CreateFontString(nil, "OVERLAY", g.font)
     minimap_header:SetPoint("TOPLEFT", 15, -15)

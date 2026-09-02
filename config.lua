@@ -603,7 +603,7 @@ sfui.config = {
         borderColor = { 0, 0, 0, 1 },
         highlightColor = { 0.4, 0, 1, 1 }, -- Purple
         expansion = {
-            preyFactionID = 2764,          -- Midnight Season 1 Progress
+            preyFactionID = 2764,          -- Midnight Season 2 Progress
             activeHuntCurrencyID = 3392,   -- Remnant of Anguish
         },
         showM0Dungeons = true,

@@ -1,7 +1,7 @@
 ## Interface: 120100
 ## Title: |cff6600ffsf|rui
 ## Author: teli
-## Version: v12.1.0-24
+## Version: v12.1.0-25
 ## Notes: modular and dynamic uistuffs for world of warcraft.
 ## X-Category: Interface
 ## X-Website: https://github.com/telius/sfui
@@ -19,6 +19,7 @@ Libs/AceDB-3.0/AceDB-3.0.xml
 Libs/LibDataBroker-1.1/LibDataBroker-1.1.lua
 Libs/LibDBIcon-1.0/LibDBIcon-1.0.lua
 config.lua
+season.lua
 dispatcher.lua
 common.lua
 core.lua

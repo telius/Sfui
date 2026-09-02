@@ -641,10 +641,125 @@ local function init_auction_house_automation()
     end
 end
 
+-- ============================================================================
+-- LFG Group Creation: Auto Mythic+ Keystone & Competitive Defaults
+-- ============================================================================
+local lastAutomatedGroupID = nil
+
+local function apply_lfg_dungeon_defaults(force)
+    if SfuiDB and SfuiDB.autoLfgDungeonDefaults == false then return end
+    local entryCreation = _G.LFGListFrame and _G.LFGListFrame.EntryCreation
+    if not entryCreation or not entryCreation:IsShown() then return end
+
+    -- Do not overwrite if user is editing an already listed group
+    if entryCreation.editMode then return end
+
+    -- Only apply to Dungeons (Category ID 2)
+    local categoryID = entryCreation.selectedCategory
+    if categoryID ~= 2 and categoryID ~= (_G.GROUP_FINDER_CATEGORY_ID_DUNGEONS or 2) then
+        lastAutomatedGroupID = nil
+        return
+    end
+
+    -- 1. Automatically enable Competitive (Playstyle)
+    local playstyleEnum = Enum and Enum.LFGEntryGeneralPlaystyle and Enum.LFGEntryGeneralPlaystyle.FunSerious
+    if playstyleEnum and entryCreation.generalPlaystyle ~= playstyleEnum then
+        if _G.LFGListEntryCreation_OnPlayStyleSelectedInternal then
+            _G.LFGListEntryCreation_OnPlayStyleSelectedInternal(entryCreation, playstyleEnum)
+        else
+            entryCreation.generalPlaystyle = playstyleEnum
+        end
+        if entryCreation.PlayStyleDropdown and entryCreation.PlayStyleDropdown.GenerateMenu then
+            entryCreation.PlayStyleDropdown:GenerateMenu()
+        end
+    end
+
+    -- 2. Automatically enable Mythic+ Keystone (Difficulty)
+    local currActivityID = entryCreation.selectedActivity
+    local currActivityInfo = currActivityID and C_LFGList.GetActivityInfoTable(currActivityID)
+    local groupID = entryCreation.selectedGroup or (currActivityInfo and currActivityInfo.groupFinderActivityGroupID)
+
+    if not groupID or groupID == 0 then return end
+
+    -- Avoid overriding manual difficulty choices within the same dungeon
+    if not force and lastAutomatedGroupID == groupID then
+        return
+    end
+    lastAutomatedGroupID = groupID
+
+    if currActivityInfo and currActivityInfo.isMythicPlusActivity then
+        return
+    end
+
+    local activities = C_LFGList.GetAvailableActivities(categoryID, groupID)
+    if activities then
+        local mplusActivityID = nil
+        for _, actID in ipairs(activities) do
+            local actInfo = C_LFGList.GetActivityInfoTable(actID)
+            if actInfo and actInfo.isMythicPlusActivity then
+                mplusActivityID = actID
+                break
+            end
+        end
+
+        if mplusActivityID and mplusActivityID ~= currActivityID then
+            if _G.LFGListEntryCreation_Select and not entryCreation._sfui_selecting_mplus then
+                entryCreation._sfui_selecting_mplus = true
+                _G.LFGListEntryCreation_Select(entryCreation, entryCreation.selectedFilters, categoryID, groupID, mplusActivityID)
+                entryCreation._sfui_selecting_mplus = false
+            end
+        end
+    end
+end
+
+local function init_lfg_dungeon_automation()
+    local lf = _G.LFGListFrame
+    local entryCreation = lf and lf.EntryCreation
+    if not entryCreation or entryCreation._sfui_dungeon_hooked then return end
+    entryCreation._sfui_dungeon_hooked = true
+
+    if _G.LFGListEntryCreation_Show then
+        hooksecurefunc("LFGListEntryCreation_Show", function()
+            lastAutomatedGroupID = nil
+            C_Timer.After(0.05, function()
+                apply_lfg_dungeon_defaults(true)
+            end)
+        end)
+    end
+
+    if _G.LFGListEntryCreation_Clear then
+        hooksecurefunc("LFGListEntryCreation_Clear", function()
+            lastAutomatedGroupID = nil
+        end)
+    end
+
+    if _G.LFGListEntryCreation_Select then
+        hooksecurefunc("LFGListEntryCreation_Select", function(self, filters, categoryID, groupID, activityID)
+            if self._sfui_selecting_mplus then return end
+            apply_lfg_dungeon_defaults(false)
+        end)
+    end
+
+    entryCreation:HookScript("OnShow", function()
+        C_Timer.After(0.05, function()
+            apply_lfg_dungeon_defaults(true)
+        end)
+    end)
+
+    if entryCreation:IsShown() then
+        apply_lfg_dungeon_defaults(true)
+    end
+end
+
 function sfui.automation.initialize()
     setup_lfg_dialog()
     init_keystone_automation()
     init_auction_house_automation()
+    init_lfg_dungeon_automation()
+    if _G.PVEFrame and not _G.PVEFrame._sfui_lfg_hooked then
+        _G.PVEFrame._sfui_lfg_hooked = true
+        _G.PVEFrame:HookScript("OnShow", init_lfg_dungeon_automation)
+    end
 end
 
 sfui.events.RegisterEvent("AUCTION_HOUSE_SHOW", function()
@@ -660,6 +775,10 @@ sfui.events.RegisterEvent("ADDON_LOADED", function(event, addon)
     if addon == "Blizzard_AuctionHouseUI" then
         init_auction_house_automation()
     end
+
+    if addon == "Blizzard_GroupFinder" then
+        init_lfg_dungeon_automation()
+    end
 end)
 
 function sfui.automation_debug_info()
@@ -668,5 +787,6 @@ function sfui.automation_debug_info()
         autoRoleCheck = SfuiDB and SfuiDB.auto_role_check or false,
         autoSignLfg = SfuiDB and SfuiDB.auto_sign_lfg or false,
         skipCinematics = SfuiDB and SfuiDB.skipCinematics or false,
+        autoLfgDungeonDefaults = SfuiDB and SfuiDB.autoLfgDungeonDefaults ~= false,
     }
 end

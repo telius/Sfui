@@ -121,6 +121,10 @@ end)
 sfui.events.RegisterEvent("PLAYER_LOGIN", function(event)
         if sfui.update_pixel_scale then sfui.update_pixel_scale() end
 
+        if sfui.common and sfui.common.hide_blizzard_cooldown_viewers then
+            sfui.common.hide_blizzard_cooldown_viewers()
+        end
+
         if sfui.create_currency_frame then
             sfui.create_currency_frame()
         end
