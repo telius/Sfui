@@ -1290,7 +1290,7 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
         retryCount = retryCount or 0
 
         if item.isUnequip then
-            if retryCount == 0 then
+            if retryCount == 0 and not silent then
                 sfprint(string.format("-> %s (%d) to Empty (2H Weapon)",
                     oldLink or "Item", oldIlvl))
             end
@@ -1304,7 +1304,7 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
         end
 
         -- Print swap details on first attempt of each queued upgrade
-        if retryCount == 0 then
+        if retryCount == 0 and not silent then
             local reason = ""
             if oldLink and oldLink ~= "" then
                 local diff = newIlvl - oldIlvl

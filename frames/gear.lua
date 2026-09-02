@@ -685,6 +685,8 @@ sfui.events.RegisterUnitEvent("PLAYER_FLAGS_CHANGED", "player", function(event, 
     C_Timer.After(delay, _OnPlayerFlagsTimer)
 end)
 
+local lastSpecID = nil
+
 local function doSpecSwap()
     if InCombatLockdown and InCombatLockdown() then return end
     local _, instanceType = GetInstanceInfo()
@@ -692,9 +694,6 @@ local function doSpecSwap()
     local isPvP = (instanceType == "pvp" or instanceType == "arena") or (instanceType == "none" and isWarMode)
 
     sfui.gear.Update(true)
-    if sfui.highest and sfui.highest.EquipHighestILvl then
-        sfui.highest.EquipHighestILvl(isPvP, true)
-    end
 end
 
 local specChangePending = false
@@ -706,7 +705,27 @@ end
 local function handle_spec_change(event, unit)
     if (event == "PLAYER_SPECIALIZATION_CHANGED" or event == "UNIT_SPELLCAST_SUCCEEDED") and unit and unit ~= "player" then return end
     
-    -- Clear validity cache on specialization change
+    local specIdx = GetSpecialization()
+    local specId = specIdx and GetSpecializationInfo(specIdx)
+    if not specId or specId == 0 then return end
+
+    -- On initial login or reload, record the current spec and avoid triggering a spec swap
+    if not lastSpecID then
+        lastSpecID = specId
+        return
+    end
+
+    -- If talents/traits updated but the specialization itself didn't change:
+    if specId == lastSpecID and (event == "TRAIT_CONFIG_UPDATED" or event == "ACTIVE_TALENT_GROUP_CHANGED") then
+        if SfuiGearManagerFrame and SfuiGearManagerFrame.SelectSpecTab and SfuiGearManagerFrame:IsShown() then
+            SfuiGearManagerFrame:SelectSpecTab(specId)
+        end
+        return
+    end
+
+    lastSpecID = specId
+
+    -- Clear validity cache on true specialization change
     if sfui.highest and sfui.highest.ClearCache then
         sfui.highest.ClearCache()
     end
@@ -715,9 +734,7 @@ local function handle_spec_change(event, unit)
     manualEditUntil = 0
 
     if SfuiGearManagerFrame and SfuiGearManagerFrame.SelectSpecTab then
-        local specIdx = GetSpecialization()
-        local specId = specIdx and GetSpecializationInfo(specIdx)
-        if specId then SfuiGearManagerFrame:SelectSpecTab(specId) end
+        SfuiGearManagerFrame:SelectSpecTab(specId)
     end
 
     if not specChangePending then
@@ -742,10 +759,12 @@ local function _OnZoneChangeTimer()
     end
 end
 
-local function handle_zone_change()
+local function handle_zone_change(event, isLogin, isReload)
     if not zoneUpdateQueue then
         zoneUpdateQueue = true
-        C_Timer.After(0.5, _OnZoneChangeTimer)
+        -- Give inventory and equipment data 2 seconds to settle on initial login or reload
+        local delay = (isLogin or isReload) and 2.0 or 0.5
+        C_Timer.After(delay, _OnZoneChangeTimer)
     end
 end
 sfui.events.RegisterEvent("PLAYER_ENTERING_WORLD", handle_zone_change)
@@ -1465,14 +1484,14 @@ end
 if CharacterFrame then InitToggleHook() end
 
 -- -------------------------------------------------------------------------
--- PAPERDOLL ITEM LOCK (Shift+Right-click)
+-- PAPERDOLL ITEM LOCK (Shift+Left-click)
 -- -------------------------------------------------------------------------
 local function InitPaperDollLockHook()
     if sfui.gear.paperdoll_hooked then return end
     sfui.gear.paperdoll_hooked = true
 
     local function onPaperDollClick(self, button)
-        if button == "RightButton" and IsShiftKeyDown() then
+        if button == "LeftButton" and IsShiftKeyDown() then
             local slot = self:GetID()
             local link = GetInventoryItemLink("player", slot)
             if link then
@@ -1564,6 +1583,9 @@ function sfui.gear.initialize()
             lastEquippedItems[slotID] = link and GetItemInfoInstant(link)
         end
     end
+
+    local specIdx = GetSpecialization()
+    lastSpecID = specIdx and GetSpecializationInfo(specIdx)
 end
 
 function sfui.gear_debug_info()

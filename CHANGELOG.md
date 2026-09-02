@@ -2,6 +2,21 @@
 
 > **Note**: This changelog documents **releases, architectural milestones, features**.
 
+## v12.1.0-24 (2026-09-02)
+
+### Features & Fixes
+- **Player Housing Quest Log Visibility (`common.lua`, `frames/quests.lua`, `frames/mythic.lua`)**:
+  - Added `sfui.common.is_housing_zone()` multi-tier detection supporting Midnight player housing (`C_Housing` API checks and zone/neighborhood name matching for Razorwind Shores, Founder's Point, houses, and plots).
+  - Prevented player housing instances from falsely hiding the quest log or triggering dungeon/scenario HUD takeovers.
+- **Login Gear Equip & Chat Spam Fix (`frames/gear.lua`, `frames/highest.lua`)**:
+  - Tracked `lastSpecID` in `handle_spec_change()` so initial `TRAIT_CONFIG_UPDATED` talent events on login/reload no longer trigger fake spec swaps or forced re-equip cycles.
+  - Settle delay increased to 2 seconds on login/reload (`PLAYER_ENTERING_WORLD`) to allow Blizzard equipment sets and item stats to fully populate from the server.
+  - Added strict `and not silent` guards to item swap prints in `equipNext()` (`frames/highest.lua`), ensuring automated/background updates run 100% silently while preserving manual click feedback.
+- **PaperDoll Slot Locking Shortcut (`frames/gear.lua`)**:
+  - Updated paperdoll item lock toggle to **Shift + Left-Click** (avoiding conflict with Blizzard's Shift + Right-Click item socketing panel).
+
+---
+
 ## v12.1.0-23 (2026-09-02)
 
 ### Combat Hardening & Diagnostics
