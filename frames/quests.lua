@@ -216,6 +216,13 @@ local function HasRaidQuest()
 end
 
 function State:Update()
+    -- Housing zones (Razorwind Shores, Founder's Point, houses, plots, neighborhoods)
+    -- are instanced environments, but must NOT hide the quest log.
+    if common.is_housing_zone and common.is_housing_zone() then
+        self._active = false
+        return
+    end
+
     -- mythic.lua owns the display whenever it is active in an instance (M+, dungeon, delve).
     -- Check this first so we never race against mythic.lua's event registration order.
     if sfui.mythic and sfui.mythic.IsActive and sfui.mythic.IsActive() then

@@ -1873,6 +1873,66 @@ function sfui.common.is_housing_decor(link)
     return false
 end
 
+-- Checks if the player is currently in a Player Housing zone (Razorwind Shores, Founder's Point, houses, plots, neighborhoods)
+function sfui.common.is_housing_zone()
+    -- 1. Official C_Housing APIs (Patch 12.0+)
+    if C_Housing then
+        if C_Housing.IsOnNeighborhoodMap and C_Housing.IsOnNeighborhoodMap() then return true end
+        if C_Housing.IsInsideHouseOrPlot and C_Housing.IsInsideHouseOrPlot() then return true end
+        if C_Housing.IsInsideHouse and C_Housing.IsInsideHouse() then return true end
+        if C_Housing.IsInsidePlot and C_Housing.IsInsidePlot() then return true end
+        if C_Housing.GetCurrentNeighborhoodGUID and C_Housing.GetCurrentNeighborhoodGUID() then return true end
+    end
+    if C_HousingNeighborhood and C_HousingNeighborhood.GetNeighborhoodMapData then
+        local ok, data = pcall(C_HousingNeighborhood.GetNeighborhoodMapData)
+        if ok and data and #data > 0 then return true end
+    end
+
+    -- 2. Instance Info Name check (Razorwind Shores, Founder's Point, etc.)
+    if _G.GetInstanceInfo then
+        local instName = _G.GetInstanceInfo()
+        if instName and instName ~= "" then
+            local lower = instName:lower()
+            if lower:find("razorwind") or lower:find("founder") or lower:find("housing") or lower:find("neighborhood") then
+                return true
+            end
+        end
+    end
+
+    -- 3. Area and Subzone text checks
+    local zone = (_G.GetRealZoneText and _G.GetRealZoneText()) or (_G.GetZoneText and _G.GetZoneText()) or ""
+    if zone ~= "" then
+        local lower = zone:lower()
+        if lower:find("razorwind") or lower:find("founder") or lower:find("housing") or lower:find("neighborhood") then
+            return true
+        end
+    end
+
+    local subzone = (_G.GetSubZoneText and _G.GetSubZoneText()) or (_G.GetMinimapZoneText and _G.GetMinimapZoneText()) or ""
+    if subzone ~= "" then
+        local lower = subzone:lower()
+        if lower:find("razorwind") or lower:find("founder") then
+            return true
+        end
+    end
+
+    -- 4. Map Name check via C_Map
+    if C_Map and C_Map.GetBestMapForUnit then
+        local uiMapID = C_Map.GetBestMapForUnit("player")
+        if uiMapID and C_Map.GetMapInfo then
+            local mapInfo = C_Map.GetMapInfo(uiMapID)
+            if mapInfo and mapInfo.name then
+                local lower = mapInfo.name:lower()
+                if lower:find("razorwind") or lower:find("founder") or lower:find("housing") or lower:find("neighborhood") then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
+
 -- Extracts the item ID from an item link
 -- @param link: Item link string (e.g., "|cff0070dd|Hitem:12345:0:0:0|h[Item Name]|h|r")
 -- @return: Item ID as a number, or nil if not found

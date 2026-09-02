@@ -2730,6 +2730,18 @@ end
 
 local function CheckScenarioState()
     if _isPreview then return end
+
+    if sfui.common and sfui.common.is_housing_zone and sfui.common.is_housing_zone() then
+        if _mode ~= nil then
+            _mode = nil
+            HideHUD()
+            if sfui.questlog and sfui.questlog.on_mythic_end then
+                sfui.questlog.on_mythic_end()
+            end
+        end
+        return
+    end
+
     local isMPlus = false
     if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive then
         isMPlus = C_ChallengeMode.IsChallengeModeActive()
