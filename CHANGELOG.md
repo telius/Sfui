@@ -2,6 +2,31 @@
 
 > **Note**: This changelog documents **releases, architectural milestones, features**.
 
+## v12.1.0-27 (2026-09-03)
+
+### Features & Architecture
+- **World Events Module & Objective Tracker Integration (`frames/worldevents.lua`, `frames/quests.lua`)**:
+  - Implemented a dedicated `worldevents.lua` module querying Blizzard's `C_EventScheduler` and `C_AreaPoiInfo`.
+  - Added native `events` section to the SFUI objective tracker with customizable filters (`show_reminders_only`, `show_ongoing`, `max_upcoming_minutes`, `max_events`).
+  - Added session-cached AreaPOI details resolver with fallback global lookup for regional events.
+  - Interactive click handling on event rows: Left-Click supertracks the event pin and opens the World Map; Right-Click toggles Blizzard calendar reminders.
+  - Formatted objective sublines with zone location and remaining time countdown (`Time remaining: %s`).
+  - Integrated with `sfui.mem` allocation and diagnostics profiler (`/sfui mem`).
+- **Blizzard Cooldown Manager Tracked Bar Discovery (`frames/cdm.lua`, `frames/trackedbars.lua`)**:
+  - Enhanced tracked bar pool discovery to deserialize Blizzard's bar display category (`TrackedBar` / 3) and synchronize tracked spells with custom SFUI tracking bars.
+
+### Performance & Memory Optimizations
+- **Idle Zero-Allocation Hardening (`frames/trackedicons.lua`, `frames/quests.lua`, `frames/worldevents.lua`)**:
+  - **City Hub Widget Absorption**: Gated `UPDATE_UI_WIDGET` and `UPDATE_ALL_UI_WIDGETS` behind `C_Scenario.IsInScenario()`, eliminating redundant quest log rebuilds and GC spikes triggered by city bulletin/work order boards.
+  - **Out-of-Combat Power Guard**: Restricted `UNIT_POWER_UPDATE` handling in `trackedicons` to combat lockdown, eliminating 1-second background churn caused by passive out-of-combat energy/mana regen.
+  - **OOC Aura Throttling**: Increased out-of-combat `UNIT_AURA` event throttle from 1.0s to 5.0s.
+  - **Lazy DurationObject Acquisition**: Delayed `C_Spell.GetSpellCooldownDuration()` calls until a spell is verified on active cooldown (`isActive and not isOnGCD`), stopping temporary DurationObject allocations while idle.
+  - **Spell Charge Caching**: Added `_spellMaxCharges` static cache to bypass `C_Spell.GetSpellCharges` table churn on non-charge abilities.
+  - **Early Visibility Pruning**: Moved visibility filtering to the start of icon updates to avoid querying C-APIs for hidden panels/icons.
+  - **World Events Flat Caching & Redraw Throttling**: Replaced sub-table POI cache with flat lookup arrays and added timer text change detection to reduce Quest Log redraw ticks by >90%.
+
+---
+
 ## v12.1.0-25 (2026-09-02)
 
 ### Architecture & Features

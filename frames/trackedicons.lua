@@ -39,12 +39,14 @@ local _emptyTable = {}
 local _iconCounter = 0
 local _staticActiveEntries = {}
 local _staticActiveIcons = {}
+local _spellMaxCharges = {}
 
 local _iconConfigCache = setmetatable({}, { __mode = "k" })
 function sfui.trackedicons.InvalidateConfigCache()
     for k in pairs(_iconConfigCache) do
         _iconConfigCache[k] = nil
     end
+    wipe(_spellMaxCharges)
 end
 
 -- Helper: Get value from entry → panel → global → hardcoded default (M+ safe)
@@ -231,54 +233,43 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
         local cdInfo = C_Spell.GetSpellCooldown(activeID)
 
         if cdInfo ~= nil then
-            -- 12.0.1 Hotfix: 'SetCooldown' no longer legally accepts Secret Values.
-            -- Addons MUST acquire a DurationObject and pass it to 'SetCooldownFromDurationObject'.
-            if icon.cooldown.SetCooldownFromDurationObject and C_Spell.GetSpellCooldownDuration then
-                -- ignoreGCD=true (12.0.5+): skip GCD-only cooldowns to avoid phantom swipe
-                local durationObj = C_Spell.GetSpellCooldownDuration(activeID, true)
-                if durationObj then
-                    icon.cooldown:SetCooldownFromDurationObject(durationObj)
-                    if icon.shadowCooldown then
-                        icon.shadowCooldown:SetCooldownFromDurationObject(durationObj)
-                    end
-                else
-                    icon.cooldown:Clear()
-                    if icon.shadowCooldown then icon.shadowCooldown:Clear() end
-                end
-            else
-                -- Pre-12.0.1 Legacy Fallback
-                local isEnabled = cdInfo.isEnabled
-                if isEnabled == nil then isEnabled = true end
-                
-                if not (issecretvalue and (issecretvalue(cdInfo.startTime) or issecretvalue(cdInfo.duration))) then
-                    icon.cooldown:SetCooldown(cdInfo.startTime, cdInfo.duration)
-                    if icon.shadowCooldown then
-                        icon.shadowCooldown:SetCooldown(cdInfo.startTime, cdInfo.duration)
-                    end
-                else
-                    icon.cooldown:Clear()
-                    if icon.shadowCooldown then icon.shadowCooldown:Clear() end
-                end
-            end
-
-            -- cdInfo.isActive and cdInfo.isOnGCD are designated "NeverSecret=true" in 12.0.1.
             local isActive = cdInfo.isActive
             local isOnGCD = cdInfo.isOnGCD
-            
-            -- If it's active but it's ONLY a GCD, we treat it as not on cooldown and wipe it.
+
             if isActive and not isOnGCD then
                 isOnCooldown = true
                 icon._secretGCDDropTime = nil
-            elseif isOnGCD then
-                -- It's solely the GCD. Hide the visual swipe.
+                -- 12.0.1 Hotfix: 'SetCooldown' no longer legally accepts Secret Values.
+                -- Addons MUST acquire a DurationObject and pass it to 'SetCooldownFromDurationObject'.
+                if icon.cooldown.SetCooldownFromDurationObject and C_Spell.GetSpellCooldownDuration then
+                    -- ignoreGCD=true (12.0.5+): skip GCD-only cooldowns to avoid phantom swipe
+                    local durationObj = C_Spell.GetSpellCooldownDuration(activeID, true)
+                    if durationObj then
+                        icon.cooldown:SetCooldownFromDurationObject(durationObj)
+                        if icon.shadowCooldown then
+                            icon.shadowCooldown:SetCooldownFromDurationObject(durationObj)
+                        end
+                    else
+                        icon.cooldown:Clear()
+                        if icon.shadowCooldown then icon.shadowCooldown:Clear() end
+                    end
+                else
+                    -- Pre-12.0.1 Legacy Fallback
+                    if not (issecretvalue and (issecretvalue(cdInfo.startTime) or issecretvalue(cdInfo.duration))) then
+                        icon.cooldown:SetCooldown(cdInfo.startTime, cdInfo.duration)
+                        if icon.shadowCooldown then
+                            icon.shadowCooldown:SetCooldown(cdInfo.startTime, cdInfo.duration)
+                        end
+                    else
+                        icon.cooldown:Clear()
+                        if icon.shadowCooldown then icon.shadowCooldown:Clear() end
+                    end
+                end
+            else
                 isOnCooldown = false
                 icon._secretGCDDropTime = nil
                 icon.cooldown:Clear()
                 if icon.shadowCooldown then icon.shadowCooldown:Clear() end
-            else
-                -- Not active at all
-                isOnCooldown = false
-                icon._secretGCDDropTime = nil
             end
 
             -- isEnabled is NeverSecret
@@ -305,9 +296,19 @@ local function UpdateIconCooldown(icon, activeID, resolvedType)
 
         -- 2. Try SpellChargeInfo (CooldownViewer priority for >1 charge spells)
         if IsFallbackNeeded(displayStr) and C_Spell.GetSpellCharges then
-            local ch = C_Spell.GetSpellCharges(activeID)
-            if ch and ch.currentCharges and sfui.common.SafeGT(ch.maxCharges, 1) then
-                displayStr = ch.currentCharges or ""
+            local maxCh = _spellMaxCharges[activeID]
+            if maxCh == nil then
+                local ch = C_Spell.GetSpellCharges(activeID)
+                maxCh = (ch and ch.maxCharges) or 0
+                _spellMaxCharges[activeID] = maxCh
+                if maxCh > 1 and ch.currentCharges then
+                    displayStr = ch.currentCharges or ""
+                end
+            elseif maxCh > 1 then
+                local ch = C_Spell.GetSpellCharges(activeID)
+                if ch and ch.currentCharges then
+                    displayStr = ch.currentCharges or ""
+                end
             end
         end
 
@@ -525,34 +526,48 @@ local function UpdateIconState(icon, panelConfig)
         end
     end
 
+    -- Visibility Decision (Early Exit to skip cooldown/charge C-API calls when hidden)
+    local hideOOC = GetIconValue(nil, panelConfig, "hideOOC", false)
+    local inCombat = InCombatLockdown()
+    if hideOOC and not inCombat then
+        if icon:IsShown() then icon:Hide() end
+        if icon._glowActive then StopGlow(icon) end
+        return false
+    end
+
+    if panelConfig then
+        if panelConfig.visibility == "combat" and not inCombat then
+            if icon:IsShown() then icon:Hide() end
+            if icon._glowActive then StopGlow(icon) end
+            return false
+        elseif panelConfig.visibility == "noCombat" and inCombat then
+            if icon:IsShown() then icon:Hide() end
+            if icon._glowActive then StopGlow(icon) end
+            return false
+        end
+    end
+
+    local hideMounted = GetIconValue(nil, panelConfig, "hideMounted", false)
+    if hideMounted and sfui.common.is_mounted_or_travel_form() then
+        if icon:IsShown() then icon:Hide() end
+        if icon._glowActive then StopGlow(icon) end
+        return false
+    end
+
+    local hideInVehicle = GetIconValue(nil, panelConfig, "hideInVehicle", true)
+    if hideInVehicle and (UnitHasVehicleUI("player") or UnitInVehicle("player")) then
+        if icon:IsShown() then icon:Hide() end
+        if icon._glowActive then StopGlow(icon) end
+        return false
+    end
+
     -- 3. Update Cooldown & Logic
     local count, isReady, isUsable, notEnoughPower, isOnCooldown = UpdateIconCooldown(icon, activeID, resolvedType)
 
-    -- 4. Visibility Decision
-    local shouldShow = true
-
-    -- Visibility overrides
-    local hideOOC = GetIconValue(nil, panelConfig, "hideOOC", false)
-    local hideMounted = GetIconValue(nil, panelConfig, "hideMounted", false)
-    local hideInVehicle = GetIconValue(nil, panelConfig, "hideInVehicle", true)
-
-    if hideOOC and not InCombatLockdown() then shouldShow = false end
-    if hideMounted and sfui.common.is_mounted_or_travel_form() then shouldShow = false end
-    if hideInVehicle and (UnitHasVehicleUI("player") or UnitInVehicle("player")) then shouldShow = false end
-
-    if panelConfig then
-        -- Legacy dropdown support (optional/fallback)
-        if panelConfig.visibility == "combat" and not InCombatLockdown() then shouldShow = false end
-        if panelConfig.visibility == "noCombat" and InCombatLockdown() then shouldShow = false end
+    if not icon:IsShown() then
+        -- Non-protected frames can Show() freely during combat
+        icon:Show()
     end
-
-    local isVisible = shouldShow -- In simple panel mode, all icons are visible holders
-
-    if isVisible then
-        if not icon:IsShown() then
-            -- Non-protected frames can Show() freely during combat
-            icon:Show()
-        end
 
         -- Update Count Text.
         local displayCount = count
@@ -591,15 +606,7 @@ local function UpdateIconState(icon, panelConfig)
 
         -- 6. Update Glows
         UpdateIconGlow(icon, entrySettings, panelConfig, isReady)
-    else
-        -- Icon is not visible - hide it
-        icon:Hide()
-        if icon._glowActive then
-            StopGlow(icon)
-        end
-    end
-
-    return isVisible
+    return true
 end
 
 -- Shared Helper for Texture Resolution
@@ -1506,17 +1513,10 @@ function sfui.trackedicons.initialize()
         _needsStateUpdate = true
     end)
 
-    -- UNIT_POWER_UPDATE covers resource pools (throttled out of combat to avoid mana/energy tick churn)
-    local _lastOOCPowerTime = 0
+    -- UNIT_POWER_UPDATE covers resource pools (only in combat; passive OOC regen does not affect spell cooldowns)
     sfui.events.RegisterUnitEvent("UNIT_POWER_UPDATE", "player", function(event, unit)
         if InCombatLockdown() then
             _needsStateUpdate = true
-        else
-            local now = GetTime()
-            if (now - _lastOOCPowerTime) >= 1.0 then
-                _lastOOCPowerTime = now
-                _needsStateUpdate = true
-            end
         end
     end)
 
@@ -1533,14 +1533,14 @@ function sfui.trackedicons.initialize()
         _needsStateUpdate = true
     end)
 
-    -- 11.0+ C_UnitAuras Event Migration (throttled out of combat to prevent background tick churn)
+    -- 11.0+ C_UnitAuras Event Migration (throttled to 5.0s out of combat to eliminate background aura tick churn)
     local _lastOOCAuraTime = 0
     sfui.events.RegisterUnitEvent("UNIT_AURA", "player", function(event, unit, updateInfo)
         if InCombatLockdown() then
             _needsStateUpdate = true
         else
             local now = GetTime()
-            if (now - _lastOOCAuraTime) >= 1.0 then
+            if (now - _lastOOCAuraTime) >= 5.0 then
                 _lastOOCAuraTime = now
                 _needsStateUpdate = true
             end

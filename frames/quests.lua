@@ -3969,9 +3969,14 @@ local function on_ql_event(event, arg1, arg2)
         or event == "SCENARIO_COMPLETED" or event == "ACTIVE_DELVE_DATA_UPDATE"
         or event == "CRITERIA_UPDATE" or event == "CRITERIA_COMPLETE"
         or event == "QUEST_CRITERIA_UPDATE" or event == "QUEST_POI_UPDATE"
-        or event == "SCENARIO_CRITERIA_PROGRESS_UPDATE" or event == "SCENARIO_STAGE_UPDATE"
-        or event == "UPDATE_UI_WIDGET" or event == "UPDATE_ALL_UI_WIDGETS" then
+        or event == "SCENARIO_CRITERIA_PROGRESS_UPDATE" or event == "SCENARIO_STAGE_UPDATE" then
         CheckVisibilityAndRefresh()
+
+    elseif event == "UPDATE_UI_WIDGET" or event == "UPDATE_ALL_UI_WIDGETS" then
+        local C_Sc = _G.C_Scenario
+        if C_Sc and C_Sc.IsInScenario and C_Sc.IsInScenario() then
+            CheckVisibilityAndRefresh()
+        end
 
     elseif event == "QUEST_AUTOCOMPLETE" then
         local qID = arg1
