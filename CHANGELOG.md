@@ -2,6 +2,22 @@
 
 > **Note**: This changelog documents **releases, architectural milestones, features**.
 
+## v12.1.0-28 (2026-09-03)
+
+### Architectural Refactoring & Modularization
+- **Modular Split of Quest Log Tracker (`frames/quests.lua`, `frames/quests/scenarios.lua`, `frames/quests/providers.lua`)**:
+  - Decomposed the 4,105-line monolithic `frames/quests.lua` tracker into dedicated, decoupled modules:
+    - **`frames/quests/scenarios.lua`** (821 lines): Encapsulates outdoor world event scenario scanning (`C_Scenario`) and UI widget parsing (`C_UIWidgetManager` types A through P). Strictly skips Delves/M+/Raids (handled by `mythic.lua`).
+    - **`frames/quests/providers.lua`** (853 lines): Encapsulates quest classification (`ClassifyQuest`), achievement scanning, Traveler's Log / Housing Initiatives / Recipe tracking, auto-quest pop-ups, `BuildQuestEntry`, `QuestHasProgress`, and progress cache invalidation logic.
+    - **`frames/quests.lua`** (2,580 lines, ~37% reduction): Focused coordinator managing UI frame anchoring, zero-allocation table and row pooling, rendering pipeline, mouse interactions, header collapsing, and event dispatch.
+  - **Zero-Allocation Architecture Preserved**:
+    - Sub-modules take `AcquireTable` and `ReleaseTable` callbacks directly from the coordinator's table pool, avoiding local pool allocation overhead and GC churn.
+    - Call sites in `CollectTrackedQuests` use file-scoped local aliases for zero-overhead loop execution.
+  - **Diagnostic Metrics Integration**:
+    - Centralized cache counts via `sfui.questlog.providers.GetCacheCounts()` and integrated with `sfui.questlog_debug_info()` for `/sfui mem`.
+
+---
+
 ## v12.1.0-27 (2026-09-03)
 
 ### Features & Architecture
