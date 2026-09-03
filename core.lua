@@ -57,6 +57,7 @@ sfui.events.RegisterEvent("ADDON_LOADED", function(_, name)
         SfuiDB.items = SfuiDB.items or {}
         SfuiDB.mythicBestTimes = SfuiDB.mythicBestTimes or {}
         SfuiDB.lootspec = SfuiDB.lootspec or {}
+        SfuiDB.worldevents = SfuiDB.worldevents or {}
 
         SfuiDecorDB = SfuiDecorDB or {}
         SfuiDecorDB.items = SfuiDecorDB.items or {}

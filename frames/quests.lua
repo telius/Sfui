@@ -120,6 +120,7 @@ local C = {
 -- Section definitions (display order)
 local SECTION_DEFS = qcfg.sections or {
     { id = "scenario",     label = "world event",      color = { 1.00, 0.60, 0.10 } },
+    { id = "events",       label = "events",           color = { 0.90, 0.45, 0.90 } },
     { id = "important",    label = "important",        color = { 1.00, 0.40, 0.35 } },
     { id = "campaign",     label = "campaign",         color = { 0.90, 0.75, 0.10 } },
     { id = "meta",         label = "meta",             color = { 0.00, 1.00, 1.00 } },
@@ -410,6 +411,7 @@ end
 -- Static section lists to eliminate table allocation on refresh
 local sectionLists = {
     scenario     = {},
+    events       = {},
     world        = {},
     campaign     = {},
     meta         = {},
@@ -421,6 +423,7 @@ local sectionLists = {
 
 local renderedSectionQuests = {
     scenario     = {},
+    events       = {},
     world        = {},
     campaign     = {},
     meta         = {},
@@ -1317,48 +1320,41 @@ local function AcquireRow()
         fs:SetWordWrap(false)
         row.TitleFS = fs
 
-        -- Find Group Eye Button (Right edge)
-        local findGroupBtn
-        local hasTemplate = (C_XMLUtil and C_XMLUtil.GetTemplateInfo and C_XMLUtil.GetTemplateInfo("QuestObjectiveFindGroupButtonTemplate")) ~= nil
-        if hasTemplate then
-            findGroupBtn = CreateFrame("Button", nil, row, "QuestObjectiveFindGroupButtonTemplate")
-        end
-        if not findGroupBtn then
-            findGroupBtn = CreateFrame("Button", nil, row)
-            local eyeIcon = findGroupBtn:CreateTexture(nil, "ARTWORK")
-            eyeIcon:SetSize(14, 14)
-            eyeIcon:SetPoint("CENTER", findGroupBtn, "CENTER", 0, 0)
-            eyeIcon:SetAtlas("socialqueuing-icon-eye")
-            eyeIcon:SetVertexColor(0.85, 0.85, 0.85, 0.85)
-            findGroupBtn.EyeIcon = eyeIcon
+        -- Find Group Eye Button (Right edge) - 100% custom non-tainting button
+        local findGroupBtn = CreateFrame("Button", nil, row)
+        local eyeIcon = findGroupBtn:CreateTexture(nil, "ARTWORK")
+        eyeIcon:SetSize(14, 14)
+        eyeIcon:SetPoint("CENTER", findGroupBtn, "CENTER", 0, 0)
+        eyeIcon:SetAtlas("socialqueuing-icon-eye")
+        eyeIcon:SetVertexColor(0.85, 0.85, 0.85, 0.85)
+        findGroupBtn.EyeIcon = eyeIcon
 
-            findGroupBtn:SetScript("OnClick", function(btn)
-                if InCombat() then return end
-                local qID = btn:GetAttribute("questID") or row.questID
-                if qID and _G.LFGListUtil_FindQuestGroup then
-                    C_Timer.After(0, function()
-                        if not InCombat() and _G.LFGListUtil_FindQuestGroup and qID then
-                            _G.LFGListUtil_FindQuestGroup(qID, true)
-                        end
-                    end)
-                end
-            end)
-        else
-            if findGroupBtn.Icon then
-                findGroupBtn.Icon:SetSize(14, 14)
-                findGroupBtn.Icon:ClearAllPoints()
-                findGroupBtn.Icon:SetPoint("CENTER", findGroupBtn, "CENTER", 0, 0)
+        findGroupBtn:SetScript("OnEnter", function(btn)
+            eyeIcon:SetVertexColor(1, 1, 1, 1)
+            SfuiQuestTooltip:SetOwner(btn, "ANCHOR_RIGHT")
+            SfuiQuestTooltip:ClearLines()
+            SfuiQuestTooltip:AddLine(TOOLTIP_TRACKER_FIND_GROUP_BUTTON or "Find Group", 1, 1, 1)
+            if row.questTitle then
+                SfuiQuestTooltip:AddLine(row.questTitle, 0.20, 0.85, 0.95)
             end
-            if findGroupBtn.GetNormalTexture and findGroupBtn:GetNormalTexture() then
-                findGroupBtn:GetNormalTexture():SetAlpha(0)
+            SfuiQuestTooltip:AddLine("Click to search for or create a group in Group Finder.", 0.7, 0.7, 0.7, true)
+            SfuiQuestTooltip:Show()
+        end)
+        findGroupBtn:SetScript("OnLeave", function(btn)
+            eyeIcon:SetVertexColor(0.85, 0.85, 0.85, 0.85)
+            SfuiQuestTooltip:Hide()
+        end)
+        findGroupBtn:SetScript("OnClick", function(btn)
+            if InCombat() then return end
+            local qID = btn.questID or row.questID
+            if qID and _G.LFGListUtil_FindQuestGroup then
+                C_Timer.After(0, function()
+                    if not InCombat() and _G.LFGListUtil_FindQuestGroup and qID then
+                        _G.LFGListUtil_FindQuestGroup(qID, true)
+                    end
+                end)
             end
-            if findGroupBtn.GetPushedTexture and findGroupBtn:GetPushedTexture() then
-                findGroupBtn:GetPushedTexture():SetAlpha(0)
-            end
-            if findGroupBtn.GetHighlightTexture and findGroupBtn:GetHighlightTexture() then
-                findGroupBtn:GetHighlightTexture():SetAlpha(0)
-            end
-        end
+        end)
 
         findGroupBtn:SetSize(18, 18)
         findGroupBtn:SetPoint("RIGHT", row, "RIGHT", -2, 0)
@@ -1482,6 +1478,26 @@ local function AcquireRow()
                 SfuiQuestTooltip:SetOwner(s, "ANCHOR_LEFT")
                 SfuiQuestTooltip:ClearLines()
 
+                if s.isWorldEvent then
+                    local r, g, b = 0.90, 0.45, 0.90
+                    if s.isOngoing then r, g, b = 1.00, 0.75, 0.10 end
+                    SfuiQuestTooltip:AddLine(s.questTitle or "World Event", r, g, b)
+                    if s.zoneName and s.zoneName ~= "" then
+                        SfuiQuestTooltip:AddLine(s.zoneName, 0.85, 0.85, 0.85)
+                    end
+                    if s.timeLeftText then
+                        SfuiQuestTooltip:AddLine(s.timeLeftText, 0.20, 0.85, 0.95)
+                    end
+                    if s.hasReminder then
+                        SfuiQuestTooltip:AddLine("Event Reminder: ACTIVE", 0.0, 1.0, 0.8)
+                    end
+                    SfuiQuestTooltip:AddLine(" ")
+                    SfuiQuestTooltip:AddLine("|cff888888Left-click: Track & Show on Map|r", 1, 1, 1)
+                    SfuiQuestTooltip:AddLine("|cff888888Right-click: Toggle Reminder|r", 1, 1, 1)
+                    SfuiQuestTooltip:Show()
+                    return
+                end
+
                 if s.isScenario or s.questID == -1 then
                     SfuiQuestTooltip:AddLine(s.questTitle or "World Event", 1.00, 0.60, 0.10)
                     SfuiQuestTooltip:AddLine("Active World Event / Scenario", 0.85, 0.85, 0.85)
@@ -1543,6 +1559,42 @@ local function AcquireRow()
             SfuiQuestTooltip:Hide()
         end)
         row:SetScript("OnClick", function(s, btn)
+            if s.isWorldEvent and s.areaPoiID then
+                if btn == "RightButton" then
+                    if s.eventKey and C_EventScheduler then
+                        if s.hasReminder then
+                            if C_EventScheduler.ClearReminder then
+                                C_EventScheduler.ClearReminder(s.eventKey)
+                            end
+                        else
+                            if C_EventScheduler.SetReminder then
+                                C_EventScheduler.SetReminder(s.eventKey)
+                            end
+                        end
+                    end
+                    if sfui.worldevents and sfui.worldevents.RequestUpdate then
+                        sfui.worldevents.RequestUpdate()
+                    else
+                        Refresh:Request()
+                    end
+                    return
+                end
+
+                if C_SuperTrack and C_SuperTrack.SetSuperTrackedMapPin and Enum.SuperTrackingMapPinType and Enum.SuperTrackingMapPinType.AreaPOI then
+                    local _, curPoiID = C_SuperTrack.GetSuperTrackedMapPin(Enum.SuperTrackingMapPinType.AreaPOI)
+                    if curPoiID == s.areaPoiID then
+                        C_SuperTrack.ClearSuperTrackedMapPin(Enum.SuperTrackingMapPinType.AreaPOI)
+                    else
+                        C_SuperTrack.SetSuperTrackedMapPin(Enum.SuperTrackingMapPinType.AreaPOI, s.areaPoiID)
+                        if not InCombat() and _G.OpenMapToEventPoi then
+                            _G.OpenMapToEventPoi(s.areaPoiID)
+                        end
+                    end
+                    Refresh:Request()
+                end
+                return
+            end
+
             if s.isAchievement and s.achievementID then
                 local IsShiftKeyDown = _G.IsShiftKeyDown
                 if IsShiftKeyDown and IsShiftKeyDown() then
@@ -2484,11 +2536,26 @@ local function ScanWorldEventScenario(list)
                     end
                     sObj.text = timeTag and (cleanDesc .. " " .. timeTag) or cleanDesc
                     sObj.type = "progressbar"
-                    sObj.numFulfilled = info.quantity or 0
+
+                    local cur = info.quantity or 0
+                    local totalQ = (info.totalQuantity and not issecretvalue(info.totalQuantity) and info.totalQuantity > 0) and info.totalQuantity or 100
+                    local pct = 0
+                    if totalQ == 1000 then
+                        pct = math_min(100, math_max(0, math_floor(cur / 10)))
+                    elseif totalQ == 10000 then
+                        pct = math_min(100, math_max(0, math_floor(cur / 100)))
+                    elseif totalQ > 0 then
+                        pct = math_min(100, math_max(0, math_floor((cur / totalQ) * 100)))
+                    end
+
+                    sObj.numFulfilled = pct
                     sObj.numRequired = 100
-                    sObj.barText = (info.quantityString and not issecretvalue(info.quantityString) and info.quantityString)
-                                or (not issecretvalue(info.quantity) and (tostring(info.quantity) .. "%"))
-                                or nil
+
+                    local barTxt = (info.quantityString and not issecretvalue(info.quantityString) and not info.quantityString:find("%d%d%d%d%%") and not info.quantityString:find("1000%%") and info.quantityString)
+                    if not barTxt or barTxt == "" then
+                        barTxt = tostring(pct) .. "%"
+                    end
+                    sObj.barText = barTxt
                     sObj.finished = isComp
                 elseif info.quantity and info.totalQuantity and not issecretvalue(info.totalQuantity) and info.totalQuantity > 1 then
                     local cleanDesc = desc
@@ -2943,11 +3010,26 @@ local function ScanWorldEventScenario(list)
                                     end
                                     bObj.text = cleanDesc
                                     bObj.type = "progressbar"
-                                    bObj.numFulfilled = cInfo.quantity or 0
-                                    bObj.numRequired = cInfo.totalQuantity or 100
-                                    bObj.barText = (cInfo.quantityString and not issecretvalue(cInfo.quantityString) and cInfo.quantityString)
-                                                or (not issecretvalue(cInfo.quantity) and (tostring(cInfo.quantity) .. "%"))
-                                                or nil
+
+                                    local cur = cInfo.quantity or 0
+                                    local totalQ = (cInfo.totalQuantity and not issecretvalue(cInfo.totalQuantity) and cInfo.totalQuantity > 0) and cInfo.totalQuantity or 100
+                                    local pct = 0
+                                    if totalQ == 1000 then
+                                        pct = math_min(100, math_max(0, math_floor(cur / 10)))
+                                    elseif totalQ == 10000 then
+                                        pct = math_min(100, math_max(0, math_floor(cur / 100)))
+                                    elseif totalQ > 0 then
+                                        pct = math_min(100, math_max(0, math_floor((cur / totalQ) * 100)))
+                                    end
+
+                                    bObj.numFulfilled = pct
+                                    bObj.numRequired = 100
+
+                                    local barTxt = (cInfo.quantityString and not issecretvalue(cInfo.quantityString) and not cInfo.quantityString:find("%d%d%d%d%%") and not cInfo.quantityString:find("1000%%") and cInfo.quantityString)
+                                    if not barTxt or barTxt == "" then
+                                        barTxt = tostring(pct) .. "%"
+                                    end
+                                    bObj.barText = barTxt
                                     bObj.finished = isComp
                                 elseif cInfo.quantity and cInfo.totalQuantity and not issecretvalue(cInfo.totalQuantity) and cInfo.totalQuantity > 1 then
                                     local cleanDesc = cDesc
@@ -3035,6 +3117,11 @@ local function CollectTrackedQuests(superTracked)
     -- 0. Active Outdoor World Event / Scenario (skipped in raids)
     if not inRaid and sectionLists["scenario"] then
         ScanWorldEventScenario(sectionLists["scenario"])
+    end
+
+    -- 0b. Scheduled & Ongoing World Events (Event Scheduler)
+    if not inRaid and sectionLists["events"] and sfui.worldevents and sfui.worldevents.is_enabled and sfui.worldevents.is_enabled() then
+        sfui.worldevents.ScanEvents(sectionLists["events"], AcquireTable)
     end
 
     -- 1. Active local-area tasks & bonus objectives in player's immediate area (GetTasksTable)
@@ -3140,6 +3227,11 @@ end
 -- ─────────────────────────────────────────────────────────
 local function RenderSections(state, superTracked)
     local y = 0
+    local superTrackedPOI = 0
+    if C_SuperTrack and C_SuperTrack.GetSuperTrackedMapPin and Enum.SuperTrackingMapPinType and Enum.SuperTrackingMapPinType.AreaPOI then
+        local _, pID = C_SuperTrack.GetSuperTrackedMapPin(Enum.SuperTrackingMapPinType.AreaPOI)
+        superTrackedPOI = pID or 0
+    end
 
     for _, def in ipairs(SECTION_DEFS) do
         local hdr  = sectionHdrs[def.id]
@@ -3177,6 +3269,7 @@ local function RenderSections(state, superTracked)
                     row:ClearAllPoints()
                     row:SetPoint("TOPLEFT",  content, "TOPLEFT",  0, -y)
                     row:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -y)
+                    row:Show()
                     row:SetHeight(QUEST_H)
                     row.questID            = entry.questID
                     row.achievementID      = entry.achievementID
@@ -3202,9 +3295,15 @@ local function RenderSections(state, superTracked)
                     row.isComplete         = entry.isComplete
                     row.canFindGroup       = entry.canFindGroup
                     row.isScenario         = entry.isScenario
+                    row.isWorldEvent       = entry.isWorldEvent
+                    row.eventKey           = entry.eventKey
+                    row.areaPoiID          = entry.areaPoiID
+                    row.zoneName           = entry.zoneName
+                    row.hasReminder        = entry.hasReminder
+                    row.isOngoing          = entry.isOngoing
 
                     if entry.canFindGroup then
-                        row.FindGroupBtn:SetAttribute("questID", entry.questID)
+                        row.FindGroupBtn.questID = entry.questID
                         row.FindGroupBtn:ClearAllPoints()
                         row.FindGroupBtn:SetPoint("RIGHT", row, "RIGHT", -2, 0)
                         row.FindGroupBtn:Show()
@@ -3303,6 +3402,11 @@ local function RenderSections(state, superTracked)
                     elseif entry.isScenario then
                         local scTimeTag = (entry.timeLeftText) and (" " .. C.TIME .. "[" .. entry.timeLeftText .. "]" .. C.RESET) or ""
                         titleStr = "|cffffaa00" .. rawTitle .. C.RESET .. scTimeTag
+                    elseif entry.isWorldEvent then
+                        local evColor = entry.isOngoing and "|cffffcc00" or "|cffe0a0ff"
+                        local timeCol = entry.isOngoing and "|cff00ff88" or C.TIME
+                        local evTimeTag = (entry.timeLeftText) and (" " .. timeCol .. "[" .. entry.timeLeftText .. "]" .. C.RESET) or ""
+                        titleStr = evColor .. rawTitle .. C.RESET .. evTimeTag
                     elseif entry.isFailed then
                         titleStr = C.FAILED .. rawTitle .. C.RESET .. timeTag
                     elseif entry.isComplete and entry.isAutoTurnIn then
@@ -3356,6 +3460,10 @@ local function RenderSections(state, superTracked)
                         local key = "rec_" .. tostring(entry.recipeID) .. (entry.isRecraft and "_r" or "")
                         isQuestExpanded = state.expandedQuests and state.expandedQuests[key]
                         if isQuestExpanded == nil then isQuestExpanded = true end
+                    elseif entry.isWorldEvent then
+                        local key = "we_" .. tostring(entry.eventKey or entry.areaPoiID)
+                        isQuestExpanded = state.expandedQuests and state.expandedQuests[key]
+                        if isQuestExpanded == nil then isQuestExpanded = true end
                     else
                         isQuestExpanded = state.expandedQuests and state.expandedQuests[entry.questID]
                         if isQuestExpanded == nil and entry.isScenario then
@@ -3401,14 +3509,31 @@ local function RenderSections(state, superTracked)
                                     end
 
                                     orow.Bar:Show()
-                                    local maxVal = 100
-                                    if obj.type ~= "progressbar" and obj.numRequired and not issecretvalue(obj.numRequired) and obj.numRequired > 1 then
-                                        maxVal = obj.numRequired
-                                    end
+                                    local maxVal = obj.numRequired or 100
+                                    if issecretvalue(maxVal) or maxVal <= 0 then maxVal = 100 end
                                     local curVal = obj.numFulfilled or 0
-                                    if (obj.type == "progressbar" or isBar) and curVal > 100 and curVal <= 10000 then
+                                    if issecretvalue(curVal) or curVal < 0 then curVal = 0 end
+
+                                    -- Handle fixed-point 1000 (tenths of a %) or 10000 (hundredths of a %)
+                                    if maxVal == 1000 then
+                                        curVal = math_floor(curVal / 10)
+                                        maxVal = 100
+                                    elseif maxVal == 10000 then
                                         curVal = math_floor(curVal / 100)
+                                        maxVal = 100
+                                    elseif obj.type == "progressbar" or isBar then
+                                        if maxVal == 100 and curVal > 100 then
+                                            if curVal <= 1000 then
+                                                curVal = math_floor(curVal / 10)
+                                            elseif curVal <= 10000 then
+                                                curVal = math_floor(curVal / 100)
+                                            else
+                                                curVal = 100
+                                            end
+                                        end
                                     end
+                                    curVal = math_min(maxVal, math_max(0, curVal))
+
                                     orow.Bar:SetMinMaxValues(0, maxVal)
                                     orow.Bar:SetValue(curVal)
 
@@ -3419,21 +3544,22 @@ local function RenderSections(state, superTracked)
                                     orow.Bar:SetStatusBarColor(r * 0.75, g * 0.75, b * 0.75, 0.80)
 
                                     local barTxt = obj.barText
-                                    if not barTxt or barTxt == "" then
-                                        if obj.numFulfilled and not issecretvalue(obj.numFulfilled) then
-                                            local n = obj.numFulfilled
-                                            if (obj.type == "progressbar" or isBar) and n > 100 and n <= 10000 then
-                                                n = math_floor(n / 100)
-                                            end
-                                            if obj.numRequired and not issecretvalue(obj.numRequired) and obj.numRequired == 100 then
-                                                barTxt = tostring(n) .. "%"
-                                            elseif obj.numRequired and not issecretvalue(obj.numRequired) and obj.numRequired > 1 then
-                                                barTxt = tostring(n) .. "/" .. tostring(obj.numRequired)
-                                            else
-                                                barTxt = tostring(n) .. "%"
-                                            end
+                                    local isHighPct = false
+                                    if barTxt and type(barTxt) == "string" then
+                                        local pctNum = barTxt:match("(%d+)%%")
+                                        if pctNum and tonumber(pctNum) > 100 then
+                                            isHighPct = true
+                                        end
+                                    end
+
+                                    if not barTxt or barTxt == "" or isHighPct then
+                                        if maxVal == 100 or obj.type == "progressbar" or isBar then
+                                            local pct = (maxVal > 0) and math_floor((curVal / maxVal) * 100) or 0
+                                            barTxt = tostring(math_min(100, math_max(0, pct))) .. "%"
+                                        elseif maxVal > 1 then
+                                            barTxt = tostring(curVal) .. "/" .. tostring(maxVal)
                                         else
-                                            barTxt = "0%"
+                                            barTxt = tostring(curVal) .. "%"
                                         end
                                     end
                                     local barFS = orow.BarFS or (orow.Bar and orow.Bar.CenterFS)
@@ -3633,6 +3759,10 @@ function sfui.questlog.unhide_all()
     if state.hiddenQuests then
         wipe(state.hiddenQuests)
     end
+    Refresh:Request()
+end
+
+function sfui.questlog.RequestRefresh()
     Refresh:Request()
 end
 
@@ -3912,6 +4042,7 @@ Reg("CHALLENGE_MODE_START")
 Reg("CHALLENGE_MODE_COMPLETED")
 Reg("CHALLENGE_MODE_RESET")
 Reg("SUPER_TRACKING_CHANGED")
+Reg("EVENT_SCHEDULER_UPDATE")
 Reg("PLAYER_ENTERING_WORLD")
 
 -- Quest log and task updates fire in micro-bursts during quest acceptance/turn-in.

@@ -1074,6 +1074,12 @@ local function ProcessBlizzardSync()
                     isValidTrackedBar = true
                 elseif info and Enum and Enum.CooldownViewerCategory and info.category == Enum.CooldownViewerCategory.TrackedBar then
                     isValidTrackedBar = true
+                elseif CooldownViewerSettings and CooldownViewerSettings.GetDataProvider then
+                    local dp = CooldownViewerSettings:GetDataProvider()
+                    local dpInfo = dp and dp:GetCooldownInfoForID(id)
+                    if dpInfo and (dpInfo.category == 3 or (Enum and Enum.CooldownViewerCategory and dpInfo.category == Enum.CooldownViewerCategory.TrackedBar)) then
+                        isValidTrackedBar = true
+                    end
                 end
 
                 if isValidTrackedBar then

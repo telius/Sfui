@@ -52,6 +52,7 @@ stats.lua
 frames/gear.lua
 frames/lootspec.lua
 frames/highest.lua
+frames/worldevents.lua
 frames/quests.lua
 frames/mythic.lua
 frames/mem.lua

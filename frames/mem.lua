@@ -114,6 +114,21 @@ function sfui.mem.GetModuleStats()
     end
     stats["trackedicons"] = tiStats
 
+    -- World Events Module
+    local weStats = {
+        name = "world events",
+        status = "|cff888888idle|r",
+        line1 = "events: 0 active • reminders: 0",
+        line2 = "pools: 0 tables • caches: 0",
+    }
+    if sfui.worldevents_debug_info then
+        local w = sfui.worldevents_debug_info()
+        weStats.status = (w.activeEvents or 0) > 0 and "|cff00ff88active|r" or "|cff888888idle|r"
+        weStats.line1 = string_format("events: %d active • reminders: %d", w.activeEvents or 0, w.reminders or 0)
+        weStats.line2 = string_format("pools: %d tables • dirty=%s", w.tablePool or 0, w.isDirty and "yes" or "no")
+    end
+    stats["worldevents"] = weStats
+
     -- Unit Bars Module
     local barsStats = {
         name = "unit health & power",

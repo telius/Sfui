@@ -2385,14 +2385,28 @@ function sfui.alts.initialize()
 
     sfui.events.RegisterEvent("QUEST_TURNED_IN", function(_, questID)
         -- Track per-character completion of warband pool quests.
-        if questID then
-            for _, pID in ipairs(LEGENDS_POOL) do
-                if questID == pID then
+        if questID and sfui.season and sfui.season.WEEKLY_QUESTS then
+            for _, def in ipairs(sfui.season.WEEKLY_QUESTS) do
+                local match = false
+                if def.questID and def.questID == questID then
+                    match = true
+                elseif def.wrapperID and def.wrapperID == questID then
+                    match = true
+                elseif def.pool then
+                    for _, pID in ipairs(def.pool) do
+                        if pID == questID then
+                            match = true
+                            break
+                        end
+                    end
+                end
+
+                if match and def.skipFlagCheck then
                     local guid = GetCurrentCharacterGUID()
-                    if guid and SfuiDB.alts[guid] then
+                    if guid and SfuiDB and SfuiDB.alts and SfuiDB.alts[guid] then
                         SfuiDB.alts[guid].quests = SfuiDB.alts[guid].quests or {}
-                        SfuiDB.alts[guid].quests.legends = SfuiDB.alts[guid].quests.legends or {}
-                        SfuiDB.alts[guid].quests.legends.completed = true
+                        SfuiDB.alts[guid].quests[def.key] = SfuiDB.alts[guid].quests[def.key] or {}
+                        SfuiDB.alts[guid].quests[def.key].completed = true
                     end
                     break
                 end

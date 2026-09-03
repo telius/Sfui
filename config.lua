@@ -617,6 +617,15 @@ sfui.config = {
         },
     },
 
+    worldevents = {
+        enabled              = true,
+        show_reminders_only  = true, -- only show events where a reminder is set
+        show_ongoing         = false,
+        max_upcoming_minutes = 60,
+        max_events           = 5,
+        show_time_left       = true,
+    },
+
     questlog = {
         enabled = true,
         width = 280,
@@ -628,6 +637,7 @@ sfui.config = {
         defaultHidden = false,
         sections = {
             { id = "scenario",     label = "world event",  color = { 1.00, 0.60, 0.10 } },
+            { id = "events",       label = "events",       color = { 0.90, 0.45, 0.90 } },
             { id = "important",    label = "important",    color = { 1.00, 0.40, 0.35 } },
             { id = "campaign",     label = "campaign",     color = { 0.90, 0.75, 0.10 } },
             { id = "meta",         label = "meta",         color = { 0.00, 1.00, 1.00 } },

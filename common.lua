@@ -2079,21 +2079,13 @@ function sfui.common.hide_blizzard_cooldown_viewers()
         buffViewer:SetAlpha(1)
         buffViewer._sfui_setting_alpha = false
         buffViewer:EnableMouse(true)
-        buffViewer.ignoreFramePositionManager = nil
     end
-
-    local bmfc = GetBottomManagedFrameContainer and GetBottomManagedFrameContainer()
 
     for _, viewerName in ipairs(viewers) do
         local viewer = _G[viewerName]
         if viewer then
             viewer:SetAlpha(0)
             viewer:EnableMouse(false)
-            viewer.ignoreFramePositionManager = true
-
-            if bmfc and bmfc.showingFrames then
-                bmfc.showingFrames[viewer] = nil
-            end
 
             if not viewer._sfui_alpha_hooked then
                 viewer._sfui_alpha_hooked = true
@@ -2124,14 +2116,6 @@ function sfui.common.hide_blizzard_cooldown_viewers()
         end
     end
 
-    -- Prevent BottomManagedFrameContainer from animating CDM frames back to alpha 1
-    if bmfc and not bmfc._sfui_anim_hooked and bmfc.AnimInManagedFrames then
-        bmfc._sfui_anim_hooked = true
-        hooksecurefunc(bmfc, "AnimInManagedFrames", function()
-            sfui.common.hide_blizzard_cooldown_viewers()
-        end)
-    end
-
     if not cooldownViewersInitialized then
         cooldownViewersInitialized = true
 
@@ -2147,12 +2131,9 @@ function sfui.common.hide_blizzard_cooldown_viewers()
             end)
         end
 
-        -- Blizzard EventRegistry callbacks
+        -- Blizzard EventRegistry callbacks (strictly non-panel events)
         if EventRegistry and EventRegistry.RegisterCallback then
             EventRegistry:RegisterCallback("CinematicFrame.CinematicStopped", function()
-                sfui.common.hide_blizzard_cooldown_viewers()
-            end)
-            EventRegistry:RegisterCallback("UI.TopLevelParentShown", function()
                 sfui.common.hide_blizzard_cooldown_viewers()
             end)
             EventRegistry:RegisterCallback("EditMode.Exit", function()

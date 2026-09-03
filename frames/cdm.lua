@@ -105,12 +105,9 @@ local function OnZoneIconClick(self, button)
 
         if entries[cdID] then
             entries[cdID] = nil
-            if dataProvider and EnumCats then
-                dataProvider:SetCooldownToCategory(cdID, EnumCats.HiddenAura or -2)
-            end
         else
             entries[cdID] = { id = cdID, type = "cooldown", cooldownID = cdID }
-            if dataProvider and EnumCats then
+            if dataProvider then
                 dataProvider:SetCooldownToCategory(cdID, 3)
             end
         end
@@ -458,19 +455,77 @@ local function RenderTrackedBarsRightSide(parent, width)
         parent._poolTitle = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         parent._poolTitle:SetPoint("TOPLEFT", 0, -5)
     end
-    parent._poolTitle:SetText("Tracked Bars Pool (3)")
+    parent._poolTitle:SetText("Tracked Bars Pool")
     parent._poolTitle:Show()
 
     local yPos = -25
+
+    -- Ensure Blizzard_CooldownViewer is loaded so CooldownViewerSettings data provider is accessible
+    if not C_AddOns.IsAddOnLoaded("Blizzard_CooldownViewer") and C_AddOns.LoadAddOn then
+        pcall(C_AddOns.LoadAddOn, "Blizzard_CooldownViewer")
+    end
+
+    local cat = (Enum and Enum.CooldownViewerCategory and Enum.CooldownViewerCategory.TrackedBar) or 3
     local list = {}
-    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
-        local cat = (Enum and Enum.CooldownViewerCategory and Enum.CooldownViewerCategory.TrackedBar) or 3
-        local ok, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, true)
-        if ok and ids then
-            for _, id in ipairs(ids) do
-                if not common.issecretvalue(id) and IsValidID(id) then
-                    table.insert(list, id)
+    local seen = {}
+
+    local function addID(id)
+        if id and not common.issecretvalue(id) and IsValidID(id) and not seen[id] then
+            seen[id] = true
+            table.insert(list, id)
+        end
+    end
+
+    -- 1. CooldownViewerSettings DataProvider (where user custom bar assignments live in Blizzard UI)
+    local dp = CooldownViewerSettings and CooldownViewerSettings.GetDataProvider and CooldownViewerSettings:GetDataProvider()
+    if dp then
+        -- Query category list (allow unlearned so player can configure any bar assigned in Blizzard UI)
+        if dp.GetOrderedCooldownIDsForCategory then
+            local ok, ids = pcall(dp.GetOrderedCooldownIDsForCategory, dp, cat, true)
+            if ok and ids then
+                for _, id in ipairs(ids) do addID(id) end
+            end
+        end
+
+        -- Scan all ordered cooldown IDs in case category was updated in the layout
+        if dp.GetOrderedCooldownIDs and dp.GetCooldownInfoForID then
+            local ok, allIDs = pcall(dp.GetOrderedCooldownIDs, dp)
+            if ok and allIDs then
+                for _, id in ipairs(allIDs) do
+                    if not seen[id] then
+                        local okInfo, info = pcall(dp.GetCooldownInfoForID, dp, id)
+                        if okInfo and info and info.category == cat then
+                            addID(id)
+                        end
+                    end
                 end
+            end
+        end
+    end
+
+    -- 2. Blizzard's active BuffBarCooldownViewer itemFramePool (frames live on screen)
+    if BuffBarCooldownViewer and BuffBarCooldownViewer.itemFramePool and BuffBarCooldownViewer.itemFramePool.EnumerateActive then
+        for blizzFrame in BuffBarCooldownViewer.itemFramePool:EnumerateActive() do
+            addID(blizzFrame.cooldownID)
+        end
+    end
+
+    -- 3. C_CooldownViewer static category set fallback (learned + unlearned)
+    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
+        for _, allowUnlearned in ipairs({ true, false }) do
+            local ok, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, allowUnlearned)
+            if ok and ids then
+                for _, id in ipairs(ids) do addID(id) end
+            end
+        end
+    end
+
+    -- 4. Any already tracked bars in SFUI's DB for this spec
+    local specBars = common.get_tracked_bars()
+    if specBars then
+        for id, _ in pairs(specBars) do
+            if type(id) == "number" then
+                addID(id)
             end
         end
     end
@@ -490,6 +545,10 @@ local function RenderTrackedBarsRightSide(parent, width)
 
         -- Ensure cooldownID resolution for the pool icon
         local cdInfo = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+        if not cdInfo and dp and dp.GetCooldownInfoForID then
+            local okInfo, info = pcall(dp.GetCooldownInfoForID, dp, cdID)
+            if okInfo then cdInfo = info end
+        end
         local typeHint = "cooldown"
         if cdInfo then
             if cdInfo.spellID and cdInfo.spellID > 0 then
@@ -511,12 +570,13 @@ local function RenderTrackedBarsRightSide(parent, width)
         icon.isRightSidePool = true
         icon.entries = entries
 
-        local cdInfo = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
         local iconName = GetCooldownName(cdID, typeHint)
         if not iconName and typeHint == "spell" then
-            iconName = C_Spell.GetSpellName(cdID)
+            local spellID = (cdInfo and cdInfo.spellID and cdInfo.spellID > 0) and cdInfo.spellID or cdID
+            iconName = C_Spell.GetSpellName(spellID)
         elseif not iconName and typeHint == "item" then
-            iconName = C_Item.GetItemNameByID(cdID)
+            local itemID = (cdInfo and cdInfo.itemID and cdInfo.itemID > 0) and cdInfo.itemID or cdID
+            iconName = C_Item.GetItemNameByID(itemID)
         end
 
         icon.info = {
@@ -554,7 +614,7 @@ local function RenderTrackedBarsRightSide(parent, width)
 
     if not parent._noIconsLabel then
         parent._noIconsLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        parent._noIconsLabel:SetText("No bars found in Category 3.")
+        parent._noIconsLabel:SetText("No tracked bars found in Blizzard Cooldown Manager.")
     end
     if #list == 0 then
         parent._noIconsLabel:ClearAllPoints()
@@ -784,10 +844,22 @@ local function AcquireZoneFrame(parent, name, yPos, xPos, width, panelData, isTr
             { text = "Import: Tracked Bars", value = 3 },
         }
         local importBtn = common.create_dropdown(zone, 80, options, function(gId)
-            if not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCategorySet then return end
             if type(gId) ~= "number" or gId < 0 then return end
-            local ok, list = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, gId, true)
-            if not ok or not list then return end
+            local list = nil
+            local dp = CooldownViewerSettings and CooldownViewerSettings.GetDataProvider and CooldownViewerSettings:GetDataProvider()
+            if dp and dp.GetOrderedCooldownIDsForCategory then
+                local ok, dpList = pcall(dp.GetOrderedCooldownIDsForCategory, dp, gId, true)
+                if ok and dpList and #dpList > 0 then
+                    list = dpList
+                end
+            end
+            if not list and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
+                local ok, cList = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, gId, true)
+                if ok and cList then
+                    list = cList
+                end
+            end
+            if not list then return end
 
             local isList = (type(list) == "table")
             local entries = zone.isTrackedBars and common.get_tracked_bars() or
