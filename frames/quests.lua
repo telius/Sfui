@@ -91,7 +91,7 @@ local SECT_H     = qcfg.sectionHeight or 20
 local QUEST_H    = qcfg.questHeight or 20
 local OBJ_H      = qcfg.objectiveHeight or 13
 local PAD_X      = 8
--- OBJ_INDENT: reserved for future indented objectives (currently unused)
+local OBJ_INDENT = 14
 local THROTTLE   = qcfg.throttle or 0.35
 local SECT_GAP   = 2
 local QUEST_PAD  = 2
@@ -3371,7 +3371,7 @@ local function RenderSections(state, superTracked)
                     end
 
                     if isQuestExpanded and hasObjectives then
-                        local objX = OBJ_INDENT
+                        local objX = OBJ_INDENT or 14
                         for _, obj in ipairs(entry.objectives) do
                             if obj.text and obj.text ~= "" then
                                 local orow = AcquireObjRow()
