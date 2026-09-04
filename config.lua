@@ -649,7 +649,7 @@ sfui.config = {
     },
 
     -- ─── Mythic+ HUD ──────────────────────────────────────
-    -- Settings for the native M+ timer/objectives frame (frames/mythic.lua).
+    -- Settings for the native M+ timer/objectives frame (frames/quests/mythic.lua).
     -- Runtime overrides are stored in SfuiDB to survive UI reloads.
     mythic = {
         enabled = true, -- master toggle (user can opt-out in Options > objectives)
@@ -659,7 +659,7 @@ sfui.config = {
     },
 
     -- ─── Vehicle Bar ──────────────────────────────────────
-    -- Settings for the vehicle/override/possess bar (frames/vehicle.lua).
+    -- Settings for the vehicle/override/possess bar (frames/bars/vehicle.lua).
     vehicle = {
         enabled = true,
         posX    = 0,  -- default horizontal offset (centered at bottom)

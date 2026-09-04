@@ -2,6 +2,10 @@ local addonName, addon = ...
 sfui = sfui or {}
 sfui.questlog = sfui.questlog or {}
 
+if C_AddOns and C_AddOns.LoadAddOn then
+    pcall(C_AddOns.LoadAddOn, "Blizzard_ObjectiveTracker")
+end
+
 local scenarios = sfui.questlog.scenarios
 local providers = sfui.questlog.providers
 
@@ -351,9 +355,10 @@ local function FlushOutOfCombatQueue()
     end
 end
 
--- Map Cache
-local cachedCurrentMapID = nil
-local cachedParentMapID  = nil
+-- Map & Zone Cache
+local cachedCurrentMapID    = nil
+local cachedParentMapID     = nil
+local cachedCurrentZoneName = nil
 
 local function UpdateMapCache()
     if not C_Map or not C_Map.GetBestMapForUnit then return end
@@ -361,12 +366,22 @@ local function UpdateMapCache()
     if curMap ~= cachedCurrentMapID then
         cachedCurrentMapID = curMap
         cachedParentMapID = nil
+        cachedCurrentZoneName = nil
         if curMap and C_Map.GetMapInfo then
             local info = C_Map.GetMapInfo(curMap)
-            if info and info.parentMapID and info.parentMapID > 0 and info.parentMapID ~= curMap then
-                cachedParentMapID = info.parentMapID
+            if info then
+                cachedCurrentZoneName = info.name
+                if info.parentMapID and info.parentMapID > 0 and info.parentMapID ~= curMap then
+                    cachedParentMapID = info.parentMapID
+                end
             end
         end
+        if C_QuestLog and C_QuestLog.SortQuestWatches then
+            C_QuestLog.SortQuestWatches()
+        end
+    end
+    if providers and providers.SetCurrentMap then
+        providers.SetCurrentMap(cachedCurrentMapID, cachedParentMapID, cachedCurrentZoneName)
     end
 end
 
@@ -568,7 +583,28 @@ local function QuestSortComparator(a, b)
         return not a.isFailed
     end
 
-    -- 4. Alphabetical by quest title
+    -- 4. Immediate area tasks first (world quests/tasks where player is in the area)
+    local aInArea = a.isInArea or false
+    local bInArea = b.isInArea or false
+    if aInArea ~= bInArea then
+        return aInArea
+    end
+
+    -- 5. Current Map / Zone quests float above remote zone quests
+    local aOnMap = a.isOnMap or false
+    local bOnMap = b.isOnMap or false
+    if aOnMap ~= bOnMap then
+        return aOnMap
+    end
+
+    -- 6. Physical proximity if on same continent
+    if a.onContinent and b.onContinent and a.distanceSq and b.distanceSq then
+        if a.distanceSq ~= b.distanceSq then
+            return a.distanceSq < b.distanceSq
+        end
+    end
+
+    -- 7. Alphabetical by quest title
     return (a.title or "") < (b.title or "")
 end
 
@@ -852,41 +888,72 @@ local function AcquireRow()
         fs:SetWordWrap(false)
         row.TitleFS = fs
 
-        -- Find Group Eye Button (Right edge) - 100% custom non-tainting button
-        local findGroupBtn = CreateFrame("Button", nil, row)
-        local eyeIcon = findGroupBtn:CreateTexture(nil, "ARTWORK")
-        eyeIcon:SetSize(14, 14)
-        eyeIcon:SetPoint("CENTER", findGroupBtn, "CENTER", 0, 0)
-        eyeIcon:SetAtlas("socialqueuing-icon-eye")
-        eyeIcon:SetVertexColor(0.85, 0.85, 0.85, 0.85)
-        findGroupBtn.EyeIcon = eyeIcon
+        -- Find Group Eye Button (Right edge) - using Blizzard's native QuestObjectiveFindGroupButtonTemplate
+        -- The native template uses Blizzard's untainted QuestObjectiveFindGroupButtonMixin:OnClick to execute
+        -- LFGListUtil_FindQuestGroup and C_LFGList.Search without triggering ADDON_ACTION_BLOCKED taint.
+        local findGroupBtn
+        local hasTemplate = false
+        if C_XMLUtil and C_XMLUtil.GetTemplateInfo then
+            hasTemplate = (C_XMLUtil.GetTemplateInfo("QuestObjectiveFindGroupButtonTemplate") ~= nil)
+        end
+        if hasTemplate then
+            pcall(function()
+                findGroupBtn = CreateFrame("Button", nil, row, "QuestObjectiveFindGroupButtonTemplate")
+            end)
+        end
 
-        findGroupBtn:SetScript("OnEnter", function(btn)
-            eyeIcon:SetVertexColor(1, 1, 1, 1)
-            SfuiQuestTooltip:SetOwner(btn, "ANCHOR_RIGHT")
-            SfuiQuestTooltip:ClearLines()
-            SfuiQuestTooltip:AddLine(TOOLTIP_TRACKER_FIND_GROUP_BUTTON or "Find Group", 1, 1, 1)
-            if row.questTitle then
-                SfuiQuestTooltip:AddLine(row.questTitle, 0.20, 0.85, 0.95)
-            end
-            SfuiQuestTooltip:AddLine("Click to search for or create a group in Group Finder.", 0.7, 0.7, 0.7, true)
-            SfuiQuestTooltip:Show()
-        end)
-        findGroupBtn:SetScript("OnLeave", function(btn)
+        if not findGroupBtn then
+            -- Fallback button if template is unavailable: safely opens Group Finder without calling protected C_LFGList.Search
+            findGroupBtn = CreateFrame("Button", nil, row)
+            local eyeIcon = findGroupBtn:CreateTexture(nil, "ARTWORK")
+            eyeIcon:SetSize(14, 14)
+            eyeIcon:SetPoint("CENTER", findGroupBtn, "CENTER", 0, 0)
+            eyeIcon:SetAtlas("socialqueuing-icon-eye")
             eyeIcon:SetVertexColor(0.85, 0.85, 0.85, 0.85)
-            SfuiQuestTooltip:Hide()
-        end)
-        findGroupBtn:SetScript("OnClick", function(btn)
-            if InCombat() then return end
-            local qID = btn.questID or row.questID
-            if qID and _G.LFGListUtil_FindQuestGroup then
-                C_Timer.After(0, function()
-                    if not InCombat() and _G.LFGListUtil_FindQuestGroup and qID then
-                        _G.LFGListUtil_FindQuestGroup(qID, true)
-                    end
-                end)
+            findGroupBtn.EyeIcon = eyeIcon
+
+            findGroupBtn:SetScript("OnEnter", function(btn)
+                eyeIcon:SetVertexColor(1, 1, 1, 1)
+                SfuiQuestTooltip:SetOwner(btn, "ANCHOR_RIGHT")
+                SfuiQuestTooltip:ClearLines()
+                SfuiQuestTooltip:AddLine(TOOLTIP_TRACKER_FIND_GROUP_BUTTON or "Find Group", 1, 1, 1)
+                if row.questTitle then
+                    SfuiQuestTooltip:AddLine(row.questTitle, 0.20, 0.85, 0.95)
+                end
+                SfuiQuestTooltip:AddLine("Click to search for or create a group in Group Finder.", 0.7, 0.7, 0.7, true)
+                SfuiQuestTooltip:Show()
+            end)
+            findGroupBtn:SetScript("OnLeave", function(btn)
+                eyeIcon:SetVertexColor(0.85, 0.85, 0.85, 0.85)
+                SfuiQuestTooltip:Hide()
+            end)
+            findGroupBtn:SetScript("OnClick", function(btn)
+                if InCombat() then return end
+                if _G.PVEFrame_ShowFrame and _G.LFGListPVEStub then
+                    _G.PVEFrame_ShowFrame("GroupFinderFrame", _G.LFGListPVEStub)
+                end
+            end)
+        else
+            -- Native template: preserve Blizzard's native OnClick/OnEnter/OnLeave scripts to avoid taint.
+            -- Match SFUI clean aesthetics by suppressing default square button borders.
+            if findGroupBtn.Icon then
+                findGroupBtn.Icon:SetSize(14, 14)
+                findGroupBtn.Icon:ClearAllPoints()
+                findGroupBtn.Icon:SetPoint("CENTER", findGroupBtn, "CENTER", 0, 0)
             end
-        end)
+            if findGroupBtn.GetNormalTexture and findGroupBtn:GetNormalTexture() then
+                findGroupBtn:GetNormalTexture():SetAlpha(0)
+            end
+            if findGroupBtn.GetPushedTexture and findGroupBtn:GetPushedTexture() then
+                findGroupBtn:GetPushedTexture():SetAlpha(0)
+            end
+            if findGroupBtn.GetDisabledTexture and findGroupBtn:GetDisabledTexture() then
+                findGroupBtn:GetDisabledTexture():SetAlpha(0)
+            end
+            if findGroupBtn.GetHighlightTexture and findGroupBtn:GetHighlightTexture() then
+                findGroupBtn:GetHighlightTexture():SetAlpha(0)
+            end
+        end
 
         findGroupBtn:SetSize(18, 18)
         findGroupBtn:SetPoint("RIGHT", row, "RIGHT", -2, 0)
@@ -1040,6 +1107,10 @@ local function AcquireRow()
                 end
 
                 SfuiQuestTooltip:AddLine(s.questTitle or "Quest", 1, 1, 1)
+
+                if s.zoneName and s.zoneName ~= "" then
+                    SfuiQuestTooltip:AddLine(s.zoneName, 0.70, 0.70, 0.70)
+                end
 
                 if s.timeLeftText then
                     if s.isCriticalTime then
@@ -1590,6 +1661,7 @@ end
 local function CollectTrackedQuests(superTracked)
     ClearSectionLists()
     wipe(processedQuests)
+    UpdateMapCache()
 
     local inRaid = false
     if _G.IsInInstance then
@@ -1784,10 +1856,16 @@ local function RenderSections(state, superTracked)
                     row.eventKey           = entry.eventKey
                     row.areaPoiID          = entry.areaPoiID
                     row.zoneName           = entry.zoneName
+                    row.isOnMap            = entry.isOnMap
                     row.hasReminder        = entry.hasReminder
                     row.isOngoing          = entry.isOngoing
 
                     if entry.canFindGroup then
+                        if row.FindGroupBtn.SetUp then
+                            row.FindGroupBtn:SetUp(entry.questID)
+                        else
+                            row.FindGroupBtn:SetAttribute("questID", entry.questID)
+                        end
                         row.FindGroupBtn.questID = entry.questID
                         row.FindGroupBtn:ClearAllPoints()
                         row.FindGroupBtn:SetPoint("RIGHT", row, "RIGHT", -2, 0)
@@ -1829,9 +1907,23 @@ local function RenderSections(state, superTracked)
                     local timeTag = (entry.isWorldQuest and entry.timeLeftText) and (" " .. timeCol .. "[" .. entry.timeLeftText .. "]" .. C.RESET) or ""
                     local partyTag = (entry.partyCount and entry.partyCount > 0) and (" " .. C.PARTY_COUNT .. "[P:" .. entry.partyCount .. "]" .. C.RESET) or ""
 
+                    -- Remote Zone Tag: For quests outside the player's active zone,
+                    -- append a muted zone badge (e.g. [Dornogal]). Omitted when in the same zone.
+                    local isStandardOrWorldQuest = entry.questID and not entry.isAchievement and not entry.isPerksActivity and not entry.isHousingTask and not entry.isRecipe and not entry.isScenario and not entry.isWorldEvent
+                    local zoneTag = ""
+                    if isStandardOrWorldQuest and entry.zoneName and entry.zoneName ~= "" then
+                        local isRemote = not entry.isOnMap
+                        if isRemote and cachedCurrentZoneName and entry.zoneName == cachedCurrentZoneName then
+                            isRemote = false
+                        end
+                        if isRemote then
+                            zoneTag = " |cff777777[" .. entry.zoneName .. "]|r"
+                        end
+                    end
+
                     local titleStr
                     if entry.isAutoQuestOffer then
-                        titleStr = C.OFFER .. "[Offer] " .. C.RESET .. rawTitle
+                        titleStr = C.OFFER .. "[Offer] " .. C.RESET .. rawTitle .. zoneTag
                     elseif entry.isPerksActivity then
                         local pCol = entry.isComplete and "|cff44cc44" or C.PERK
                         local baseText = pCol .. "[Traveler] " .. C.RESET .. rawTitle
@@ -1893,12 +1985,12 @@ local function RenderSections(state, superTracked)
                         local evTimeTag = (entry.timeLeftText) and (" " .. timeCol .. "[" .. entry.timeLeftText .. "]" .. C.RESET) or ""
                         titleStr = evColor .. rawTitle .. C.RESET .. evTimeTag
                     elseif entry.isFailed then
-                        titleStr = C.FAILED .. rawTitle .. C.RESET .. timeTag
+                        titleStr = C.FAILED .. rawTitle .. C.RESET .. timeTag .. zoneTag
                     elseif entry.isComplete and entry.isAutoTurnIn then
-                        titleStr = C.COMPLETE .. rawTitle .. " [Turn In]" .. C.RESET .. timeTag
+                        titleStr = C.COMPLETE .. rawTitle .. " [Turn In]" .. C.RESET .. timeTag .. zoneTag
                     elseif entry.isComplete then
                         local compTitle = entry.isMeta and (C.META .. rawTitle .. C.RESET) or rawTitle
-                        titleStr = compTitle .. timeTag .. C.COMPLETE_SUF
+                        titleStr = compTitle .. timeTag .. zoneTag .. C.COMPLETE_SUF
                     else
                         local titleColor
                         if isSuperTracked then
@@ -1913,12 +2005,12 @@ local function RenderSections(state, superTracked)
                         if entry.singleCountStr then
                             local isFin = (entry.done == entry.total)
                             local col = isFin and C.DONE_CNT or C.UNDONE_CNT
-                            titleStr = titleText .. timeTag .. partyTag .. " " .. col .. "[" .. entry.singleCountStr .. "]" .. C.RESET
+                            titleStr = titleText .. timeTag .. partyTag .. " " .. col .. "[" .. entry.singleCountStr .. "]" .. C.RESET .. zoneTag
                         elseif entry.total > 0 then
                             local col = (entry.done == entry.total) and C.DONE_CNT or C.UNDONE_CNT
-                            titleStr = titleText .. timeTag .. partyTag .. " " .. col .. "[" .. entry.done .. "/" .. entry.total .. "]" .. C.RESET
+                            titleStr = titleText .. timeTag .. partyTag .. " " .. col .. "[" .. entry.done .. "/" .. entry.total .. "]" .. C.RESET .. zoneTag
                         else
-                            titleStr = titleText .. timeTag .. partyTag
+                            titleStr = titleText .. timeTag .. partyTag .. zoneTag
                         end
                     end
 
@@ -2176,7 +2268,7 @@ function sfui.questlog.set_enabled(enabled)
 end
 
 -- ─── Mythic+ Handoff ─────────────────────────────────────
--- Called by frames/mythic.lua when a M+ key starts so the quest log
+-- Called by frames/quests/mythic.lua when a M+ key starts so the quest log
 -- immediately hides and Blizzard's tracker remains suppressed.
 function sfui.questlog.on_mythic_start()
     State._active = true
@@ -2189,7 +2281,7 @@ end
 -- Forward-declare so on_mythic_end (defined here) can call it before line 1785.
 local CheckVisibilityAndRefresh
 
--- Called by frames/mythic.lua when the key resets or the run ends.
+-- Called by frames/quests/mythic.lua when the key resets or the run ends.
 function sfui.questlog.on_mythic_end()
     State._active = false
     CheckVisibilityAndRefresh()
@@ -2348,9 +2440,7 @@ local function on_ql_event(event, arg1, arg2)
     elseif event == "PLAYER_ENTERING_WORLD" then
         local state = GetQLState()
         state.hidden = false
-        -- No C_Timer.After(0) needed: the central dispatcher fires all
-        -- PLAYER_ENTERING_WORLD handlers in the same pass, so mythic.lua's
-        -- _mode is already set before CheckVisibilityAndRefresh runs here.
+        UpdateMapCache()
         CheckVisibilityAndRefresh()
 
     elseif event == "SUPER_TRACKING_CHANGED" then
@@ -2425,10 +2515,14 @@ local function on_ql_event(event, arg1, arg2)
         Refresh:Request()
 
     elseif event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS" then
-        cachedCurrentMapID = nil
-        cachedParentMapID  = nil
+        cachedCurrentMapID    = nil
+        cachedParentMapID     = nil
+        cachedCurrentZoneName = nil
         providers.ClearWorldQuestCache()
         providers.ClearWarbandCache()
+        if providers.ClearZoneCache then
+            providers.ClearZoneCache()
+        end
         UpdateMapCache()
         providers.PruneProgressCacheForWorldQuests()
         CheckVisibilityAndRefresh()

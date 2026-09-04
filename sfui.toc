@@ -1,7 +1,7 @@
 ## Interface: 120100
 ## Title: |cff6600ffsf|rui
 ## Author: teli
-## Version: v12.1.0-28
+## Version: v12.1.0-29
 ## Notes: modular and dynamic uistuffs for world of warcraft.
 ## X-Category: Interface
 ## X-Website: https://github.com/telius/sfui
@@ -9,7 +9,7 @@
 ## X-GitHub-Repository: https://github.com/telius/sfui
 ## X-Project-Name: sfui
 ## SavedVariables: SfuiDB
-## OptionalDeps: Masque, LibStub, CallbackHandler-1.0, LibCustomGlow-1.0, AceDB-3.0, LibSharedMedia-3.0, LibDataBroker-1.1, LibDBIcon-1.0
+## OptionalDeps: Blizzard_ObjectiveTracker, Masque, LibStub, CallbackHandler-1.0, LibCustomGlow-1.0, AceDB-3.0, LibSharedMedia-3.0, LibDataBroker-1.1, LibDBIcon-1.0
 ## IconTexture: Interface/AddOns/sfui/icon.png
 
 Libs/LibStub/LibStub.lua
@@ -27,36 +27,42 @@ core.lua
 frames/options.lua
 frames/currency.lua
 frames/minimap.lua
-frames/bars.lua
-frames/class/soulfragments.lua
+frames/location.lua
+frames/cursor.lua
 frames/research.lua
-frames/castbar.lua
 frames/merchant.lua
 frames/alts.lua
-
-frames/vehicle.lua
 frames/automation.lua
-frames/logs.lua
-frames/location.lua
-frames/cdm.lua
-frames/trackedoptions.lua
-frames/trackedbars.lua
-frames/cursor.lua
-frames/glows.lua
-frames/trackedicons.lua
-frames/compare.lua
 frames/transfer.lua
-portals_db.lua
-frames/portals.lua
+frames/logs.lua
+
+frames/bars/bars.lua
+frames/bars/castbar.lua
+frames/bars/vehicle.lua
+frames/bars/soulfragments.lua
+
+frames/tracking/cdm.lua
+frames/tracking/glows.lua
+frames/tracking/trackedoptions.lua
+frames/tracking/trackedbars.lua
+frames/tracking/trackedicons.lua
+
+frames/portals/portals_db.lua
+frames/portals/portals.lua
+
 stats.lua
-frames/gear.lua
-frames/lootspec.lua
-frames/highest.lua
-frames/worldevents.lua
+frames/gear/compare.lua
+frames/gear/gear.lua
+frames/gear/lootspec.lua
+frames/gear/highest.lua
+
+frames/quests/worldevents.lua
 frames/quests/scenarios.lua
 frames/quests/providers.lua
-frames/quests.lua
-frames/mythic.lua
+frames/quests/quests.lua
+frames/quests/mythic.lua
+
 frames/mem.lua
 commands.lua
+
 

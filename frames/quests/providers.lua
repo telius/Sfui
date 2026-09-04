@@ -71,6 +71,65 @@ end
 local worldQuestCache      = {}
 local warbandCompleteCache = {}
 local questProgressCache   = {}
+local questZoneCache       = {}
+
+-- Zone and Map State
+local currentMapID         = nil
+local parentMapID          = nil
+local currentZoneName      = nil
+
+local function SetCurrentMap(curMap, pMap, zName)
+    currentMapID    = curMap
+    parentMapID     = pMap
+    currentZoneName = zName
+end
+
+local function ClearZoneCache()
+    wipe(questZoneCache)
+end
+
+local function GetQuestZoneName(questID, isWorldQuest)
+    if not questID or questID <= 0 then return nil end
+    local cached = questZoneCache[questID]
+    if cached ~= nil then
+        return cached or nil
+    end
+
+    local name = nil
+    if isWorldQuest then
+        if C_TaskQuest and C_TaskQuest.GetQuestZoneID then
+            local zMapID = C_TaskQuest.GetQuestZoneID(questID)
+            if zMapID and zMapID > 0 and C_Map and C_Map.GetMapInfo then
+                local mInfo = C_Map.GetMapInfo(zMapID)
+                if mInfo and mInfo.name and mInfo.name ~= "" then
+                    name = mInfo.name
+                end
+            end
+        end
+    else
+        if C_QuestLog and C_QuestLog.GetHeaderIndexForQuest and C_QuestLog.GetInfo then
+            local hIndex = C_QuestLog.GetHeaderIndexForQuest(questID)
+            if hIndex then
+                local hInfo = C_QuestLog.GetInfo(hIndex)
+                if hInfo and hInfo.title and hInfo.title ~= "" then
+                    name = hInfo.title
+                end
+            end
+        end
+        if not name and C_TaskQuest and C_TaskQuest.GetQuestZoneID then
+            local zMapID = C_TaskQuest.GetQuestZoneID(questID)
+            if zMapID and zMapID > 0 and C_Map and C_Map.GetMapInfo then
+                local mInfo = C_Map.GetMapInfo(zMapID)
+                if mInfo and mInfo.name and mInfo.name ~= "" then
+                    name = mInfo.name
+                end
+            end
+        end
+    end
+
+    questZoneCache[questID] = name or false
+    return name
+end
 
 -- ─── Untrack Helpers ─────────────────────────────────────
 local function UntrackAchievement(achievementID)
@@ -688,6 +747,41 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo, AcquireTab
     local timeLeftText = nil
     local isCriticalTime = false
     local isWorld = (forcedSectionID == "world" or IsWorldQuest(questID))
+    local zoneName = GetQuestZoneName(questID, isWorld)
+
+    local isInArea, isOnMap = false, false
+    if isWorld then
+        if _G.GetTaskInfo then
+            local inA, onM = _G.GetTaskInfo(questID)
+            isInArea = inA or false
+            isOnMap = onM or false
+        end
+        if not isOnMap and currentMapID and C_TaskQuest and C_TaskQuest.GetQuestZoneID then
+            local zMapID = C_TaskQuest.GetQuestZoneID(questID)
+            if zMapID and (zMapID == currentMapID or (parentMapID and zMapID == parentMapID)) then
+                isOnMap = true
+            end
+        end
+    else
+        if defaultInfo and defaultInfo.isOnMap ~= nil then
+            isOnMap = defaultInfo.isOnMap or defaultInfo.hasLocalPOI or false
+        elseif C_QuestLog and C_QuestLog.IsOnMap then
+            local onM, hasLocalPOI = C_QuestLog.IsOnMap(questID)
+            isOnMap = onM or hasLocalPOI or false
+        end
+        if not isOnMap and currentZoneName and zoneName and zoneName == currentZoneName then
+            isOnMap = true
+        end
+    end
+
+    local distanceSq, onContinent = nil, nil
+    if C_QuestLog and C_QuestLog.GetDistanceSqToQuest then
+        local dSq, onCont = C_QuestLog.GetDistanceSqToQuest(questID)
+        if onCont and dSq and dSq > 0 then
+            distanceSq = dSq
+            onContinent = true
+        end
+    end
 
     if isWorld then
         if C_TaskQuest and C_TaskQuest.GetQuestTimeLeftMinutes then
@@ -773,6 +867,11 @@ local function BuildQuestEntry(questID, forcedSectionID, defaultInfo, AcquireTab
     entry.isCriticalTime     = isCriticalTime
     entry.partyCount         = partyCount
     entry.isScenario         = false
+    entry.zoneName           = zoneName
+    entry.isOnMap            = isOnMap
+    entry.isInArea           = isInArea
+    entry.distanceSq         = distanceSq
+    entry.onContinent        = onContinent
     return entry
 end
 
@@ -801,13 +900,15 @@ end
 -- ─── Cache Management ────────────────────────────────────
 local function ClearQuestCache(questID)
     if not questID then return end
-    questProgressCache[questID]  = nil
+    questProgressCache[questID]   = nil
     warbandCompleteCache[questID] = nil
-    worldQuestCache[questID]     = nil
+    worldQuestCache[questID]      = nil
+    questZoneCache[questID]       = nil
 end
 
 local function ClearWorldQuestCache()
     wipe(worldQuestCache)
+    wipe(questZoneCache)
 end
 
 local function ClearWarbandCache()
@@ -823,11 +924,12 @@ local function PruneProgressCacheForWorldQuests()
 end
 
 local function GetCacheCounts()
-    local pCount, wCount, wqCount = 0, 0, 0
+    local pCount, wCount, wqCount, zCount = 0, 0, 0, 0
     for _ in pairs(questProgressCache) do pCount = pCount + 1 end
     for _ in pairs(warbandCompleteCache) do wCount = wCount + 1 end
     for _ in pairs(worldQuestCache) do wqCount = wqCount + 1 end
-    return pCount, wCount, wqCount
+    for _ in pairs(questZoneCache) do zCount = zCount + 1 end
+    return pCount, wCount, wqCount, zCount
 end
 
 -- ─── Public Module Exports ───────────────────────────────
@@ -849,5 +951,8 @@ sfui.questlog.providers.QuestHasProgress                 = QuestHasProgress
 sfui.questlog.providers.ClearQuestCache                  = ClearQuestCache
 sfui.questlog.providers.ClearWorldQuestCache             = ClearWorldQuestCache
 sfui.questlog.providers.ClearWarbandCache                = ClearWarbandCache
+sfui.questlog.providers.ClearZoneCache                   = ClearZoneCache
+sfui.questlog.providers.SetCurrentMap                    = SetCurrentMap
+sfui.questlog.providers.GetQuestZoneName                 = GetQuestZoneName
 sfui.questlog.providers.PruneProgressCacheForWorldQuests = PruneProgressCacheForWorldQuests
 sfui.questlog.providers.GetCacheCounts                   = GetCacheCounts

@@ -28,23 +28,27 @@ sfui = sfui or {}
 --     • common.lua                  - Spec change cache, vehicle/flight state, out-of-combat queue.
 --     • commands.lua                - Keybinding synchronization (UPDATE_BINDINGS).
 --   Combat & UI Bars:
---     • frames/bars.lua             - Player health, absorbs, power, runes, vigor, form changes.
---     • frames/class/soulfragments.lua - Demon Hunter soul fragments, fury changes, void decay.
---     • frames/trackedbars.lua      - Cooldown & aura status bars, spellcast edge mirrors.
---     • frames/trackedicons.lua     - Cooldown & aura icon grid, charges, glow timeouts.
---     • frames/vehicle.lua          - Vehicle health/energy bars, action button keybinds.
+--     • frames/bars/bars.lua           - Player health, absorbs, power, runes, vigor, form changes.
+--     • frames/bars/soulfragments.lua  - Demon Hunter soul fragments, fury changes, void decay.
+--     • frames/bars/vehicle.lua        - Vehicle health/energy bars, action button keybinds.
+--   Cooldown & Aura Tracking:
+--     • frames/tracking/trackedbars.lua - Cooldown & aura status bars, spellcast edge mirrors.
+--     • frames/tracking/trackedicons.lua- Cooldown & aura icon grid, charges, glow timeouts.
 --   Objectives & Dungeons:
---     • frames/quests.lua           - Quest log, objective tracker, scenario criteria, zone cache.
---     • frames/mythic.lua           - M+ & Delve HUD, keystone receptacle, deaths (UNIT_DIED).
+--     • frames/quests/quests.lua       - Quest log, objective tracker, scenario criteria, zone cache.
+--     • frames/quests/mythic.lua       - M+ & Delve HUD, keystone receptacle, deaths (UNIT_DIED).
+--   Gear & Loot:
+--     • frames/gear/compare.lua        - Equipment auto-comparison CVar tracking.
+--     • frames/gear/highest.lua        - Highest item level suggestions & weapon proficiencies.
+--     • frames/gear/lootspec.lua       - Dynamic loot spec management.
 --   Utilities & Automation:
---     • frames/alts.lua             - Warband alt sync, profession KP, trade skill updates.
---     • frames/automation.lua       - Master's Hammer repair popup, role checks, LFG auto-confirm.
---     • frames/merchant.lua         - Auto-junk selling & auto-repair vendor triggers.
---     • frames/transfer.lua         - Warband bank transfer helper window.
---     • frames/research.lua         - Trait tree & research currency updates.
---     • frames/compare.lua          - Equipment auto-comparison CVar tracking.
---     • frames/portals.lua          - Combat close & portal list synchronization.
---     • frames/mem.lua              - Real-time memory allocation profiling & watcher hooks.
+--     • frames/alts.lua                - Warband alt sync, profession KP, trade skill updates.
+--     • frames/automation.lua          - Master's Hammer repair popup, role checks, LFG auto-confirm.
+--     • frames/merchant.lua            - Auto-junk selling & auto-repair vendor triggers.
+--     • frames/transfer.lua            - Warband bank transfer helper window.
+--     • frames/research.lua            - Trait tree & research currency updates.
+--     • frames/portals/portals.lua     - Combat close & portal list synchronization.
+--     • frames/mem.lua                 - Real-time memory allocation profiling & watcher hooks.
 -- ============================================================================
 
 sfui.events = {}

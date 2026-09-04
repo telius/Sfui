@@ -2,6 +2,36 @@
 
 > **Note**: This changelog documents **releases, architectural milestones, features**.
 
+## v12.1.0-29 (2026-09-04)
+
+### Directory Architecture & Modularization
+- **Domain-Specific Subdirectory Structure**:
+  - Organized modules into clean architectural categories under `frames/`:
+    - `frames/quests/` (`quests.lua`, `mythic.lua`, `worldevents.lua`, `scenarios.lua`, `providers.lua`)
+    - `frames/tracking/` (`cdm.lua`, `glows.lua`, `trackedbars.lua`, `trackedicons.lua`, `trackedoptions.lua`)
+    - `frames/gear/` (`compare.lua`, `gear.lua`, `highest.lua`, `lootspec.lua`)
+    - `frames/bars/` (`bars.lua`, `castbar.lua`, `vehicle.lua`, `soulfragments.lua`)
+    - `frames/portals/` (`portals.lua`, `portals_db.lua`)
+  - Updated `sfui.toc`, `dispatcher.lua`, and `config.lua` file references.
+
+### Quest Log & Group Finder
+- **Native LFG Quest Search Integration (`frames/quests/quests.lua`)**:
+  - Adopted Blizzard's native `QuestObjectiveFindGroupButtonTemplate` for the tracker's group finder eye button.
+  - Bound `questID` directly to `QuestObjectiveFindGroupButtonMixin:OnClick`, executing `LFGListUtil_FindQuestGroup` and `C_LFGList.Search` within an untainted context and active hardware click token, eliminating `ADDON_ACTION_BLOCKED: Search()` errors.
+  - Added `Blizzard_ObjectiveTracker` to `## OptionalDeps` and module load check to guarantee template availability.
+- **Smart Zone & Proximity Priority Sorting (`frames/quests/providers.lua`, `frames/quests/quests.lua`)**:
+  - Quests located within the player's active zone or continent map now automatically sort ahead of remote quests within each category.
+  - Sub-sorted by Euclidean distance using `C_QuestLog.GetDistanceSqToQuest` when distance data is available.
+- **Remote Zone Badges & Tooltips (`frames/quests/providers.lua`, `frames/quests/quests.lua`)**:
+  - Displayed a muted zone badge (e.g. `[Dornogal]`) on quests located in remote zones outside the player's current zone.
+  - Added zone information directly to quest row tooltips.
+
+### Gear & Item Rules
+- **Demon Hunter Weapon Rules (`frames/gear/highest.lua`)**:
+  - Enforced strict class weapon proficiencies for Havoc, Vengeance, and Devourer Demon Hunters, blocking invalid weapon types (such as 1H Maces and Daggers) from appearing in upgrade recommendations.
+
+---
+
 ## v12.1.0-28 (2026-09-03)
 
 ### Architectural Refactoring & Modularization
