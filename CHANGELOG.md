@@ -2,6 +2,35 @@
 
 > **Note**: This changelog documents **releases, architectural milestones, features**.
 
+## v12.1.0-30 (2026-09-05)
+
+### Gear & Auto-Equip Engine
+- **Latest Tier Set Prioritization (`frames/gear/highest.lua`)**:
+  - Dynamically ranks candidate tier sets by newest tier (highest `setID`), using total item level as a tiebreaker.
+  - Prevents older high-ilvl upgraded tier pieces from overriding current-tier sets when forcing 4-set or 2-set bonuses.
+  - Implemented 2-set fallback if a player forces 4-set but only possesses 2 pieces of the newest tier.
+- **Contextual Equip Reasoning (`frames/gear/highest.lua`)**:
+  - Differentiates and clearly logs the exact reason each item was equipped:
+    - `4-Set` and `2-Set` bonuses.
+    - `Locked Trinket`, `Locked Ring`, `Locked Weapon`, and `Locked Neck` items.
+    - `Embellishment` requirements.
+    - Standard `+X ilvl` upgrades, `-X ilvl, Stat Weights` trade-offs, and `Stat Weights` sidegrades.
+  - Appends relative item level differences to special equip reasons (e.g. `4-Set (+10 ilvl)`, `Locked Trinket (-10 ilvl)`).
+- **Locked Item ILvl Preservation (`frames/gear/highest.lua`)**:
+  - Removed artificial `itemLevel = 9999` bag item mutations, preserving true item levels on tooltips and calculating priority strictly via scoring (`itm.score = 9000000 + ilvl`).
+
+### Vehicle UI & Action Bars
+- **Dismount Transient Flash Elimination (`frames/bars/vehicle.lua`)**:
+  - Excluded `bonusbar:5` (Skyriding / Dragonriding in modern WoW) from the vehicle state driver and bar resolver.
+  - Eliminates the 1-frame transient vehicle UI flash when dismounting flying mounts.
+
+### Masque & Cooldown Viewer Compatibility
+- **Combat Taint Suppression (`common.lua`)**:
+  - Unregistered `UNIT_AURA` on hidden `EssentialCooldownViewer` and `UtilityCooldownViewer` frames.
+  - Prevents Masque's global `ActionButtonSpellAlertManager:ShowAlert` hook from tainting execution during restricted combat aura inspections (`CheckAuraAddedAlertTriggers`).
+
+---
+
 ## v12.1.0-29 (2026-09-04)
 
 ### Directory Architecture & Modularization

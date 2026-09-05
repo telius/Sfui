@@ -2087,6 +2087,21 @@ function sfui.common.hide_blizzard_cooldown_viewers()
             viewer:SetAlpha(0)
             viewer:EnableMouse(false)
 
+            -- Suppress UNIT_AURA on hidden cooldown viewers (Essential & Utility).
+            -- Blizzard's CooldownViewer items invoke ActionButtonSpellAlertManager:ShowAlert
+            -- in their OnUnitAura glow-check. Masque's global hooksecurefunc on ShowAlert runs,
+            -- tainting the execution context with 'Masque'. When Blizzard then attempts to
+            -- inspect unitAuraUpdateInfo.addedAuras (a restricted C SecretTable in combat)
+            -- at line 1865 (CheckAuraAddedAlertTriggers), the game errors with:
+            -- "attempted to index a table that cannot be accessed while tainted (execution tainted by 'Masque')".
+            -- Since SFUI handles action cooldown tracking independently, suppressing UNIT_AURA here
+            -- eliminates this taint vector completely and saves CPU cycles in combat.
+            if viewerName == "EssentialCooldownViewer" or viewerName == "UtilityCooldownViewer" then
+                if viewer.UnregisterEvent then
+                    viewer:UnregisterEvent("UNIT_AURA")
+                end
+            end
+
             if not viewer._sfui_alpha_hooked then
                 viewer._sfui_alpha_hooked = true
                 hooksecurefunc(viewer, "SetAlpha", function(self, alpha)
@@ -2104,6 +2119,9 @@ function sfui.common.hide_blizzard_cooldown_viewers()
                 viewer:HookScript("OnShow", function(self)
                     self:SetAlpha(0)
                     self:EnableMouse(false)
+                    if (viewerName == "EssentialCooldownViewer" or viewerName == "UtilityCooldownViewer") and self.UnregisterEvent then
+                        self:UnregisterEvent("UNIT_AURA")
+                    end
                 end)
             end
 

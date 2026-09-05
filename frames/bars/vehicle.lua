@@ -111,17 +111,11 @@ local _hy = (_hcfg and _hcfg.pos and _hcfg.pos.y) or 300
 frame:SetPoint("BOTTOM", UIParent, "BOTTOM", _hx, _hy - STACK_OFFSET_Y)
 sfui.vehicle.frame = frame
 
--- State driver: same conditions Blizzard uses for OverrideActionBar.
--- Petbattle / skyriding stay hidden; quest vehicles, follower-dungeon
--- controllers, possess bars, bonus bar 5 all show.
-local visString =
-    "[petbattle] hide; " ..
-    "[mounted,bonusbar:5] hide; " ..
-    "[vehicleui][possessbar][overridebar][bonusbar:5] show; " ..
-    "hide"
-if common.get_player_class() == "DRUID" then
-    visString = "[form:3,bonusbar:5] hide; [form:4,bonusbar:5] hide; " .. visString
-end
+-- State driver: same conditions Blizzard and ElvUI use for vehicle/override bars.
+-- Petbattle stays hidden; vehicle UIs, possess bars, and override bars show.
+-- Skyriding (which uses bonusbar:5 in modern WoW) is excluded so dismounting
+-- never causes a transient 1-frame vehicle UI flash.
+local visString = "[petbattle] hide; [vehicleui][possessbar][overridebar] show; hide"
 RegisterStateDriver(frame, "visibility", visString)
 
 -- ─── Buttons ─────────────────────────────────────────────────────────────────
@@ -519,7 +513,13 @@ local function GetResolvedVehicleBarIndex()
     if HasVehicleActionBar and HasVehicleActionBar()        then return GetVehicleBarIndex()          end
     if HasOverrideActionBar and HasOverrideActionBar()       then return GetOverrideBarIndex()         end
     if HasTempShapeshiftActionBar and HasTempShapeshiftActionBar() then return GetTempShapeshiftBarIndex()   end
-    if HasBonusActionBar and HasBonusActionBar()          then return GetBonusBarIndex()            end
+    if HasBonusActionBar and HasBonusActionBar() then
+        local bonusIdx = GetBonusBarIndex and GetBonusBarIndex()
+        -- Bonus bar 5 is Skyriding / Dragonriding in modern WoW, not a vehicle bar
+        if bonusIdx and bonusIdx ~= 5 then
+            return bonusIdx
+        end
+    end
     return nil
 end
 

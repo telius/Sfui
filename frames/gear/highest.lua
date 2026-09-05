@@ -562,10 +562,7 @@ function sfui.highest.GetBestItems(isPvP)
             end
         end
 
-        -- Forcefully bypass sorting priority for locked items sitting in inventory bags
-        if isLockedItem then
-            itemLevel = 9999
-        end
+        -- Locked items retain their true ilvl; sorting priority is handled via itm.score
 
         -- PvP Tooltip parsing for scaled ilvls
         if isPvP then
@@ -670,6 +667,23 @@ function sfui.highest.GetBestItems(isPvP)
         itemData.slot           = slot
         itemData.score          = nil
         itemData.isEmbellished  = HasEmbellishment(itemData)
+        itemData.isLockedItem   = isLockedItem
+        itemData.isTier         = nil
+        itemData.equipReason    = nil
+
+        if isLockedItem then
+            if itemEquipLoc == "INVTYPE_TRINKET" then
+                itemData.equipReason = "Locked Trinket"
+            elseif itemEquipLoc == "INVTYPE_FINGER" then
+                itemData.equipReason = "Locked Ring"
+            elseif itemEquipLoc == "INVTYPE_NECK" then
+                itemData.equipReason = "Locked Neck"
+            elseif itemEquipLoc == "INVTYPE_WEAPON" or itemEquipLoc == "INVTYPE_2HWEAPON" or itemEquipLoc == "INVTYPE_WEAPONMAINHAND" or itemEquipLoc == "INVTYPE_WEAPONOFFHAND" or itemEquipLoc == "INVTYPE_SHIELD" or itemEquipLoc == "INVTYPE_HOLDABLE" or itemEquipLoc == "INVTYPE_RANGED" or itemEquipLoc == "INVTYPE_RANGEDRIGHT" then
+                itemData.equipReason = "Locked Weapon"
+            else
+                itemData.equipReason = "Locked Item"
+            end
+        end
 
         for i = 1, numSlots do
             local s = pooledTargetSlots[i]
@@ -784,77 +798,81 @@ function sfui.highest.GetBestItems(isPvP)
         local prioritizeIlvl = (isArmor and armorIlvlPrio) or isWeapon
 
         for _, itm in ipairs(items) do
-            local baseMultiplier = isPvP and 100 or (prioritizeIlvl and 1000 or 10)
-            local score = itm.ilvl * baseMultiplier
+            if itm.isLockedItem then
+                itm.score = 9000000 + (itm.ilvl or 0)
+            else
+                local baseMultiplier = isPvP and 100 or (prioritizeIlvl and 1000 or 10)
+                local score = itm.ilvl * baseMultiplier
 
-            -- Feature 1: Tier Set Protection
-            if itm.isEquipped then
-                local _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, setID = _G.GetItemInfo(itm.link)
-                if setID and setID > 0 then
-                    score = score + 150 -- +150 score protection for equipped tier sets to dissuade breaking sets
-                end
-            end
-
-            -- Feature 2: Socket Valuation & Stat Priority
-            if GetItemStats then
-                local itemStats = GetItemStats(itm.link)
-                if itemStats then
-                    -- Prismatic socket bonus
-                    if itemStats["EMPTY_SOCKET_PRISMATIC"] then
-                        score = score + (prioritizeIlvl and 500 or 150)
+                -- Feature 1: Tier Set Protection
+                if itm.isEquipped then
+                    local _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, setID = _G.GetItemInfo(itm.link)
+                    if setID and setID > 0 then
+                        score = score + 150 -- +150 score protection for equipped tier sets to dissuade breaking sets
                     end
+                end
 
-                    -- Secondary stat weights derived directly from Pawn string parsing, or fallback to relative Tier weights
-                    if pweights then
-                        for statName, statAmount in pairs(itemStats) do
-                            local simName = "None"
-                            if statName == "ITEM_MOD_CRIT_RATING_SHORT" then
-                                simName = "Crit"
-                            elseif statName == "ITEM_MOD_HASTE_RATING_SHORT" then
-                                simName = "Haste"
-                            elseif statName == "ITEM_MOD_MASTERY_RATING_SHORT" then
-                                simName = "Mastery"
-                            elseif statName == "ITEM_MOD_VERSATILITY" then
-                                simName = "Versatility"
-                            elseif statName == "ITEM_MOD_INTELLECT_SHORT" or statName == "ITEM_MOD_AGILITY_SHORT" or statName == "ITEM_MOD_STRENGTH_SHORT" then
-                                if rule.stat == 4 then
-                                    simName = "Intellect"
-                                elseif rule.stat == 2 then
-                                    simName = "Agility"
-                                elseif rule.stat == 1 then
-                                    simName = "Strength"
+                -- Feature 2: Socket Valuation & Stat Priority
+                if GetItemStats then
+                    local itemStats = GetItemStats(itm.link)
+                    if itemStats then
+                        -- Prismatic socket bonus
+                        if itemStats["EMPTY_SOCKET_PRISMATIC"] then
+                            score = score + (prioritizeIlvl and 500 or 150)
+                        end
+
+                        -- Secondary stat weights derived directly from Pawn string parsing, or fallback to relative Tier weights
+                        if pweights then
+                            for statName, statAmount in pairs(itemStats) do
+                                local simName = "None"
+                                if statName == "ITEM_MOD_CRIT_RATING_SHORT" then
+                                    simName = "Crit"
+                                elseif statName == "ITEM_MOD_HASTE_RATING_SHORT" then
+                                    simName = "Haste"
+                                elseif statName == "ITEM_MOD_MASTERY_RATING_SHORT" then
+                                    simName = "Mastery"
+                                elseif statName == "ITEM_MOD_VERSATILITY" then
+                                    simName = "Versatility"
+                                elseif statName == "ITEM_MOD_INTELLECT_SHORT" or statName == "ITEM_MOD_AGILITY_SHORT" or statName == "ITEM_MOD_STRENGTH_SHORT" then
+                                    if rule.stat == 4 then
+                                        simName = "Intellect"
+                                    elseif rule.stat == 2 then
+                                        simName = "Agility"
+                                    elseif rule.stat == 1 then
+                                        simName = "Strength"
+                                    end
+                                end
+
+                                if simName ~= "None" and pweights[simName] then
+                                    score = score + (statAmount * pweights[simName])
+                                end
+
+                                -- Tertiary stat modifiers
+                                if statName == "ITEM_MOD_CR_LIFESTEAL_SHORT" or statName == "ITEM_MOD_CR_SPEED_SHORT" then
+                                    score = score + statAmount
                                 end
                             end
+                        elseif statWeights then
+                            for statName, statAmount in pairs(itemStats) do
+                                local mappedStatName = statName
+                                if statName == "ITEM_MOD_INTELLECT_SHORT" or statName == "ITEM_MOD_AGILITY_SHORT" or statName == "ITEM_MOD_STRENGTH_SHORT" then
+                                    mappedStatName = STAT_MAP[rule.stat] or statName
+                                end
 
-                            if simName ~= "None" and pweights[simName] then
-                                score = score + (statAmount * pweights[simName])
-                            end
+                                if statWeights[mappedStatName] then
+                                    score = score + (statAmount * statWeights[mappedStatName])
+                                end
 
-                            -- Tertiary stat modifiers
-                            if statName == "ITEM_MOD_CR_LIFESTEAL_SHORT" or statName == "ITEM_MOD_CR_SPEED_SHORT" then
-                                score = score + statAmount
-                            end
-                        end
-                    elseif statWeights then
-                        for statName, statAmount in pairs(itemStats) do
-                            local mappedStatName = statName
-                            if statName == "ITEM_MOD_INTELLECT_SHORT" or statName == "ITEM_MOD_AGILITY_SHORT" or statName == "ITEM_MOD_STRENGTH_SHORT" then
-                                mappedStatName = STAT_MAP[rule.stat] or statName
-                            end
-
-                            if statWeights[mappedStatName] then
-                                score = score + (statAmount * statWeights[mappedStatName])
-                            end
-
-                            -- Tertiary stat modifiers
-                            if statName == "ITEM_MOD_CR_LIFESTEAL_SHORT" or statName == "ITEM_MOD_CR_SPEED_SHORT" then
-                                score = score + statAmount
+                                -- Tertiary stat modifiers
+                                if statName == "ITEM_MOD_CR_LIFESTEAL_SHORT" or statName == "ITEM_MOD_CR_SPEED_SHORT" then
+                                    score = score + statAmount
+                                end
                             end
                         end
                     end
                 end
+                itm.score = score
             end
-            itm.score = score
         end
     end
 
@@ -898,7 +916,13 @@ function sfui.highest.GetBestItems(isPvP)
                     equippedSlot = slotID,
                     physId = -slotID,
                     itemEquipLoc = itemEquipLoc,
-                    score = 999999,
+                    score = 9999999,
+                    isLockedItem = true,
+                    equipReason = (slotID == 13 or slotID == 14) and "Locked Trinket"
+                        or (slotID == 11 or slotID == 12) and "Locked Ring"
+                        or (slotID == 2) and "Locked Neck"
+                        or (slotID == 16 or slotID == 17) and "Locked Weapon"
+                        or "Locked Item",
                 }
                 itmObj.isEmbellished = HasEmbellishment(itmObj)
                 finalPick[slotID] = itmObj
@@ -907,7 +931,7 @@ function sfui.highest.GetBestItems(isPvP)
         end
     end
 
-    -- Feature: Dynamic Tier Set Drafting
+    -- Feature: Dynamic Tier Set Drafting (Prioritizes Highest setID / Latest Tier)
     local force_2set = specDB and specDB.force_2set
     local force_4set = specDB and (specDB.force_4set ~= false) and not specDB.force_2set
     if force_2set or force_4set then
@@ -921,7 +945,7 @@ function sfui.highest.GetBestItems(isPvP)
                 for _, itm in ipairs(best[s]) do
                     local _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, setID = _G.GetItemInfo(itm.link)
                     if setID and setID > 0 then
-                        if not setStats[setID] then setStats[setID] = { totalIlvl = 0, pieces = {} } end
+                        if not setStats[setID] then setStats[setID] = { setID = setID, count = 0, totalIlvl = 0, pieces = {} } end
                         if not setStats[setID].pieces[s] or itm.score > setStats[setID].pieces[s].score then
                             setStats[setID].pieces[s] = itm
                         end
@@ -930,29 +954,52 @@ function sfui.highest.GetBestItems(isPvP)
             end
         end
 
-        local bestSetID = nil
-        local bestSetIlvl = -1
-        local bestSetPieces = nil
-
+        -- Rank candidate sets prioritizing newest tier (highest setID), with totalIlvl as tiebreaker
+        local sortedSets = {}
         for setID, data in pairs(setStats) do
             local count = 0
-            data.totalIlvl = 0
+            local totalIlvl = 0
             for s, itm in pairs(data.pieces) do
                 count = count + 1
-                data.totalIlvl = data.totalIlvl + itm.ilvl
+                totalIlvl = totalIlvl + itm.ilvl
             end
-            if count >= targetCount then
-                if data.totalIlvl > bestSetIlvl then
-                    bestSetIlvl = data.totalIlvl
-                    bestSetID = setID
-                    bestSetPieces = data.pieces
+            data.count = count
+            data.totalIlvl = totalIlvl
+            table.insert(sortedSets, data)
+        end
+
+        table.sort(sortedSets, function(a, b)
+            if a.setID ~= b.setID then
+                return a.setID > b.setID
+            end
+            return a.totalIlvl > b.totalIlvl
+        end)
+
+        -- 1. Find the newest tier set (highest setID) that meets targetCount (4 or 2)
+        local bestSet = nil
+        local effectiveTargetCount = targetCount
+        for _, data in ipairs(sortedSets) do
+            if data.count >= targetCount then
+                bestSet = data
+                break
+            end
+        end
+
+        -- 2. Fallback: if forcing 4-set but no single set has 4 pieces, fallback to the
+        -- newest tier set with at least 2 pieces so the player still gets their 2-set bonus
+        if not bestSet and targetCount == 4 then
+            for _, data in ipairs(sortedSets) do
+                if data.count >= 2 then
+                    bestSet = data
+                    effectiveTargetCount = 2
+                    break
                 end
             end
         end
 
-        if bestSetID and bestSetPieces then
+        if bestSet and bestSet.pieces then
             local costList = {}
-            for s, tierItm in pairs(bestSetPieces) do
+            for s, tierItm in pairs(bestSet.pieces) do
                 local bestOverallScore = (best[s] and best[s][1] and best[s][1].score) or 0
                 local cost = bestOverallScore - tierItm.score
                 if cost < 0 then cost = 0 end
@@ -961,9 +1008,11 @@ function sfui.highest.GetBestItems(isPvP)
 
             table.sort(costList, function(a, b) return a.cost < b.cost end)
 
-            for i = 1, targetCount do
+            for i = 1, effectiveTargetCount do
                 if costList[i] then
                     finalPick[costList[i].slot] = costList[i].itm
+                    costList[i].itm.isTier = true
+                    costList[i].itm.equipReason = (effectiveTargetCount >= 4) and "4-Set" or "2-Set"
                 end
             end
         end
@@ -1170,6 +1219,9 @@ function sfui.highest.GetBestItems(isPvP)
                     end
                     if not conflict then
                         finalPick[cand.slot] = cand.itm
+                        if not cand.itm.equipReason then
+                            cand.itm.equipReason = "Embellishment"
+                        end
                         embAssigned = embAssigned + 1
                     end
                 end
@@ -1312,6 +1364,12 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
         local oldIlvl = entry.oldIlvl or 0
         local newLink = item.link
         local newIlvl = item.effectiveIlvl or item.ilvl or (newLink and (GetDetailedItemLevelInfo(newLink) or select(4, _G.GetItemInfo(newLink)))) or 0
+        if oldIlvl == 0 and oldLink then
+            oldIlvl = GetDetailedItemLevelInfo(oldLink) or select(4, _G.GetItemInfo(oldLink)) or 0
+        end
+        if newIlvl == 0 and newLink then
+            newIlvl = GetDetailedItemLevelInfo(newLink) or select(4, _G.GetItemInfo(newLink)) or 0
+        end
         local slotName = SLOT_NAMES[slotID] or ("Slot " .. tostring(slotID))
         retryCount = retryCount or 0
 
@@ -1334,27 +1392,31 @@ function sfui.highest.EquipHighestILvl(isPvP, silent)
             local reason = ""
             if oldLink and oldLink ~= "" then
                 local diff = newIlvl - oldIlvl
-                if diff > 0 then
-                    reason = string.format("+%d ilvl", diff)
-                elseif diff < 0 then
-                    if item.isTier then
-                        reason = string.format("%d ilvl, Tier Set", diff)
-                    elseif item.score and entry.oldScore and item.score > entry.oldScore then
-                        reason = string.format("%d ilvl, Better Stats", diff)
+                if item.equipReason then
+                    if diff > 0 then
+                        reason = string.format("%s (+%d ilvl)", item.equipReason, diff)
+                    elseif diff < 0 then
+                        reason = string.format("%s (%d ilvl)", item.equipReason, diff)
                     else
-                        reason = string.format("%d ilvl, Stat Weights", diff)
+                        reason = item.equipReason
                     end
                 else
-                    if item.score and entry.oldScore and item.score > entry.oldScore then
-                        reason = "Better Secondary Stats"
+                    if diff > 0 then
+                        reason = string.format("+%d ilvl", diff)
+                    elseif diff < 0 then
+                        reason = string.format("%d ilvl, Stat Weights", diff)
                     else
-                        reason = "Optimized Stats"
+                        reason = "Stat Weights"
                     end
                 end
                 sfprint(string.format("-> %s (%d) to %s (%d) (%s)",
                     oldLink, oldIlvl, newLink, newIlvl, reason))
             else
-                reason = string.format("+%d ilvl", newIlvl)
+                if item.equipReason then
+                    reason = string.format("%s (+%d ilvl)", item.equipReason, newIlvl)
+                else
+                    reason = string.format("+%d ilvl", newIlvl)
+                end
                 sfprint(string.format("-> Empty to %s (%d) (%s)",
                     newLink, newIlvl, reason))
             end
