@@ -325,7 +325,6 @@ end
 -- ─── Throttled Update Loop (5-Second Timer Countdown Ticks) ─────────────────
 function sfui.worldevents.OnTimerTick(elapsed)
     if not sfui.worldevents.is_enabled() or #cachedEvents == 0 then return end
-    if InCombatLockdown and InCombatLockdown() then return end
 
     local now = time()
     local needsRebuild = false

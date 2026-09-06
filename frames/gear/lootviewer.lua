@@ -191,10 +191,13 @@ end
 local itemClassCache = {}
 local scanTip = nil
 
+local scanDummyParent = nil
 local function GetScanTooltip()
     if not scanTip then
-        scanTip = CreateFrame("GameTooltip", "SfuiLootClassScanTooltip", nil, "GameTooltipTemplate")
-        scanTip:SetOwner(WorldFrame, "ANCHOR_NONE")
+        scanDummyParent = CreateFrame("Frame", "SfuiLootClassScanParent", UIParent)
+        scanDummyParent:Hide()
+        scanTip = CreateFrame("GameTooltip", "SfuiLootClassScanTooltip", scanDummyParent, "GameTooltipTemplate")
+        scanTip:SetOwner(scanDummyParent, "ANCHOR_NONE")
     end
     return scanTip
 end

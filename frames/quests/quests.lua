@@ -76,6 +76,7 @@ local math_min, math_max, math_floor = _G.math.min, _G.math.max, _G.math.floor
 local tostring, tonumber = _G.tostring, _G.tonumber
 local wipe = _G.wipe or function(t) for k in pairs(t) do t[k] = nil end return t end
 local issecretvalue = _G.issecretvalue or function() return false end
+local securecall = _G.securecall
 local QuestMapFrame_OpenToQuestDetails = _G.QuestMapFrame_OpenToQuestDetails
 local GetTasksTable = _G.GetTasksTable
 local GetQuestProgressBarPercent = _G.GetQuestProgressBarPercent
@@ -1186,13 +1187,25 @@ local function AcquireRow()
                 if C_SuperTrack and C_SuperTrack.SetSuperTrackedMapPin and Enum.SuperTrackingMapPinType and Enum.SuperTrackingMapPinType.AreaPOI then
                     local _, curPoiID = C_SuperTrack.GetSuperTrackedMapPin(Enum.SuperTrackingMapPinType.AreaPOI)
                     if curPoiID == s.areaPoiID then
-                        C_SuperTrack.ClearSuperTrackedMapPin(Enum.SuperTrackingMapPinType.AreaPOI)
+                        if securecall then
+                            securecall(C_SuperTrack.ClearSuperTrackedMapPin, Enum.SuperTrackingMapPinType.AreaPOI)
+                        else
+                            C_SuperTrack.ClearSuperTrackedMapPin(Enum.SuperTrackingMapPinType.AreaPOI)
+                        end
                     else
-                        C_SuperTrack.SetSuperTrackedMapPin(Enum.SuperTrackingMapPinType.AreaPOI, s.areaPoiID)
+                        if securecall then
+                            securecall(C_SuperTrack.SetSuperTrackedMapPin, Enum.SuperTrackingMapPinType.AreaPOI, s.areaPoiID)
+                        else
+                            C_SuperTrack.SetSuperTrackedMapPin(Enum.SuperTrackingMapPinType.AreaPOI, s.areaPoiID)
+                        end
                         if not InCombat() and _G.OpenMapToEventPoi then
                             C_Timer.After(0, function()
                                 if not InCombat() and _G.OpenMapToEventPoi then
-                                    _G.OpenMapToEventPoi(s.areaPoiID)
+                                    if securecall then
+                                        securecall("OpenMapToEventPoi", s.areaPoiID)
+                                    else
+                                        _G.OpenMapToEventPoi(s.areaPoiID)
+                                    end
                                 end
                             end)
                         end
@@ -1369,7 +1382,11 @@ local function AcquireRow()
                     if not InCombat() then
                         C_Timer.After(0, function()
                             if not InCombat() and _G.ToggleWorldMap then
-                                _G.ToggleWorldMap()
+                                if securecall then
+                                    securecall("ToggleWorldMap")
+                                else
+                                    _G.ToggleWorldMap()
+                                end
                             end
                         end)
                     end
@@ -1484,7 +1501,11 @@ local function AcquireRow()
 
             -- 2. Standard Quest: Open in Map & Quest Log details + SuperTrack
             if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then
-                C_SuperTrack.SetSuperTrackedQuestID(s.questID)
+                if securecall then
+                    securecall(C_SuperTrack.SetSuperTrackedQuestID, s.questID)
+                else
+                    C_SuperTrack.SetSuperTrackedQuestID(s.questID)
+                end
             end
 
             if InCombatLockdown and InCombatLockdown() then return end
@@ -1495,7 +1516,11 @@ local function AcquireRow()
                     if zoneMapID and zoneMapID ~= 0 then
                         C_Timer.After(0, function()
                             if not InCombatLockdown or not InCombatLockdown() then
-                                C_Map.OpenWorldMap(zoneMapID)
+                                if _G.OpenWorldMap and securecall then
+                                    securecall("OpenWorldMap", zoneMapID)
+                                elseif C_Map and C_Map.OpenWorldMap then
+                                    C_Map.OpenWorldMap(zoneMapID)
+                                end
                             end
                         end)
                         return
@@ -1510,13 +1535,25 @@ local function AcquireRow()
                     C_QuestLog.SetSelectedQuest(targetQuestID)
                 end
                 if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID and targetQuestID then
-                    C_SuperTrack.SetSuperTrackedQuestID(targetQuestID)
+                    if securecall then
+                        securecall(C_SuperTrack.SetSuperTrackedQuestID, targetQuestID)
+                    else
+                        C_SuperTrack.SetSuperTrackedQuestID(targetQuestID)
+                    end
                 end
 
                 if QuestMapFrame_OpenToQuestDetails and targetQuestID then
-                    QuestMapFrame_OpenToQuestDetails(targetQuestID)
+                    if securecall then
+                        securecall("QuestMapFrame_OpenToQuestDetails", targetQuestID)
+                    else
+                        QuestMapFrame_OpenToQuestDetails(targetQuestID)
+                    end
                 elseif _G.OpenWorldMap then
-                    _G.OpenWorldMap()
+                    if securecall then
+                        securecall("OpenWorldMap")
+                    else
+                        _G.OpenWorldMap()
+                    end
                 end
             end)
             Refresh:Request()

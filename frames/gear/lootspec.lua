@@ -111,7 +111,7 @@ local function RestoreDefault(reason)
     ApplyLootSpec(defSpec, reason)
 end
 
-local function GetBossEntry(encounterID, db)
+local function GetBossEntry(encounterID, db, encounterName)
     -- 1. Direct encounterID match
     local entry = db.bosses[encounterID]
     if entry then return entry end
@@ -126,8 +126,8 @@ local function GetBossEntry(encounterID, db)
     if EJ_GetEncounterInfo then
         for keyID, bEntry in pairs(db.bosses) do
             if type(keyID) == "number" then
-                local _, _, _, _, _, _, _, dID = EJ_GetEncounterInfo(keyID)
-                if dID and dID == encounterID then
+                local bName, _, _, _, _, _, dID = EJ_GetEncounterInfo(keyID)
+                if (dID and dID == encounterID) or (encounterName and bName and encounterName == bName) then
                     _dungeonToJournalEncounter[encounterID] = keyID
                     return bEntry
                 end
@@ -225,7 +225,7 @@ sfui.events.RegisterEvent("ENCOUNTER_START", function(_, encounterID, encounterN
     end
 
     if specID == 0 then
-        local entry = GetBossEntry(encounterID, db)
+        local entry = GetBossEntry(encounterID, db, encounterName)
         specID = (type(entry) == "table" and entry.spec) or (type(entry) == "number" and entry) or 0
     end
 
@@ -244,7 +244,7 @@ end)
 sfui.events.RegisterEvent("ENCOUNTER_END", function(_, encounterID, encounterName, _, _, success)
     if success == 0 then return end -- wipe, don't warn
     local db = DB()
-    local entry = GetBossEntry(encounterID, db)
+    local entry = GetBossEntry(encounterID, db, encounterName)
 
     if type(entry) == "table" and entry.warn then
         local bossName = encounterName
