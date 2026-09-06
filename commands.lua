@@ -21,6 +21,7 @@ _G["BINDING_NAME_CLICK SfuiHammerPopup:LeftButton"] = "master's hammer repair"
 _G["BINDING_NAME_SFUI_MATCHMOUNT"] = "match target mount"
 _G["BINDING_NAME_SFUI_PORTALS"] = "portals"
 _G["BINDING_NAME_SFUI_ALTS"] = "alts / warband"
+_G["BINDING_NAME_SFUI_LOOTVIEWER"] = "loot browser"
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 2. KEYBIND RESOLUTION & FORMATTING HELPERS
@@ -174,12 +175,12 @@ SlashCmdList["SFUI"] = function(msg)
                 sfui.common.print("sfui: highest ilvl viewer not available.")
             end
         end
-    elseif cmd == "lootspec" or cmd == "spec" then
-        if sfui.lootspec and sfui.lootspec.toggle then
-            sfui.lootspec.toggle()
+    elseif cmd == "lootspec" or cmd == "spec" or cmd == "loot" or cmd == "lootviewer" or cmd == "lv" then
+        if sfui.lootviewer and sfui.lootviewer.Toggle then
+            sfui.lootviewer.Toggle()
         else
             if sfui.common and sfui.common.print then
-                sfui.common.print("sfui: loot spec manager not available.")
+                sfui.common.print("sfui: loot browser not available.")
             end
         end
     elseif cmd == "research" then
@@ -206,7 +207,7 @@ SlashCmdList["SFUI"] = function(msg)
         C_UI.Reload()
     elseif cmd == "help" or cmd == "?" then
         if sfui.common and sfui.common.print then
-            sfui.common.print("Commands: /sfui [options | alts | ql | portals | cv | gear | highest | lootspec | research | mythic | mem | rl]")
+            sfui.common.print("Commands: /sfui [options | alts | ql | portals | cv | gear | highest | lootspec | loot | research | mythic | mem | rl]")
         end
     else
         if sfui.common and sfui.common.print then

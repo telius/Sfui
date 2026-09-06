@@ -116,6 +116,14 @@ sfui.config = {
         [73] = { 1.00, 0.00, 0.00, 1 },      -- Protection
     },
 
+    -- Secondary stat palette for loot & gear highlighting
+    stat_colors = {
+        haste       = { 0.2,  0.85, 0.3,  1.0 },
+        crit        = { 1.0,  0.45, 0.1,  1.0 },
+        mastery     = { 0.75, 0.4,  1.0,  1.0 },
+        versatility = { 0.2,  0.65, 1.0,  1.0 },
+    },
+
     -- Default panel settings for tracked icons
     cooldown_panel_defaults = {
         left = {

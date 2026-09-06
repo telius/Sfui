@@ -41,6 +41,7 @@ sfui = sfui or {}
 --     • frames/gear/compare.lua        - Equipment auto-comparison CVar tracking.
 --     • frames/gear/highest.lua        - Highest item level suggestions & weapon proficiencies.
 --     • frames/gear/lootspec.lua       - Dynamic loot spec management.
+--     • frames/gear/lootviewer.lua     - Encounter journal & mythic+ loot browser, spec/stat filters.
 --   Utilities & Automation:
 --     • frames/alts.lua                - Warband alt sync, profession KP, trade skill updates.
 --     • frames/automation.lua          - Master's Hammer repair popup, role checks, LFG auto-confirm.

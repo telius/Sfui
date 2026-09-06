@@ -9,4 +9,7 @@
     <Binding name="SFUI_ALTS" category="SFUI">
         if sfui and sfui.alts and sfui.alts.Toggle then sfui.alts.Toggle() end
     </Binding>
+    <Binding name="SFUI_LOOTVIEWER" category="SFUI">
+        if sfui and sfui.lootviewer and sfui.lootviewer.Toggle then sfui.lootviewer.Toggle() end
+    </Binding>
 </Bindings>

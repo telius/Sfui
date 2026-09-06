@@ -86,6 +86,7 @@ local OnIconDragStart
 local OnIconDragStop
 local OnZoneReceiveDrag
 local HandleExternalDrop
+local cursor
 
 local function OnZoneIconDragStart(self)
     if OnIconDragStart then

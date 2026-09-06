@@ -10,8 +10,9 @@ sfui.merchant = {}
 
 local GameTooltip = sfui.tooltip or _G.GameTooltip
 local function GameTooltip_Hide()
-    if sfui.tooltip then sfui.tooltip:Hide() end
-    if _G.GameTooltip then _G.GameTooltip:Hide() end
+    if sfui.tooltip and sfui.tooltip:IsShown() then
+        sfui.tooltip:Hide()
+    end
 end
 
 local colors = sfui.config.colors

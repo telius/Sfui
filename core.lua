@@ -188,7 +188,7 @@ sfui.events.RegisterEvent("PLAYER_LOGIN", function(event)
         -- Initialize Minimap Menu
         if not SfuiMinimapMenu then
             SfuiMinimapMenu = CreateFrame("Frame", "SfuiMinimapMenu", UIParent, "BackdropTemplate")
-            SfuiMinimapMenu:SetSize(160, 180)
+            SfuiMinimapMenu:SetSize(160, 185)
             SfuiMinimapMenu:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
             SfuiMinimapMenu:SetBackdropColor(0, 0, 0, 0.5)
             SfuiMinimapMenu:SetFrameStrata("TOOLTIP")
@@ -224,9 +224,9 @@ sfui.events.RegisterEvent("PLAYER_LOGIN", function(event)
                     sfui.portals.Toggle()
                 end
             end, -105)
-            AddMenuButton("|cff00cc66loot spec|r", function()
-                if sfui.lootspec and sfui.lootspec.Toggle then
-                    sfui.lootspec.Toggle()
+            AddMenuButton("|cff22aaffloot browser|r", function()
+                if sfui.lootviewer and sfui.lootviewer.Toggle then
+                    sfui.lootviewer.Toggle()
                 end
             end, -130)
             AddMenuButton("|cffee8833quest log|r", function()

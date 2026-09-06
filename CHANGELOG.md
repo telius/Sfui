@@ -2,6 +2,35 @@
 
 > **Note**: This changelog documents **releases, architectural milestones, features**.
 
+## v12.1.0-31 (2026-09-06)
+
+### Loot & Spec Browser (`frames/gear/lootviewer.lua`)
+- **Dedicated Encounter Journal Loot Browser**:
+  - Implemented standalone Mythic+ and Raid encounter loot browser with dynamic Encounter Journal caching and live spec selection.
+  - Added slot filtering (Trinket, Weapon, Ring, Neck, Armor slots), search filtering, and per-spec/all-spec filtering.
+  - Integrated secondary stat highlighting for Haste, Crit, Mastery, and Versatility with 4-side color-coded icon borders and autocast glow cues.
+  - Added class-restricted tier token filtering using `C_TooltipInfo` / tooltip scanner to prevent displaying tokens for other classes.
+  - Added inline default spec cycling and auto-swap toggles directly within the browser header.
+  - Keybinding registration (`SFUI_LOOTVIEWER` "loot browser") and `/sfui [lootspec|loot|spec|lv]` command routes.
+
+### Loot Spec Architecture & Automation (`frames/gear/lootspec.lua`)
+- **Separation of Concerns**:
+  - Stripped deprecated legacy GUI code (~800 lines) from `lootspec.lua`, focusing the module strictly on high-performance, event-driven boss and delve automation.
+  - Fully delegated all UI, rebuild, and toggle interactions to `lootviewer.lua`.
+
+### Subsystem & Telemetry Integration
+- **Central Dispatcher & Config Alignment**:
+  - Documented `lootviewer.lua` in `dispatcher.lua` event routing destinations.
+  - Added official `sfui.config.stat_colors` token for secondary stat styling.
+  - Integrated standard `sfui.pixelScale` and `sfui.config.colors.gray` backdrop borders across all cards, tabs, buttons, and inputs.
+- **Diagnostics & Memory Profiling (`frames/mem.lua`)**:
+  - Implemented zero-allocation `sfui.lootviewer_debug_info()` telemetry provider.
+  - Unified `/sfui mem` card to `loot spec & browser`, displaying live automation state (`auto-swap`, `defaultSpec`) and pool metrics (card count, icon count, cache states).
+- **Tooltip Scale Normalization (`common.lua`)**:
+  - Normalized `sfuiTooltip` to native Blizzard scaling (1.0), eliminating unintended tooltip magnification.
+
+---
+
 ## v12.1.0-30 (2026-09-05)
 
 ### Gear & Auto-Equip Engine

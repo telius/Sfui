@@ -42,6 +42,7 @@ local SLOT_ORDER = { 16, 17, 1, 3, 5, 9, 10, 8, 7, 6 }
 local rotationIndex = 1
 
 local update_hammer_popup -- Forward declaration
+local hammerPopup
 
 local function setup_lfg_dialog()
     if LFGListApplicationDialog then

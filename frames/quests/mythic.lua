@@ -1690,7 +1690,7 @@ end
 -- ─── Core Update: merged boss + forces in one GetStepInfo call ───
 local function UpdateInstanceState()
     if not (C_Scenario and C_ScenarioInfo) then return end
-    local stepName, stepDesc, numCriteria, stepID, stepWidgetSetID, isWorldEvent
+    local stepName, stepDesc, numCriteria, stepID, stepWidgetSetID, isWorldEvent, _
     if C_Scenario.GetStepInfo then
         stepName, stepDesc, numCriteria, _, _, _, _, _, _, _, stepID, stepWidgetSetID, _, isWorldEvent = C_Scenario.GetStepInfo()
     end

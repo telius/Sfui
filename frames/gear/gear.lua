@@ -63,9 +63,8 @@ local function show_item_tooltip(owner, itemID, anchor, extraLines)
 end
 
 local function hide_tooltip()
-    if sfui.tooltip then sfui.tooltip:Hide() end
-    if _G.GameTooltip and _G.GameTooltip:IsShown() then
-        _G.GameTooltip:Hide()
+    if sfui.tooltip and sfui.tooltip:IsShown() then
+        sfui.tooltip:Hide()
     end
 end
 

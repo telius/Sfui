@@ -1190,7 +1190,11 @@ local function AcquireRow()
                     else
                         C_SuperTrack.SetSuperTrackedMapPin(Enum.SuperTrackingMapPinType.AreaPOI, s.areaPoiID)
                         if not InCombat() and _G.OpenMapToEventPoi then
-                            _G.OpenMapToEventPoi(s.areaPoiID)
+                            C_Timer.After(0, function()
+                                if not InCombat() and _G.OpenMapToEventPoi then
+                                    _G.OpenMapToEventPoi(s.areaPoiID)
+                                end
+                            end)
                         end
                     end
                     Refresh:Request()
@@ -1587,7 +1591,7 @@ end
 -- ─── Panel Anchor ────────────────────────────────────────
 -- Respects saved drag position so the frame isn't silently reset after
 -- combat ends or CheckVisibilityAndRefresh() calls this function.
-UpdateQuestLogAnchor = function()
+local function UpdateQuestLogAnchor()
     if not QL then return 758 end
     if InCombat() or State:IsActive() then return QL.lastTop or 758 end
 

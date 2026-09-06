@@ -344,12 +344,12 @@ function sfui.highest.ClearCache()
 end
 
 -- Returns true, itemLevel, statVal, itemEquipLoc if the item is valid for the spec rules
-local function IsItemValidForSpec_Internal(itemLink, specID)
+local function IsItemValidForSpec_Internal(itemLink, specID, ignorePlayerLevel, ignoreTalents)
     local rule = sfui.highest.rules[specID]
     if not rule then return false end
 
-    -- Dynamic Frost DK Talent Overrides
-    if specID == 251 then
+    -- Dynamic Frost DK Talent Overrides (ignored for general loot eligibility)
+    if not ignoreTalents and specID == 251 then
         local frostbane = IsPlayerSpell(455993)
         rule = { armor = rule.armor, stat = rule.stat, weaps = { ["1H_Dual"] = frostbane, ["2H"] = not frostbane }, allowedWeapons = rule.allowedWeapons }
     end
@@ -368,7 +368,7 @@ local function IsItemValidForSpec_Internal(itemLink, specID)
     if itemQuality and itemQuality < 2 then return false end
 
     -- Check if the player meets the required level for the item
-    if itemMinLevel and itemMinLevel > UnitLevel("player") then return false end
+    if not ignorePlayerLevel and itemMinLevel and itemMinLevel > UnitLevel("player") then return false end
 
     -- Use robust numeric ID checks instead of localized strings. classID 4 = Armor
     if classID == 4 then
@@ -413,13 +413,13 @@ local function IsItemValidForSpec_Internal(itemLink, specID)
     return true, itemLevel, statVal, itemEquipLoc
 end
 
-function sfui.highest.IsItemValidForSpec(itemLink, specID)
-    local cacheKey = itemLink .. ":" .. tostring(specID)
+function sfui.highest.IsItemValidForSpec(itemLink, specID, ignorePlayerLevel, ignoreTalents)
+    local cacheKey = itemLink .. ":" .. tostring(specID) .. (ignorePlayerLevel and ":ign" or "") .. (ignoreTalents and ":igntal" or "")
     if validationCache[cacheKey] ~= nil then
         local c = validationCache[cacheKey]
         return c[1], c[2], c[3], c[4]
     end
-    local isValid, itemLevel, statVal, itemEquipLoc = IsItemValidForSpec_Internal(itemLink, specID)
+    local isValid, itemLevel, statVal, itemEquipLoc = IsItemValidForSpec_Internal(itemLink, specID, ignorePlayerLevel, ignoreTalents)
     if validationCacheCount >= VALIDATION_CACHE_MAX then
         _G.wipe(validationCache)
         validationCacheCount = 0

@@ -2233,6 +2233,30 @@ function sfui.common.create_dropdown(parent, width, options, onSelectFunc, initi
     menu:SetFrameLevel(100)
     menu:Hide()
 
+    btn.menu = menu
+    btn:HookScript("OnHide", function()
+        if menu:IsShown() then
+            menu:Hide()
+            activeDropdown = nil
+        end
+    end)
+
+    btn.SetSelectedValue = function(self, val)
+        local currentOptions = (type(options) == "function") and options() or options
+        for _, opt in ipairs(currentOptions) do
+            if opt.value == val then
+                if not fixedText then
+                    if self.GetFontString and self:GetFontString() then
+                        self:GetFontString():SetText(opt.text)
+                    else
+                        self:SetText(opt.text)
+                    end
+                end
+                break
+            end
+        end
+    end
+
     local function updateMenuSize()
         local currentOptions = (type(options) == "function") and options() or options
         local maxW = menuWidth or width or 80

@@ -362,18 +362,23 @@ function sfui.mem.GetModuleStats()
     end
     stats["currency"] = currMod
 
-    -- Loot Spec Manager Module
+    -- Loot Spec & Browser Module
     local lootMod = {
-        name = "loot spec manager",
+        name = "loot spec & browser",
         status = "|cff888888idle|r",
-        line1 = "frame: none • enabled: no",
-        line2 = "ej encounter cache: none",
+        line1 = "auto-swap: off • default: current",
+        line2 = "browser: none • cards: 0 • icons: 0",
     }
     if sfui.lootspec_debug_info then
         local l = sfui.lootspec_debug_info()
         lootMod.status = l.enabled and "|cff00ff88enabled|r" or "|cff888888disabled|r"
-        lootMod.line1 = string_format("frame: %s (shown: %s) • enabled: %s", l.frameCreated and "ready" or "none", l.frameShown and "yes" or "no", l.enabled and "yes" or "no")
-        lootMod.line2 = string_format("encounter journal cache: %s", l.hasRaidCache and "cached" or "none")
+        local defName = "current"
+        if l.defaultSpec and l.defaultSpec ~= 0 and GetSpecializationInfoByID then
+            local _, n = GetSpecializationInfoByID(l.defaultSpec)
+            if n then defName = n end
+        end
+        lootMod.line1 = string_format("auto-swap: %s • default: %s", l.enabled and "|cff00ff88on|r" or "|cff888888off|r", defName)
+        lootMod.line2 = string_format("browser: %s • cards: %d • icons: %d", l.frameShown and "|cff00ff88open|r" or (l.frameCreated and "ready" or "none"), l.cardPoolCount or 0, l.iconPoolCount or 0)
     end
     stats["lootspec"] = lootMod
 
